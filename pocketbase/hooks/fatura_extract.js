@@ -178,21 +178,40 @@ Campos gerais obrigatórios:
 - fatura_total: número decimal idêntico a valor_total
 - consumo: número decimal do consumo principal apurado/faturado (m³ para água/gás, kWh para energia)
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número do documento / nota fiscal (ex Sabesp: "SOR202458365156" em No. Documento ou código do fornecimento "58088806001"; ex Comgás: "150.238.010")
-- vencimento: data YYYY-MM-DD (ex: "2024-06-21")
-- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade (ex: "04.151.776/0001-63", se houver na identificação do cliente/endereço)
-- cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Sabesp: "43.776.517/0001-80", Enel: "61.695.227/0001-93", Comgás: "61.856.571/0006-21")
+- numero_fatura: número do documento / nota fiscal (ex Sabesp: "SOR202458365156" em No. Documento ou código do fornecimento "58088806001"; ex Comgás: "150.238.010"; ex Enel: "Nº da Nota Fiscal / Fatura" ou "Nº do Cliente" ou número do documento)
+- vencimento: data YYYY-MM-DD (ex: "2024-06-21" ou "2026-09-15")
+- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade consumidora (ex: "04.151.776/0001-63" no cabeçalho ou quadro de identificação do destinatário/unidade consumidora). ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente! O cliente é a empresa destinatária atendida.
+- cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80", Comgás: "61.856.571/0006-21").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor/hidrômetro (ex Sabesp: "Leitura Anterior" = 5564; Comgás: 431304)
-- medicao_atual: leitura atual do medidor/hidrômetro (ex Sabesp: "Leitura Atual" = 5721; Comgás: 432014)
-- consumo_medido: consumo medido em m³ ou kWh (ex Sabesp: "Consumo (M3)" = 157; Comgás: 710)
+- medicao_anterior: leitura anterior do medidor/hidrômetro (ex Sabesp: "Leitura Anterior" = 5564; Comgás: 431304; Enel: leitura anterior do medidor ativo)
+- medicao_atual: leitura atual do medidor/hidrômetro (ex Sabesp: "Leitura Atual" = 5721; Comgás: 432014; Enel: leitura atual do medidor ativo)
+- consumo_medido: consumo medido em m³ ou kWh (ex Sabesp: "Consumo (M3)" = 157; Comgás: 710; Enel: consumo medido em kWh)
 - consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (ex: 682.168)
-- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido (ex: 2143.97 / 157 = 13.6558).
+- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
 
-Para Energia Elétrica:
-- classificacao_consumo: ex "B3 - Comercial"
-- consumo_ponta, consumo_fora_ponta, tarifa_tusd_ponta, tarifa_te_ponta, tarifa_tusd_f_ponta, tarifa_te_f_ponta, adicional_bandeira
+Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
+- LAYOUT TÍPICO ENEL (Geralmente 2 páginas):
+  * PÁGINA 1:
+    - Cabeçalho / Destinatário: Contém Nome do Cliente e CNPJ do Cliente (ex: 04.151.776/0001-63) e CNPJ da Enel Distribuição SP ("61.695.227/0001-93"). Mantenha os dois SEPARADOS!
+    - Quadro "TOTAL A PAGAR (R$)" ou "VALOR A PAGAR" ou "VALOR TOTAL": Valor monetário final da fatura (ex: 4084.08, 4363.05, 4162.00). Extraia para 'valor_total' e 'fatura_total'.
+    - Quadro "MÊS DE REFERÊNCIA" / "VENCIMENTO": Mês de referência (ex: 08/2026, 09/2026) -> 'competencia' e 'competencia_formatada'; Data de vencimento -> 'vencimento'.
+    - Quadro "DADOS DA UNIDADE CONSUMIDORA" / "CLASSIFICAÇÃO": Classificação do subgrupo tarifário (ex: "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", ou "B3 - Comercial", "A4 - Verde", etc.) -> 'classificacao_consumo'.
+    - Quadro "INFORMAÇÕES DE MEDIÇÃO" ou "DADOS DE MEDIÇÃO":
+      Tabela com colunas: Medidor | Grandezas / Posto Tarifário | Leitura Anterior | Leitura Atual | Constante | Consumo Medido (kWh).
+      Extraia 'medicao_anterior', 'medicao_atual' e 'consumo_medido' do consumo ativo.
+  * PÁGINA 2 (ou continuação de itens faturados):
+    - Tabela "DISCRIMINAÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
+      * Consumo Ponta (kWh): Linhas de Energia Ativa Ponta (kWh) -> 'consumo_ponta'.
+      * Tarifa TUSD Ponta: Tarifa unitária da TUSD no posto Ponta (R$/kWh) -> 'tarifa_tusd_ponta'.
+      * Tarifa TE Ponta: Tarifa unitária de Energia (TE) no posto Ponta (R$/kWh) -> 'tarifa_te_ponta'.
+      * Consumo Fora-Ponta (kWh): Linhas de Energia Ativa Fora Ponta (kWh) -> 'consumo_fora_ponta'.
+      * Tarifa TUSD Fora-Ponta: Tarifa unitária da TUSD Fora Ponta (R$/kWh) -> 'tarifa_tusd_f_ponta'.
+      * Tarifa TE Fora-Ponta: Tarifa unitária de Energia (TE) Fora Ponta (R$/kWh) -> 'tarifa_te_f_ponta'.
+      * Se o faturamento for convencional monômio (sem divisão de ponta/fora-ponta), o consumo total faturado é 'consumo' e 'consumo_medido'.
+    - Quadro "BANDEIRAS TARIFÁRIAS" / "ADICIONAL BANDEIRA":
+      Identifique se há bandeira aplicada: "Bandeira Verde", "Bandeira Amarela", "Bandeira Vermelha Patamar 1", "Bandeira Vermelha Patamar 2", "Bandeira de Escassez Hídrica" -> 'adicional_bandeira'.
+    - Número da Nota Fiscal / Série / Documento -> 'numero_fatura'.
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
@@ -274,22 +293,99 @@ Retorne APENAS um objeto JSON com essa estrutura:`
               validImages[0].length,
             )
 
+            function checkHasRealValues(textResp) {
+              if (!textResp || typeof textResp !== 'string') return false
+              let t = textResp.trim()
+              if (t.startsWith('```json')) t = t.substring(7)
+              else if (t.startsWith('```')) t = t.substring(3)
+              if (t.endsWith('```')) t = t.substring(0, t.length - 3)
+              t = t.trim()
+
+              let obj = null
+              try {
+                obj = JSON.parse(t)
+              } catch (_) {
+                const m = t.match(/\{[\s\S]*\}/)
+                if (m) {
+                  try {
+                    obj = JSON.parse(m[0])
+                  } catch (_) {}
+                }
+              }
+              if (!obj || typeof obj !== 'object') return false
+              const merged = Object.assign({}, obj.dados, obj.fatura, obj.data, obj)
+
+              function hasPositive(v) {
+                if (v === undefined || v === null || v === '') return false
+                if (typeof v === 'number') return v > 0
+                const num = Number(
+                  String(v)
+                    .replace(/^R\$\s*/i, '')
+                    .replace(/\./g, '')
+                    .replace(',', '.')
+                    .replace(/[^0-9.]/g, ''),
+                )
+                return !isNaN(num) && num > 0
+              }
+
+              return (
+                hasPositive(merged.valor_total) ||
+                hasPositive(merged.valorTotal) ||
+                hasPositive(merged.fatura_total) ||
+                hasPositive(merged.faturaTotal) ||
+                hasPositive(merged.consumo) ||
+                hasPositive(merged.consumo_medido) ||
+                hasPositive(merged.consumoMedido) ||
+                hasPositive(merged.consumo_ponta) ||
+                hasPositive(merged.consumo_fora_ponta) ||
+                hasPositive(merged.medicao_anterior) ||
+                hasPositive(merged.medicao_atual)
+              )
+            }
+
+            // Ordem multimodal: tentar reasoning primeiro; se falhar ou devolver nulos, tentar fast.
+            // Para água e gás onde fast pode ser mais conciso, tentar alternar caso o primeiro não traga valores.
             let aiVisionResponse = null
+            let primaryModel = 'reasoning'
+            let fallbackModel = 'fast'
+
             try {
-              aiVisionResponse = callAiChat('reasoning', visionMessages)
-              console.log('[fatura_extract] Modelo reasoning respondeu na visão.')
+              aiVisionResponse = callAiChat(primaryModel, visionMessages)
+              console.log(`[fatura_extract] Modelo ${primaryModel} respondeu na visão.`)
+              const primaryContent = aiVisionResponse?.choices?.[0]?.message?.content || ''
+              if (!checkHasRealValues(primaryContent)) {
+                console.log(
+                  `[fatura_extract] Modelo ${primaryModel} retornou valores nulos na visão. Tentando modelo alternativo ${fallbackModel}...`,
+                )
+                try {
+                  const fallbackResp = callAiChat(fallbackModel, visionMessages)
+                  console.log(`[fatura_extract] Modelo ${fallbackModel} respondeu na visão.`)
+                  const fallbackContent = fallbackResp?.choices?.[0]?.message?.content || ''
+                  if (checkHasRealValues(fallbackContent)) {
+                    console.log(
+                      `[fatura_extract] Modelo ${fallbackModel} obteve dados melhores na visão!`,
+                    )
+                    aiVisionResponse = fallbackResp
+                  }
+                } catch (fbErr) {
+                  console.log(
+                    `[fatura_extract] Modelo ${fallbackModel} falhou no fallback:`,
+                    fbErr.message || fbErr,
+                  )
+                }
+              }
             } catch (reasoningErr) {
               console.log(
-                '[fatura_extract] Modelo reasoning falhou na visão:',
+                `[fatura_extract] Modelo ${primaryModel} falhou na visão:`,
                 reasoningErr.message || reasoningErr,
-                'Tentando modelo fast...',
+                `Tentando modelo ${fallbackModel}...`,
               )
               try {
-                aiVisionResponse = callAiChat('fast', visionMessages)
-                console.log('[fatura_extract] Modelo fast respondeu na visão.')
+                aiVisionResponse = callAiChat(fallbackModel, visionMessages)
+                console.log(`[fatura_extract] Modelo ${fallbackModel} respondeu na visão.`)
               } catch (fastErr) {
                 console.log(
-                  '[fatura_extract] Modelo fast também falhou na visão:',
+                  `[fatura_extract] Modelo ${fallbackModel} também falhou na visão:`,
                   fastErr.message || fastErr,
                 )
                 throw fastErr
@@ -718,6 +814,9 @@ Retorne APENAS um objeto JSON com essa estrutura:`
         if (parsed.valor_total && Number(parsed.valor_total) > 0) {
           hasConsumptionOrValue = true
         }
+        if (parsed.fatura_total && Number(parsed.fatura_total) > 0) {
+          hasConsumptionOrValue = true
+        }
         if (parsed.consumo && Number(parsed.consumo) > 0) {
           hasConsumptionOrValue = true
         }
@@ -725,6 +824,12 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           hasConsumptionOrValue = true
         }
         if (parsed.consumo_corrigido && Number(parsed.consumo_corrigido) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.consumo_ponta && Number(parsed.consumo_ponta) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.consumo_fora_ponta && Number(parsed.consumo_fora_ponta) > 0) {
           hasConsumptionOrValue = true
         }
         if (parsed.medicao_anterior && Number(parsed.medicao_anterior) > 0) {

@@ -68,10 +68,10 @@ export const faturasService = {
         const { convertPdfToImages } = await import('@/lib/pdfToImages')
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
-          scale: 2.0,
-          quality: 0.85,
-          maxWidth: 1600,
-          maxHeight: 2200,
+          scale: 2.2,
+          quality: 0.88,
+          maxWidth: 1800,
+          maxHeight: 2400,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
