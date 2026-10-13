@@ -505,9 +505,9 @@ export default function Faturas() {
           }
         }
 
-        // Validação refinada: só exibir toast de sucesso se houver ao menos um campo essencial com valor real (não-zero, não-sentinela)
-        const hasRealExtractedField =
-          validCompetencia ||
+        // Validação estrita: toast de sucesso REQUER ao menos um dado real de consumo, medição ou valor financeiro
+        // (CNPJ, número de fatura ou competência isolados NÃO bastam para declarar sucesso)
+        const hasConsumptionOrFinancialData =
           (vTotal !== undefined && vTotal > 0) ||
           (cConsumo !== undefined && cConsumo > 0) ||
           (cMedido !== undefined && cMedido > 0) ||
@@ -515,19 +515,19 @@ export default function Faturas() {
           (medAnt !== undefined && medAnt > 0) ||
           (medAtu !== undefined && medAtu > 0) ||
           (tar !== undefined && tar > 0) ||
-          (venc !== undefined && !venc.includes('1900')) ||
-          (numFat !== undefined && numFat.length > 0)
+          (cPonta !== undefined && cPonta > 0) ||
+          (cForaPonta !== undefined && cForaPonta > 0)
 
-        if (hasRealExtractedField) {
+        if (hasConsumptionOrFinancialData) {
           toast({
             title: 'Extração inteligente concluída',
             description: 'Revise os dados extraídos antes de confirmar.',
           })
         } else {
           toast({
-            title: 'Campos não detectados',
+            title: 'Dados essenciais não detectados',
             description:
-              'A IA não conseguiu identificar os dados com precisão neste comprovante. Por favor, preencha as medições e valores manualmente no formulário.',
+              'A IA não conseguiu identificar os valores financeiros ou de consumo neste comprovante. Por favor, preencha as medições e valores manualmente no formulário.',
             variant: 'destructive',
           })
         }
@@ -1430,8 +1430,12 @@ export default function Faturas() {
                           Competência (MM/AAAA) *
                         </Label>
                         <Input
-                          placeholder="03/2024"
-                          className="h-9 text-xs"
+                          placeholder="Ex: 08/2026"
+                          className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            competenciaInput
+                              ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={competenciaInput}
                           onChange={(e) => setCompetenciaInput(e.target.value)}
                         />
@@ -1444,8 +1448,12 @@ export default function Faturas() {
                         <Input
                           type="number"
                           step="0.01"
-                          placeholder="1234.56"
-                          className="h-9 text-xs font-bold"
+                          placeholder="Ex: 4363.05"
+                          className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            valorTotal !== ''
+                              ? 'text-gray-900 font-bold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={valorTotal}
                           onChange={(e) => setValorTotal(e.target.value)}
                         />
@@ -1458,8 +1466,12 @@ export default function Faturas() {
                         <Input
                           type="number"
                           step="0.01"
-                          placeholder="Consumo apurado"
-                          className="h-9 text-xs"
+                          placeholder="Ex: 682.168"
+                          className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            consumo !== ''
+                              ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={consumo}
                           onChange={(e) => setConsumo(e.target.value)}
                         />
@@ -1470,8 +1482,12 @@ export default function Faturas() {
                           Número da Fatura / Nota
                         </Label>
                         <Input
-                          placeholder="NF-123456"
-                          className="h-9 text-xs"
+                          placeholder="Ex: 150.238.010"
+                          className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            numeroFatura
+                              ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={numeroFatura}
                           onChange={(e) => setNumeroFatura(e.target.value)}
                         />
@@ -1482,8 +1498,12 @@ export default function Faturas() {
                           CNPJ do Cliente (Titular da Unidade)
                         </Label>
                         <Input
-                          placeholder="00.000.000/0000-00"
-                          className="h-9 text-xs font-mono"
+                          placeholder="Ex: 04.151.776/0001-63"
+                          className={`h-9 text-xs font-mono placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            cnpjCliente
+                              ? 'text-gray-900 font-bold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={cnpjCliente}
                           onChange={(e) => setCnpjCliente(e.target.value)}
                         />
@@ -1497,8 +1517,12 @@ export default function Faturas() {
                           CNPJ do Fornecedor (Distribuidora)
                         </Label>
                         <Input
-                          placeholder="00.000.000/0000-00"
-                          className="h-9 text-xs font-mono"
+                          placeholder="Ex: 61.856.571/0006-21"
+                          className={`h-9 text-xs font-mono placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                            cnpjFornecedor
+                              ? 'text-gray-900 font-bold bg-white border-teal-500/50'
+                              : 'bg-gray-50/50'
+                          }`}
                           value={cnpjFornecedor}
                           onChange={(e) => setCnpjFornecedor(e.target.value)}
                         />
@@ -1538,7 +1562,12 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 65891.7"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAnterior !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAnterior}
                             onChange={(e) => setMedicaoAnterior(e.target.value)}
                           />
@@ -1547,7 +1576,12 @@ export default function Faturas() {
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 66743.3"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAtual !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAtual}
                             onChange={(e) => setMedicaoAtual(e.target.value)}
                           />
@@ -1555,18 +1589,29 @@ export default function Faturas() {
                         <div>
                           <Label className="text-xs font-medium text-gray-700">Classificação</Label>
                           <Input
-                            placeholder="A4, B3..."
-                            className="h-8 text-xs"
+                            placeholder="Ex: B3 - Comercial"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              classificacaoConsumo
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={classificacaoConsumo}
                             onChange={(e) => setClassificacaoConsumo(e.target.value)}
                           />
                         </div>
 
                         <div>
-                          <Label className="text-xs font-medium text-gray-700">Consumo Ponta</Label>
+                          <Label className="text-xs font-medium text-gray-700">
+                            Consumo Ponta (kWh)
+                          </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 1200"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              consumoPonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={consumoPonta}
                             onChange={(e) => setConsumoPonta(e.target.value)}
                           />
@@ -1578,7 +1623,12 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 0.62"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifaTusdPonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifaTusdPonta}
                             onChange={(e) => setTarifaTusdPonta(e.target.value)}
                           />
@@ -1590,7 +1640,12 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 0.41"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifaTePonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifaTePonta}
                             onChange={(e) => setTarifaTePonta(e.target.value)}
                           />
@@ -1598,11 +1653,16 @@ export default function Faturas() {
 
                         <div>
                           <Label className="text-xs font-medium text-gray-700">
-                            Consumo Fora-Ponta
+                            Consumo Fora-Ponta (kWh)
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 3000"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              consumoForaPonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={consumoForaPonta}
                             onChange={(e) => setConsumoForaPonta(e.target.value)}
                           />
@@ -1614,7 +1674,12 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 0.24"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifaTusdFPonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifaTusdFPonta}
                             onChange={(e) => setTarifaTusdFPonta(e.target.value)}
                           />
@@ -1626,7 +1691,12 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 0.32"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifaTeFPonta !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifaTeFPonta}
                             onChange={(e) => setTarifaTeFPonta(e.target.value)}
                           />
@@ -1637,8 +1707,12 @@ export default function Faturas() {
                             Adicional por Bandeira
                           </Label>
                           <Input
-                            placeholder="Bandeira Verde, Amarela, Vermelha..."
-                            className="h-8 text-xs"
+                            placeholder="Ex: Bandeira Verde"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              adicionalBandeira
+                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={adicionalBandeira}
                             onChange={(e) => setAdicionalBandeira(e.target.value)}
                           />
@@ -1662,7 +1736,12 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 431.304"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAnterior !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAnterior}
                             onChange={(e) => setMedicaoAnterior(e.target.value)}
                           />
@@ -1671,30 +1750,45 @@ export default function Faturas() {
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 432.014"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAtual !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAtual}
                             onChange={(e) => setMedicaoAtual(e.target.value)}
                           />
                         </div>
                         <div>
                           <Label className="text-xs font-medium text-gray-700">
-                            Consumo Medido
+                            Consumo Medido (m³)
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 710"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              consumoMedido !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={consumoMedido}
                             onChange={(e) => setConsumoMedido(e.target.value)}
                           />
                         </div>
                         <div>
                           <Label className="text-xs font-medium text-gray-700">
-                            Consumo Corrigido
+                            Consumo Corrigido (m³)
                           </Label>
                           <Input
                             type="number"
-                            step="0.01"
-                            className="h-8 text-xs"
+                            step="0.001"
+                            placeholder="Ex: 682.168"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              consumoCorrigido !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={consumoCorrigido}
                             onChange={(e) => setConsumoCorrigido(e.target.value)}
                           />
@@ -1706,7 +1800,12 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 6.395871"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifa !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifa}
                             onChange={(e) => setTarifa(e.target.value)}
                           />
@@ -1730,7 +1829,12 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 5564"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAnterior !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAnterior}
                             onChange={(e) => setMedicaoAnterior(e.target.value)}
                           />
@@ -1739,7 +1843,12 @@ export default function Faturas() {
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 5721"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              medicaoAtual !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={medicaoAtual}
                             onChange={(e) => setMedicaoAtual(e.target.value)}
                           />
@@ -1750,17 +1859,29 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 157"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              consumoMedido !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={consumoMedido}
                             onChange={(e) => setConsumoMedido(e.target.value)}
                           />
                         </div>
                         <div>
-                          <Label className="text-xs font-medium text-gray-700">Tarifa</Label>
+                          <Label className="text-xs font-medium text-gray-700">
+                            Tarifa (R$/m³)
+                          </Label>
                           <Input
                             type="number"
                             step="0.0001"
-                            className="h-8 text-xs"
+                            placeholder="Ex: 13.6558"
+                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              tarifa !== ''
+                                ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
                             value={tarifa}
                             onChange={(e) => setTarifa(e.target.value)}
                           />
