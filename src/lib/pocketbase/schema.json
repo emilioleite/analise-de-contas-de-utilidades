@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-13T21:30:11.284Z",
+  "generatedAt": "2026-10-13T22:30:08.850Z",
   "collections": [
     {
       "name": "users",
@@ -225,6 +225,98 @@
         "CREATE INDEX idx_faturas_competencia ON faturas (competencia)",
         "CREATE INDEX idx_faturas_empreendimento ON faturas (empreendimento)",
         "CREATE INDEX idx_faturas_owner ON faturas (owner)"
+      ]
+    },
+    {
+      "name": "fatores_emissao",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "chave",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "energia_mensal",
+            "energia_fallback",
+            "gas_natural",
+            "agua_abastecimento",
+            "agua_esgoto"
+          ]
+        },
+        {
+          "name": "ano",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "unidade",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "is_oficial",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "fonte",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_fatores_chave ON fatores_emissao (chave)",
+        "CREATE INDEX idx_fatores_tipo ON fatores_emissao (tipo)"
       ]
     }
   ]

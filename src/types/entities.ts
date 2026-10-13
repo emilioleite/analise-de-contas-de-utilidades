@@ -69,3 +69,44 @@ export interface FaturaRecord {
     empreendimento?: EmpreendimentoRecord
   }
 }
+
+export type TipoFatorEmissao =
+  | 'energia_mensal'
+  | 'energia_fallback'
+  | 'gas_natural'
+  | 'agua_abastecimento'
+  | 'agua_esgoto'
+
+export interface FatorEmissaoRecord {
+  id: string
+  chave: string
+  tipo: TipoFatorEmissao
+  ano?: number
+  mes?: number
+  valor: number
+  unidade: string
+  is_oficial?: boolean
+  fonte?: string
+  descricao?: string
+  created?: string
+  updated?: string
+}
+
+export type EscopoGHG = 'Escopo 1' | 'Escopo 2' | 'Escopo 3'
+
+export interface CalculoEmissaoFatura {
+  faturaId: string
+  tipoUtilidade: TipoUtilidade
+  escopo: EscopoGHG
+  consumoConsiderado: number // kWh para energia, m³ para água e gás
+  unidadeConsumo: string
+  fatorAplicado: number
+  fatorUnidade: string
+  isFatorOficial: boolean
+  fatorDescricao: string
+  emissoesTCO2e: number // toneladas de CO2 equivalente
+  competencia: string
+  ano: number
+  mes: number
+  empreendimentoId: string
+}

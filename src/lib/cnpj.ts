@@ -67,6 +67,15 @@ export function formatNumberBR(value: number | undefined | null, decimals = 0): 
   }).format(value)
 }
 
+export function formatTCO2e(value: number | undefined | null, decimals = 3): string {
+  if (typeof value !== 'number' || isNaN(value)) return '0,000 tCO₂e'
+  const formatted = new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value)
+  return `${formatted} tCO₂e`
+}
+
 export function formatCompetencia(dateStr: string | undefined): string {
   if (!dateStr) return '-'
   try {

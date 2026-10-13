@@ -16,6 +16,7 @@ import {
   CheckCircle,
   RefreshCw,
   Settings,
+  Leaf,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -33,6 +34,7 @@ const navItems = [
   { name: 'Empreendimentos', path: '/empreendimentos', icon: Building2 },
   { name: 'Faturas', path: '/faturas', icon: FileText },
   { name: 'Análise 24 Meses', path: '/analise-24-meses', icon: TrendingUp },
+  { name: 'Emissões de GEE', path: '/emissoes', icon: Leaf },
 ]
 
 export default function Layout() {
@@ -49,6 +51,7 @@ export default function Layout() {
     if (p.startsWith('/empreendimentos')) return 'Gestão de Empreendimentos'
     if (p.startsWith('/faturas')) return 'Faturas de Utilidades'
     if (p.startsWith('/analise-24-meses')) return 'Análise de Consumo — 24 Meses'
+    if (p.startsWith('/emissoes')) return 'Emissões de GEE (GHG Protocol)'
     return 'Gestor de Utilidades'
   }
 
