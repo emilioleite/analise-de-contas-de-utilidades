@@ -196,6 +196,22 @@ Campos de medição e tarifas:
 - tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
+- MAPEAMENTO DAS TARIFAS DA ENEL (ATENÇÃO CRÍTICA À NOMENCLATURA):
+  * Na fatura da Enel (tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA"), as tarifas unitárias aparecem expressamente sob o cabeçalho de coluna "Preço Unit (R$) com tributos" (ou "Preço Unit. (R$) c/ tributos", "Preço unit com tributos"). É EXATAMENTE esse valor de "Preço Unit (R$) com tributos" que deve ser lançado nos campos de tarifa!
+  * Linha "Uso Sist. Distr. (TUSD)" / "TUSD" / "Uso Sistema Distribuição":
+    - Pegue o valor da coluna "Preço Unit (R$) com tributos" (ex: 0,60978 ou 0.60978) -> 'tarifa_tusd_ponta': 0.60978 (ou 'tarifa_tusd_f_ponta' se for Fora-Ponta).
+  * Linha "Energia (TE)" / "TE" / "Consumo Energia":
+    - Pegue o valor da coluna "Preço Unit (R$) com tributos" (ex: 0,40912 ou 0.40912) -> 'tarifa_te_ponta': 0.40912 (ou 'tarifa_te_f_ponta' se for Fora-Ponta).
+  * Se a fatura tiver tarifação convencional (posto ÚNICO, B3, B1, etc.):
+    - Como o formulário possui os campos "Tarifa TUSD-Ponta", "Tarifa TE-Ponta", "Tarifa TUSD-F.Ponta", "Tarifa TE-F.Ponta":
+    - Preencha SEMPRE 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.60978).
+    - Preencha SEMPRE 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.40912).
+    - Se a fatura não dividir ponta/fora-ponta, também preencha 'tarifa_tusd_f_ponta' e 'tarifa_te_f_ponta' com os mesmos valores unitários de TUSD e TE se aplicável, ou repita 'tarifa_tusd_ponta' e 'tarifa_te_ponta'.
+    - Se a tabela mostrar apenas um preço unitário combinado para o período e não puder separar TUSD e TE, lance esse preço em 'tarifa_tusd_ponta' e deixe 'tarifa_te_ponta' nulo. NUNCA invente valores.
+  * Se a fatura tiver estrutura horossazonal (Verde / Azul / A4) com divisão explícita Ponta e Fora Ponta:
+    - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' (da linha Ponta)
+    - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' (da linha Fora Ponta)
+
 - LAYOUT TÍPICO ENEL:
   * PÁGINA 1:
     - Cabeçalho Superior: Logotipo "enel BRASIL", Distribuidora: "Eletropaulo Metropolitana Eletricidade de São Paulo S.A. CNPJ: 61.695.227/0001-93" -> 'cnpj_fornecedor': "61.695.227/0001-93".
@@ -207,14 +223,13 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - Quadro "TOTAL A PAGAR": ex: "R$22.347,38" -> 'valor_total': 22347.38 e 'fatura_total': 22347.38.
     - Quadro "MENSAGENS IMPORTANTES": ex: "Bandeira(s) tarifária(s) aplicada(s) no mês: AMARELA" -> 'adicional_bandeira': "Bandeira Amarela".
     - Tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
-      * USO SIST. DISTR. (TUSD): ex: Quant. 20.438,400 kWh, Preço unit com tributos 0,60978, Valor 12.462,95, Tarifa unit(R$) 0,47242 -> 'tarifa_tusd_ponta' ou 'tarifa_tusd_f_ponta' ou 'tarifa': 0.60978.
-      * ENERGIA (TE): ex: Quant. 20.438,400 kWh, Preço unit com tributos 0,40912, Valor 8.361,74, Tarifa unit(R$) 0,31696 -> 'tarifa_te_ponta' ou 'tarifa_te_f_ponta': 0.40912.
-      * Se for tarifa convencional/único posto tarifário (sem divisão ponta e fora-ponta), lance o consumo em 'consumo' e 'consumo_medido', e as tarifas TUSD e TE correspondentes. Se houver divisão ponta e fora-ponta, lance 'consumo_ponta', 'consumo_fora_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta'.
+      * USO SIST. DISTR. (TUSD): Quant. 20.438,400 kWh, Preço unit com tributos 0,60978, Valor 12.462,95 -> 'tarifa_tusd_ponta': 0.60978.
+      * ENERGIA (TE): Quant. 20.438,400 kWh, Preço unit com tributos 0,40912, Valor 8.361,74 -> 'tarifa_te_ponta': 0.40912.
     - Tabela "DADOS DE MEDIÇÃO":
       * Medidor: ex: 11134555 | Postos Tarifários: ÚNICO | Leitura Anterior: 65891,700 | Leitura Atual: 66743,300 | Const. Medidor: 0,02400 | Consumo kWh: 20.438,400.
       * Extraia: 'medicao_anterior': 65891.7, 'medicao_atual': 66743.3, 'consumo_medido': 20438.4, 'consumo': 20438.4.
   * PÁGINA 2:
-    - Informações adicionais de canais de atendimento e dados do cliente.
+    - Informações adicionais de canais de atendimento, indicadores e dados complementares.
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
@@ -363,7 +378,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           if (validImages.length > 0) {
-            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado)\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' (TUSD, TE, tarifas unitárias com tributos)\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo, Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
+            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado)\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' / 'ITENS DE FATURA' (IMPORTANTE: Na Enel, extraia as tarifas sob o cabeçalho 'Preço Unit (R$) com tributos' para TUSD e TE - ex: TUSD 0,60978 -> tarifa_tusd_ponta: 0.60978 e TE 0,40912 -> tarifa_te_ponta: 0.40912)\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo, Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
@@ -667,6 +682,68 @@ Retorne APENAS um objeto JSON com essa estrutura:`
         parsed.consumo_corrigido = sanitizeNumeric(parsed.consumo_corrigido)
         parsed.tarifa = sanitizeNumeric(parsed.tarifa)
 
+        // Normalização flexível de tarifas para Energia Elétrica
+        // Aceita variações como: preco_unit_tusd, preco_unitario_tusd, tusd_com_tributos, preco_tusd, etc.
+        const tusdPontaCandidate =
+          parsed.tarifa_tusd_ponta ||
+          parsed.tarifaTusdPonta ||
+          parsed.preco_unit_tusd_ponta ||
+          parsed.preco_unitario_tusd_ponta ||
+          parsed.tusd_ponta ||
+          parsed.preco_unit_tusd ||
+          parsed.preco_unitario_tusd ||
+          parsed.tusd_com_tributos ||
+          parsed['Preço Unit (R$) com tributos - TUSD'] ||
+          parsed['Preço Unit TUSD'] ||
+          parsed.tusd
+
+        if (tusdPontaCandidate && !parsed.tarifa_tusd_ponta) {
+          parsed.tarifa_tusd_ponta = sanitizeNumeric(tusdPontaCandidate)
+        }
+
+        const tePontaCandidate =
+          parsed.tarifa_te_ponta ||
+          parsed.tarifaTePonta ||
+          parsed.preco_unit_te_ponta ||
+          parsed.preco_unitario_te_ponta ||
+          parsed.te_ponta ||
+          parsed.preco_unit_te ||
+          parsed.preco_unitario_te ||
+          parsed.te_com_tributos ||
+          parsed['Preço Unit (R$) com tributos - TE'] ||
+          parsed['Preço Unit TE'] ||
+          parsed.te
+
+        if (tePontaCandidate && !parsed.tarifa_te_ponta) {
+          parsed.tarifa_te_ponta = sanitizeNumeric(tePontaCandidate)
+        }
+
+        const tusdFPontaCandidate =
+          parsed.tarifa_tusd_f_ponta ||
+          parsed.tarifaTusdFPonta ||
+          parsed.preco_unit_tusd_f_ponta ||
+          parsed.preco_unitario_tusd_f_ponta ||
+          parsed.tusd_f_ponta ||
+          parsed.tusd_fora_ponta ||
+          parsed.tarifa_tusd_fora_ponta
+
+        if (tusdFPontaCandidate && !parsed.tarifa_tusd_f_ponta) {
+          parsed.tarifa_tusd_f_ponta = sanitizeNumeric(tusdFPontaCandidate)
+        }
+
+        const teFPontaCandidate =
+          parsed.tarifa_te_f_ponta ||
+          parsed.tarifaTeFPonta ||
+          parsed.preco_unit_te_f_ponta ||
+          parsed.preco_unitario_te_f_ponta ||
+          parsed.te_f_ponta ||
+          parsed.te_fora_ponta ||
+          parsed.tarifa_te_fora_ponta
+
+        if (teFPontaCandidate && !parsed.tarifa_te_f_ponta) {
+          parsed.tarifa_te_f_ponta = sanitizeNumeric(teFPontaCandidate)
+        }
+
         // CNPJs: variações de nomes
         const clienteCnpjCandidate =
           parsed.cnpj_cliente ||
@@ -910,6 +987,35 @@ Retorne APENAS um objeto JSON com essa estrutura:`
               parsed.consumo = parsed.consumo_medido
             }
           }
+
+          // Tratamento para faturas convencionais (posto único) ou tarifas não divididas:
+          // Se tarifa_tusd_ponta foi identificada e tarifa_tusd_f_ponta não, e não há consumo fora de ponta distinto,
+          // espelhar para fora-ponta se aplicável para garantir que as 4 tarifas fiquem preenchidas se o consumidor opera em tarifa convencional
+          if (
+            parsed.tarifa_tusd_ponta &&
+            !parsed.tarifa_tusd_f_ponta &&
+            !parsed.consumo_fora_ponta
+          ) {
+            parsed.tarifa_tusd_f_ponta = parsed.tarifa_tusd_ponta
+          }
+          if (parsed.tarifa_te_ponta && !parsed.tarifa_te_f_ponta && !parsed.consumo_fora_ponta) {
+            parsed.tarifa_te_f_ponta = parsed.tarifa_te_ponta
+          }
+
+          // Se a fatura trouxe apenas uma tarifa geral única ("tarifa" ou "preco_unitario")
+          // e nenhum campo TUSD/TE foi separado:
+          // Conforme requisito: "se a fatura mostrar apenas um preço unitário combinado por período e não puder ser dividido, preencha o campo TUSD com ele e deixe TE em branco em vez de deixar ambos em branco — nunca invente valores."
+          if (
+            !parsed.tarifa_tusd_ponta &&
+            !parsed.tarifa_te_ponta &&
+            parsed.tarifa &&
+            Number(parsed.tarifa) > 0
+          ) {
+            parsed.tarifa_tusd_ponta = parsed.tarifa
+            if (!parsed.consumo_fora_ponta) {
+              parsed.tarifa_tusd_f_ponta = parsed.tarifa
+            }
+          }
         }
 
         let hasConsumptionOrValue = false
@@ -939,6 +1045,18 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           hasConsumptionOrValue = true
         }
         if (parsed.medicao_atual && Number(parsed.medicao_atual) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.tarifa_tusd_ponta && Number(parsed.tarifa_tusd_ponta) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.tarifa_te_ponta && Number(parsed.tarifa_te_ponta) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.tarifa_tusd_f_ponta && Number(parsed.tarifa_tusd_f_ponta) > 0) {
+          hasConsumptionOrValue = true
+        }
+        if (parsed.tarifa_te_f_ponta && Number(parsed.tarifa_te_f_ponta) > 0) {
           hasConsumptionOrValue = true
         }
         if (parsed.tarifa && Number(parsed.tarifa) > 0) {

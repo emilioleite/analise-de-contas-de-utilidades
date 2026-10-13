@@ -498,19 +498,96 @@ export default function Faturas() {
         const cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
         if (cPonta !== undefined) setConsumoPonta(cPonta)
 
-        const tTusdPonta = parsePositiveNumber(getField('tarifa_tusd_ponta', 'tarifaTusdPonta'))
-        if (tTusdPonta !== undefined) setTarifaTusdPonta(tTusdPonta)
+        let tTusdPonta = parsePositiveNumber(
+          getField(
+            'tarifa_tusd_ponta',
+            'tarifaTusdPonta',
+            'preco_unit_tusd_ponta',
+            'preco_unitario_tusd_ponta',
+            'tusd_ponta',
+            'preco_unit_tusd',
+            'preco_unitario_tusd',
+            'tusd_com_tributos',
+            'Preço Unit (R$) com tributos - TUSD',
+            'Preço Unit TUSD',
+            'tusd',
+          ),
+        )
 
-        const tTePonta = parsePositiveNumber(getField('tarifa_te_ponta', 'tarifaTePonta'))
-        if (tTePonta !== undefined) setTarifaTePonta(tTePonta)
+        let tTePonta = parsePositiveNumber(
+          getField(
+            'tarifa_te_ponta',
+            'tarifaTePonta',
+            'preco_unit_te_ponta',
+            'preco_unitario_te_ponta',
+            'te_ponta',
+            'preco_unit_te',
+            'preco_unitario_te',
+            'te_com_tributos',
+            'Preço Unit (R$) com tributos - TE',
+            'Preço Unit TE',
+            'te',
+          ),
+        )
 
         const cForaPonta = parsePositiveNumber(getField('consumo_fora_ponta', 'consumoForaPonta'))
         if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
 
-        const tTusdFPonta = parsePositiveNumber(getField('tarifa_tusd_f_ponta', 'tarifaTusdFPonta'))
-        if (tTusdFPonta !== undefined) setTarifaTusdFPonta(tTusdFPonta)
+        let tTusdFPonta = parsePositiveNumber(
+          getField(
+            'tarifa_tusd_f_ponta',
+            'tarifaTusdFPonta',
+            'preco_unit_tusd_f_ponta',
+            'preco_unitario_tusd_f_ponta',
+            'tusd_f_ponta',
+            'tusd_fora_ponta',
+            'tarifa_tusd_fora_ponta',
+          ),
+        )
 
-        const tTeFPonta = parsePositiveNumber(getField('tarifa_te_f_ponta', 'tarifaTeFPonta'))
+        let tTeFPonta = parsePositiveNumber(
+          getField(
+            'tarifa_te_f_ponta',
+            'tarifaTeFPonta',
+            'preco_unit_te_f_ponta',
+            'preco_unitario_te_f_ponta',
+            'te_f_ponta',
+            'te_fora_ponta',
+            'tarifa_te_fora_ponta',
+          ),
+        )
+
+        // Se for fatura convencional (ou tarifa única por posto), e Ponta estiver preenchida mas Fora-Ponta não:
+        // Espelhar TUSD e TE para fora-ponta para que os campos do formulário fiquem consistentes
+        if (detectedTipo === 'Energia Elétrica') {
+          if (tTusdPonta !== undefined && tTusdFPonta === undefined && !cForaPonta) {
+            tTusdFPonta = tTusdPonta
+          }
+          if (tTePonta !== undefined && tTeFPonta === undefined && !cForaPonta) {
+            tTeFPonta = tTePonta
+          }
+          // Caso a fatura tenha apenas uma tarifa combinada e não foi dividida:
+          // Conforme regra: preencha o campo TUSD com ela e deixe TE em branco em vez de ambos em branco
+          const singleTarifa = parsePositiveNumber(
+            getField(
+              'tarifa',
+              'tarifa_unitaria',
+              'valor_unitario',
+              'tarifaUnitaria',
+              'preco_unitario',
+            ),
+          )
+          if (tTusdPonta === undefined && tTePonta === undefined && singleTarifa !== undefined) {
+            tTusdPonta = singleTarifa
+            if (!cForaPonta && tTusdFPonta === undefined) {
+              tTusdFPonta = singleTarifa
+            }
+          }
+        }
+
+        if (tTusdPonta !== undefined) setTarifaTusdPonta(tTusdPonta)
+        if (tTePonta !== undefined) setTarifaTePonta(tTePonta)
+        if (tTusdFPonta !== undefined) setTarifaTusdFPonta(tTusdFPonta)
         if (tTeFPonta !== undefined) setTarifaTeFPonta(tTeFPonta)
 
         const rawAdicBandeira = getField(
@@ -587,7 +664,9 @@ export default function Faturas() {
           (medAtu !== undefined && medAtu > 0) ||
           (tar !== undefined && tar > 0) ||
           (cPonta !== undefined && cPonta > 0) ||
-          (cForaPonta !== undefined && cForaPonta > 0)
+          (cForaPonta !== undefined && cForaPonta > 0) ||
+          (tTusdPonta !== undefined && tTusdPonta > 0) ||
+          (tTePonta !== undefined && tTePonta > 0)
 
         if (hasConsumptionOrFinancialData) {
           toast({
