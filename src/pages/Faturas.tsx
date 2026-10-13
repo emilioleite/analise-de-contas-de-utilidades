@@ -329,13 +329,22 @@ export default function Faturas() {
 
         const rawCConsumo = getField(
           'consumo',
+          'consumo_total',
+          'consumoTotal',
           'consumo_faturado',
           'consumoFaturado',
+          'consumo_medido',
+          'consumoMedido',
+          'consumo_apurado',
+          'consumoApurado',
+          'kwh_total',
+          'kwhTotal',
+          'total_kwh',
+          'totalKwh',
+          'kwh',
           'volume',
           'consumo_corrigido',
           'consumoCorrigido',
-          'consumo_medido',
-          'consumoMedido',
         )
         const cConsumo = parsePositiveNumber(rawCConsumo)
         if (cConsumo !== undefined) setConsumo(cConsumo)
@@ -495,8 +504,41 @@ export default function Faturas() {
           setClassificacaoConsumo('B3')
         }
 
-        const cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
-        if (cPonta !== undefined) setConsumoPonta(cPonta)
+        // Identificar grupo de consumo tarifário (A ou B)
+        const isGrupoB = classCons ? /^B/i.test(classCons.replace(/^B-/, '')) : false
+        const isGrupoA = classCons ? /^A/i.test(classCons.replace(/^A-/, '')) : false
+
+        let cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
+        let cForaPonta = parsePositiveNumber(getField('consumo_fora_ponta', 'consumoForaPonta'))
+
+        // Regra de negócio: Se a Classificação for B (B1, B2, B3, B4), o consumo é ÚNICO!
+        // Não há consumo ponta ou fora-ponta. Se a IA enviou apenas ponta/fora-ponta ou medido,
+        // consolidamos como consumo único e limpamos ponta/fora-ponta.
+        if (detectedTipo === 'Energia Elétrica' && isGrupoB) {
+          if (cConsumo === undefined) {
+            const candidateUnico =
+              cForaPonta ||
+              cPonta ||
+              parsePositiveNumber(getField('consumo_medido', 'consumoMedido'))
+            if (candidateUnico !== undefined) {
+              setConsumo(candidateUnico)
+            }
+          }
+          cPonta = undefined
+          cForaPonta = undefined
+          setConsumoPonta('')
+          setConsumoForaPonta('')
+        } else {
+          // Se for Grupo A ou classificação não informada
+          if (cPonta !== undefined) setConsumoPonta(cPonta)
+          if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
+
+          // Se for Grupo A e consumo geral não foi detectado mas temos ponta + fora-ponta
+          if (cConsumo === undefined && (cPonta !== undefined || cForaPonta !== undefined)) {
+            const sumA = Number(((cPonta || 0) + (cForaPonta || 0)).toFixed(3))
+            if (sumA > 0) setConsumo(sumA)
+          }
+        }
 
         let tTusdPonta = parsePositiveNumber(
           getField(
@@ -530,9 +572,6 @@ export default function Faturas() {
           ),
         )
 
-        const cForaPonta = parsePositiveNumber(getField('consumo_fora_ponta', 'consumoForaPonta'))
-        if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
-
         let tTusdFPonta = parsePositiveNumber(
           getField(
             'tarifa_tusd_f_ponta',
@@ -557,13 +596,13 @@ export default function Faturas() {
           ),
         )
 
-        // Se for fatura convencional (ou tarifa única por posto), e Ponta estiver preenchida mas Fora-Ponta não:
-        // Espelhar TUSD e TE para fora-ponta para que os campos do formulário fiquem consistentes
+        // Se for fatura convencional / Grupo B (ou tarifa única por posto), e Ponta estiver preenchida mas Fora-Ponta não:
+        // Espelhar TUSD e TE para fora-ponta para manter consistência interna caso seja necessário
         if (detectedTipo === 'Energia Elétrica') {
-          if (tTusdPonta !== undefined && tTusdFPonta === undefined && !cForaPonta) {
+          if (tTusdPonta !== undefined && tTusdFPonta === undefined && (isGrupoB || !cForaPonta)) {
             tTusdFPonta = tTusdPonta
           }
-          if (tTePonta !== undefined && tTeFPonta === undefined && !cForaPonta) {
+          if (tTePonta !== undefined && tTeFPonta === undefined && (isGrupoB || !cForaPonta)) {
             tTeFPonta = tTePonta
           }
           // Caso a fatura tenha apenas uma tarifa combinada e não foi dividida:
@@ -579,7 +618,7 @@ export default function Faturas() {
           )
           if (tTusdPonta === undefined && tTePonta === undefined && singleTarifa !== undefined) {
             tTusdPonta = singleTarifa
-            if (!cForaPonta && tTusdFPonta === undefined) {
+            if ((isGrupoB || !cForaPonta) && tTusdFPonta === undefined) {
               tTusdFPonta = singleTarifa
             }
           }
@@ -750,16 +789,18 @@ export default function Faturas() {
     // Build specific data object
     let dadosEsp: any = {}
     if (selectedTipo === 'Energia Elétrica') {
+      const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
         medicao_anterior: Number(medicaoAnterior) || undefined,
         medicao_atual: Number(medicaoAtual) || undefined,
         classificacao_consumo: classificacaoConsumo || undefined,
-        consumo_ponta: Number(consumoPonta) || undefined,
+        consumo_medido: Number(consumo) || undefined,
+        consumo_ponta: isB ? undefined : Number(consumoPonta) || undefined,
         tarifa_tusd_ponta: Number(tarifaTusdPonta) || undefined,
         tarifa_te_ponta: Number(tarifaTePonta) || undefined,
-        consumo_fora_ponta: Number(consumoForaPonta) || undefined,
-        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta) || undefined,
-        tarifa_te_f_ponta: Number(tarifaTeFPonta) || undefined,
+        consumo_fora_ponta: isB ? undefined : Number(consumoForaPonta) || undefined,
+        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
+        tarifa_te_f_ponta: Number(tarifaTeFPonta || tarifaTePonta) || undefined,
         adicional_bandeira: adicionalBandeira || undefined,
         fatura_total: Number(valorTotal),
       }
@@ -878,16 +919,18 @@ export default function Faturas() {
 
     let dadosEsp: any = {}
     if (selectedTipo === 'Energia Elétrica') {
+      const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
         medicao_anterior: Number(medicaoAnterior) || undefined,
         medicao_atual: Number(medicaoAtual) || undefined,
         classificacao_consumo: classificacaoConsumo || undefined,
-        consumo_ponta: Number(consumoPonta) || undefined,
+        consumo_medido: Number(consumo) || undefined,
+        consumo_ponta: isB ? undefined : Number(consumoPonta) || undefined,
         tarifa_tusd_ponta: Number(tarifaTusdPonta) || undefined,
         tarifa_te_ponta: Number(tarifaTePonta) || undefined,
-        consumo_fora_ponta: Number(consumoForaPonta) || undefined,
-        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta) || undefined,
-        tarifa_te_f_ponta: Number(tarifaTeFPonta) || undefined,
+        consumo_fora_ponta: isB ? undefined : Number(consumoForaPonta) || undefined,
+        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
+        tarifa_te_f_ponta: Number(tarifaTeFPonta || tarifaTePonta) || undefined,
         adicional_bandeira: adicionalBandeira || undefined,
         fatura_total: Number(valorTotal),
       }
@@ -1748,7 +1791,18 @@ export default function Faturas() {
                           />
                         </div>
                         <div>
-                          <Label className="text-xs font-medium text-gray-700">Classificação</Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs font-medium text-gray-700">
+                              Classificação
+                            </Label>
+                            <span className="text-[10px] text-amber-700 font-medium">
+                              {/^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
+                                ? 'Classe B (Consumo Único)'
+                                : /^A/i.test((classificacaoConsumo || '').replace(/^A-/, ''))
+                                  ? 'Classe A (Ponta / F.Ponta)'
+                                  : ''}
+                            </span>
+                          </div>
                           <Input
                             placeholder="Ex: B3 - Comercial"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
@@ -1757,111 +1811,206 @@ export default function Faturas() {
                                 : 'bg-gray-50/50'
                             }`}
                             value={classificacaoConsumo}
-                            onChange={(e) => setClassificacaoConsumo(e.target.value)}
+                            onChange={(e) => {
+                              const newClass = e.target.value
+                              setClassificacaoConsumo(newClass)
+                              const isNowB = /^B/i.test(newClass.replace(/^B-/, ''))
+                              if (isNowB) {
+                                // Se mudou para Grupo B: manter apenas consumo único e tarifas TUSD / TE
+                                if (!consumo && (consumoForaPonta || consumoPonta)) {
+                                  setConsumo(consumoForaPonta || consumoPonta)
+                                }
+                                setConsumoPonta('')
+                                setConsumoForaPonta('')
+                                if (tarifaTusdPonta && !tarifaTusdFPonta) {
+                                  setTarifaTusdFPonta(tarifaTusdPonta)
+                                }
+                                if (tarifaTePonta && !tarifaTeFPonta) {
+                                  setTarifaTeFPonta(tarifaTePonta)
+                                }
+                              }
+                            }}
                           />
                         </div>
 
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Consumo Ponta (kWh)
-                          </Label>
-                          <Input
-                            type="number"
-                            placeholder="Ex: 1200"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              consumoPonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={consumoPonta}
-                            onChange={(e) => setConsumoPonta(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Tarifa TUSD-Ponta
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.0001"
-                            placeholder="Ex: 0.62"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              tarifaTusdPonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={tarifaTusdPonta}
-                            onChange={(e) => setTarifaTusdPonta(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Tarifa TE-Ponta
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.0001"
-                            placeholder="Ex: 0.41"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              tarifaTePonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={tarifaTePonta}
-                            onChange={(e) => setTarifaTePonta(e.target.value)}
-                          />
-                        </div>
+                        {/* CLASSE B: Consumo Único com destaque claro */}
+                        {/^B/i.test((classificacaoConsumo || '').replace(/^B-/, '')) ? (
+                          <>
+                            <div>
+                              <Label className="text-xs font-medium text-amber-900">
+                                Consumo Total Faturado (kWh) *
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.001"
+                                placeholder="Ex: 20438.4"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  consumo !== ''
+                                    ? 'text-gray-900 font-bold bg-white border-amber-500 ring-1 ring-amber-400/50'
+                                    : 'bg-amber-50/40 border-amber-300'
+                                }`}
+                                value={consumo}
+                                onChange={(e) => setConsumo(e.target.value)}
+                              />
+                              <span className="text-[10px] text-amber-700 block mt-0.5">
+                                Posto Único / Classe B (sem ponta/fora-ponta)
+                              </span>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TUSD Única (R$/kWh)
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.00001"
+                                placeholder="Ex: 0.60978"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTusdPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTusdPonta}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setTarifaTusdPonta(val)
+                                  setTarifaTusdFPonta(val)
+                                }}
+                              />
+                              <span className="text-[10px] text-gray-400 block mt-0.5">
+                                Preço Unit com tributos
+                              </span>
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TE Única (R$/kWh)
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.00001"
+                                placeholder="Ex: 0.40912"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTePonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTePonta}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setTarifaTePonta(val)
+                                  setTarifaTeFPonta(val)
+                                }}
+                              />
+                              <span className="text-[10px] text-gray-400 block mt-0.5">
+                                Preço Unit com tributos
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          /* CLASSE A ou padrão: Consumo Ponta e Fora-Ponta */
+                          <>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Consumo Ponta (kWh)
+                              </Label>
+                              <Input
+                                type="number"
+                                placeholder="Ex: 1200"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  consumoPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={consumoPonta}
+                                onChange={(e) => setConsumoPonta(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TUSD-Ponta
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.0001"
+                                placeholder="Ex: 0.62"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTusdPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTusdPonta}
+                                onChange={(e) => setTarifaTusdPonta(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TE-Ponta
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.0001"
+                                placeholder="Ex: 0.41"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTePonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTePonta}
+                                onChange={(e) => setTarifaTePonta(e.target.value)}
+                              />
+                            </div>
 
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Consumo Fora-Ponta (kWh)
-                          </Label>
-                          <Input
-                            type="number"
-                            placeholder="Ex: 3000"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              consumoForaPonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={consumoForaPonta}
-                            onChange={(e) => setConsumoForaPonta(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Tarifa TUSD-F.Ponta
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.0001"
-                            placeholder="Ex: 0.24"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              tarifaTusdFPonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={tarifaTusdFPonta}
-                            onChange={(e) => setTarifaTusdFPonta(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs font-medium text-gray-700">
-                            Tarifa TE-F.Ponta
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.0001"
-                            placeholder="Ex: 0.32"
-                            className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
-                              tarifaTeFPonta !== ''
-                                ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
-                                : 'bg-gray-50/50'
-                            }`}
-                            value={tarifaTeFPonta}
-                            onChange={(e) => setTarifaTeFPonta(e.target.value)}
-                          />
-                        </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Consumo Fora-Ponta (kWh)
+                              </Label>
+                              <Input
+                                type="number"
+                                placeholder="Ex: 3000"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  consumoForaPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={consumoForaPonta}
+                                onChange={(e) => setConsumoForaPonta(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TUSD-F.Ponta
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.0001"
+                                placeholder="Ex: 0.24"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTusdFPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTusdFPonta}
+                                onChange={(e) => setTarifaTusdFPonta(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs font-medium text-gray-700">
+                                Tarifa TE-F.Ponta
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.0001"
+                                placeholder="Ex: 0.32"
+                                className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                                  tarifaTeFPonta !== ''
+                                    ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
+                                    : 'bg-gray-50/50'
+                                }`}
+                                value={tarifaTeFPonta}
+                                onChange={(e) => setTarifaTeFPonta(e.target.value)}
+                              />
+                            </div>
+                          </>
+                        )}
 
                         <div className="sm:col-span-3">
                           <Label className="text-xs font-medium text-gray-700">
@@ -2363,7 +2512,18 @@ export default function Faturas() {
             {/* Utility specific fields editor */}
             {selectedTipo === 'Energia Elétrica' && (
               <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-200 space-y-2">
-                <span className="text-[11px] font-bold text-amber-900 block">Energia Elétrica</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-amber-900 block">
+                    Energia Elétrica
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-medium">
+                    {/^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
+                      ? 'Classe B (Consumo Único)'
+                      : /^A/i.test((classificacaoConsumo || '').replace(/^A-/, ''))
+                        ? 'Classe A (Ponta / F.Ponta)'
+                        : ''}
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
@@ -2388,67 +2548,128 @@ export default function Faturas() {
                     <Input
                       className="h-8 text-xs"
                       value={classificacaoConsumo}
-                      onChange={(e) => setClassificacaoConsumo(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setClassificacaoConsumo(val)
+                        if (/^B/i.test(val.replace(/^B-/, ''))) {
+                          if (!consumo && (consumoForaPonta || consumoPonta)) {
+                            setConsumo(consumoForaPonta || consumoPonta)
+                          }
+                          setConsumoPonta('')
+                          setConsumoForaPonta('')
+                          if (tarifaTusdPonta && !tarifaTusdFPonta)
+                            setTarifaTusdFPonta(tarifaTusdPonta)
+                          if (tarifaTePonta && !tarifaTeFPonta) setTarifaTeFPonta(tarifaTePonta)
+                        }
+                      }}
                     />
                   </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Consumo Ponta</Label>
-                    <Input
-                      type="number"
-                      className="h-8 text-xs"
-                      value={consumoPonta}
-                      onChange={(e) => setConsumoPonta(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Tarifa TUSD-Ponta</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      className="h-8 text-xs"
-                      value={tarifaTusdPonta}
-                      onChange={(e) => setTarifaTusdPonta(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Tarifa TE-Ponta</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      className="h-8 text-xs"
-                      value={tarifaTePonta}
-                      onChange={(e) => setTarifaTePonta(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Consumo F.Ponta</Label>
-                    <Input
-                      type="number"
-                      className="h-8 text-xs"
-                      value={consumoForaPonta}
-                      onChange={(e) => setConsumoForaPonta(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Tarifa TUSD-F.Ponta</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      className="h-8 text-xs"
-                      value={tarifaTusdFPonta}
-                      onChange={(e) => setTarifaTusdFPonta(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-gray-700">Tarifa TE-F.Ponta</Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      className="h-8 text-xs"
-                      value={tarifaTeFPonta}
-                      onChange={(e) => setTarifaTeFPonta(e.target.value)}
-                    />
-                  </div>
+
+                  {/^B/i.test((classificacaoConsumo || '').replace(/^B-/, '')) ? (
+                    <>
+                      <div>
+                        <Label className="text-[11px] text-amber-900 font-medium">
+                          Consumo Total (kWh)
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.001"
+                          className="h-8 text-xs bg-white font-bold border-amber-500"
+                          value={consumo}
+                          onChange={(e) => setConsumo(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TUSD Única</Label>
+                        <Input
+                          type="number"
+                          step="0.00001"
+                          className="h-8 text-xs"
+                          value={tarifaTusdPonta}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setTarifaTusdPonta(val)
+                            setTarifaTusdFPonta(val)
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TE Única</Label>
+                        <Input
+                          type="number"
+                          step="0.00001"
+                          className="h-8 text-xs"
+                          value={tarifaTePonta}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setTarifaTePonta(val)
+                            setTarifaTeFPonta(val)
+                          }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Consumo Ponta</Label>
+                        <Input
+                          type="number"
+                          className="h-8 text-xs"
+                          value={consumoPonta}
+                          onChange={(e) => setConsumoPonta(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TUSD-Ponta</Label>
+                        <Input
+                          type="number"
+                          step="0.0001"
+                          className="h-8 text-xs"
+                          value={tarifaTusdPonta}
+                          onChange={(e) => setTarifaTusdPonta(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TE-Ponta</Label>
+                        <Input
+                          type="number"
+                          step="0.0001"
+                          className="h-8 text-xs"
+                          value={tarifaTePonta}
+                          onChange={(e) => setTarifaTePonta(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Consumo F.Ponta</Label>
+                        <Input
+                          type="number"
+                          className="h-8 text-xs"
+                          value={consumoForaPonta}
+                          onChange={(e) => setConsumoForaPonta(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TUSD-F.Ponta</Label>
+                        <Input
+                          type="number"
+                          step="0.0001"
+                          className="h-8 text-xs"
+                          value={tarifaTusdFPonta}
+                          onChange={(e) => setTarifaTusdFPonta(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-gray-700">Tarifa TE-F.Ponta</Label>
+                        <Input
+                          type="number"
+                          step="0.0001"
+                          className="h-8 text-xs"
+                          value={tarifaTeFPonta}
+                          onChange={(e) => setTarifaTeFPonta(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

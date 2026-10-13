@@ -196,6 +196,20 @@ Campos de medição e tarifas:
 - tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
+- REGRA CRÍTICA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
+  * Se a Classificação for do GRUPO B (B1, B2, B3, B4 ou qualquer código iniciando com B, ex: "B3", "B-B3 - CONVENCIONAL - COMERCIAL"):
+    - O consumo é ÚNICO (fatura convencional sem divisão por posto horário).
+    - NÃO há separação de consumo ponta/fora-ponta.
+    - Preencha SEMPRE 'consumo': número decimal do consumo total/faturado (ex: 20438.4 ou 20438.400).
+    - Também preencha 'consumo_medido' com esse mesmo valor.
+    - Deixe 'consumo_ponta' e 'consumo_fora_ponta' como null.
+    - Tarifas: há apenas TUSD e TE únicas (sem ponta/fora-ponta). Preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.60978) e 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.40912).
+  * Se a Classificação for do GRUPO A (A1, A2, A3, A4 ou qualquer código iniciando com A, estrutura horossazonal ex: Verde / Azul / A4):
+    - Há Consumo Ponta e Consumo Fora-Ponta separados com suas respectivas tarifas por posto:
+    - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' (da linha Ponta).
+    - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' (da linha Fora Ponta).
+    - Preencha 'consumo': soma do consumo ponta + fora ponta (ou total faturado).
+
 - MAPEAMENTO DAS TARIFAS DA ENEL (ATENÇÃO CRÍTICA À NOMENCLATURA):
   * Na fatura da Enel (tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA"), as tarifas unitárias aparecem expressamente sob o cabeçalho de coluna "Preço Unit (R$) com tributos" (ou "Preço Unit. (R$) c/ tributos", "Preço unit com tributos"). É EXATAMENTE esse valor de "Preço Unit (R$) com tributos" que deve ser lançado nos campos de tarifa!
   * Linha "Uso Sist. Distr. (TUSD)" / "TUSD" / "Uso Sistema Distribuição":
@@ -378,7 +392,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           if (validImages.length > 0) {
-            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado)\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' / 'ITENS DE FATURA' (IMPORTANTE: Na Enel, extraia as tarifas sob o cabeçalho 'Preço Unit (R$) com tributos' para TUSD e TE - ex: TUSD 0,60978 -> tarifa_tusd_ponta: 0.60978 e TE 0,40912 -> tarifa_te_ponta: 0.40912)\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo, Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
+            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh - ex: 20.438,400 -> consumo: 20438.4)\n- ATENÇÃO CRÍTICA AO CONSUMO: Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO (ex: 20438.4) e deve ser retornado no campo 'consumo' e 'consumo_medido'. Não deixe o consumo em branco!\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' / 'ITENS DE FATURA' (IMPORTANTE: Na Enel, extraia as tarifas sob o cabeçalho 'Preço Unit (R$) com tributos' para TUSD e TE - ex: TUSD 0,60978 -> tarifa_tusd_ponta: 0.60978 e TE 0,40912 -> tarifa_te_ponta: 0.40912; a quantidade faturada de kWh também reforça o 'consumo')\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo ex 'B-B3 - CONVENCIONAL - COMERCIAL' -> classificacao_consumo: 'B3', Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
@@ -664,6 +678,43 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           (parsed.tarifa === undefined || parsed.tarifa === null)
         ) {
           parsed.tarifa = parsed.tarifaUnitaria
+        }
+
+        // Normalização flexível e abrangente de chaves de consumo (incluindo variações comuns da IA)
+        const consumoCandidate =
+          parsed.consumo ||
+          parsed.consumo_total ||
+          parsed.consumoTotal ||
+          parsed.consumo_medido ||
+          parsed.consumoMedido ||
+          parsed.consumo_faturado ||
+          parsed.consumoFaturado ||
+          parsed.consumo_apurado ||
+          parsed.consumoApurado ||
+          parsed.kwh_total ||
+          parsed.kwhTotal ||
+          parsed.total_kwh ||
+          parsed.totalKwh ||
+          parsed.kwh ||
+          parsed['consumo faturado'] ||
+          parsed['consumo total'] ||
+          parsed['consumo medido'] ||
+          parsed['Consumo (kWh)'] ||
+          parsed['Consumo kWh'] ||
+          parsed['consumo_kwh'] ||
+          parsed['quantidade_kwh']
+
+        if (
+          consumoCandidate !== undefined &&
+          (parsed.consumo === undefined || parsed.consumo === null)
+        ) {
+          parsed.consumo = consumoCandidate
+        }
+        if (
+          consumoCandidate !== undefined &&
+          (parsed.consumo_medido === undefined || parsed.consumo_medido === null)
+        ) {
+          parsed.consumo_medido = consumoCandidate
         }
 
         // Sanitizar numéricos essenciais
@@ -974,6 +1025,63 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             parsed.cnpj_cliente = '04.151.776/0001-63'
           }
 
+          // Detectar grupo de consumo da energia elétrica (A vs B)
+          // Ex: "B3", "B1", "B-B3 - CONVENCIONAL", etc. -> Grupo B
+          // Ex: "A4", "A3", "A-A4 - HOROSSAZONAL VERDE", etc. -> Grupo A
+          let grupoConsumo = ''
+          if (parsed.classificacao_consumo) {
+            const cleanCls = String(parsed.classificacao_consumo).trim().toUpperCase()
+            const matchGroup = cleanCls.match(/\b([AB])[1-4]?\b/) || cleanCls.match(/^([AB])/)
+            if (matchGroup) {
+              grupoConsumo = matchGroup[1]
+            }
+          }
+
+          // Se for Classe B (ou não houver ponta/fora-ponta discriminados):
+          // Consumo é ÚNICO! Não deve haver separação ponta/fora-ponta.
+          if (grupoConsumo === 'B') {
+            // Se a IA tiver colocado o consumo total em consumo_ponta ou consumo_fora_ponta por engano
+            if (!parsed.consumo) {
+              if (parsed.consumo_fora_ponta && !parsed.consumo_ponta) {
+                parsed.consumo = parsed.consumo_fora_ponta
+              } else if (parsed.consumo_ponta && !parsed.consumo_fora_ponta) {
+                parsed.consumo = parsed.consumo_ponta
+              } else if (parsed.consumo_ponta && parsed.consumo_fora_ponta) {
+                parsed.consumo = Number(
+                  (Number(parsed.consumo_ponta) + Number(parsed.consumo_fora_ponta)).toFixed(3),
+                )
+              }
+            }
+            // Em classe B o consumo é único, zerar/anular ponta e fora-ponta
+            parsed.consumo_ponta = null
+            parsed.consumo_fora_ponta = null
+          } else if (grupoConsumo === 'A') {
+            // Se for Classe A e consumo total estiver ausente mas ponta + fora_ponta estiverem presentes
+            if (!parsed.consumo && (parsed.consumo_ponta || parsed.consumo_fora_ponta)) {
+              parsed.consumo = Number(
+                (
+                  (Number(parsed.consumo_ponta) || 0) + (Number(parsed.consumo_fora_ponta) || 0)
+                ).toFixed(3),
+              )
+            }
+          }
+
+          if (
+            (!parsed.consumo_medido || Number(parsed.consumo_medido) === 0) &&
+            parsed.consumo &&
+            Number(parsed.consumo) > 0
+          ) {
+            parsed.consumo_medido = parsed.consumo
+          }
+
+          if (
+            (!parsed.consumo || Number(parsed.consumo) === 0) &&
+            parsed.consumo_medido &&
+            Number(parsed.consumo_medido) > 0
+          ) {
+            parsed.consumo = parsed.consumo_medido
+          }
+
           if (
             (!parsed.consumo_medido || Number(parsed.consumo_medido) === 0) &&
             parsed.medicao_atual !== undefined &&
@@ -988,9 +1096,9 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             }
           }
 
-          // Tratamento para faturas convencionais (posto único) ou tarifas não divididas:
+          // Tratamento para faturas convencionais (posto único / Classe B) ou tarifas não divididas:
           // Se tarifa_tusd_ponta foi identificada e tarifa_tusd_f_ponta não, e não há consumo fora de ponta distinto,
-          // espelhar para fora-ponta se aplicável para garantir que as 4 tarifas fiquem preenchidas se o consumidor opera em tarifa convencional
+          // espelhar para fora-ponta se aplicável para garantir que as tarifas fiquem preenchidas se o consumidor opera em tarifa convencional
           if (
             parsed.tarifa_tusd_ponta &&
             !parsed.tarifa_tusd_f_ponta &&
