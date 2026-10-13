@@ -81,19 +81,22 @@ export const faturasService = {
             const pageStrings = textContent.items.map((item: any) => item.str || '').join(' ')
             fullPdfText += `\n--- PÁGINA ${p} ---\n` + pageStrings
           }
-          if (fullPdfText && fullPdfText.trim().length > 30) {
-            clientExtractedText = fullPdfText.trim()
+          const trimmedText = fullPdfText.trim()
+          // Validar texto mínimo útil (> 200 caracteres e com palavras-chave) para não enviar ruído/texto corrompido de 36 caracteres
+          if (trimmedText && trimmedText.length >= 200) {
+            clientExtractedText = trimmedText
           }
         } catch (textReadErr) {
           console.warn('Não foi possível extrair texto do PDF via pdf.js:', textReadErr)
         }
 
+        // Renderizar imagens de páginas com limites adequados de dimensão e tamanho para LLMs multimodais
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
-          scale: 2.2,
-          quality: 0.92,
-          maxWidth: 2200,
-          maxHeight: 3000,
+          scale: 1.8,
+          quality: 0.85,
+          maxWidth: 1600,
+          maxHeight: 2200,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)

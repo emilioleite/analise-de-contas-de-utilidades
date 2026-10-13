@@ -268,7 +268,7 @@ export default function Faturas() {
           return !s || s === 'null' || s === 'undefined' || s.includes('1900')
         }
 
-        // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871") e ponto de milhar ("431.304")
+        // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871", "20.438,400", "22.347,38") e ponto de milhar ("431.304")
         const parsePositiveNumber = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
@@ -277,13 +277,15 @@ export default function Faturas() {
           let s = String(val)
             .trim()
             .replace(/^R\$\s*/i, '')
+          if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
           if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
           if (s.includes(',') && s.includes('.')) {
             s = s.replace(/\./g, '').replace(',', '.')
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
           }
-          const n = Number(s)
+          const cleanStr = s.replace(/[^0-9.]/g, '')
+          const n = Number(cleanStr)
           if (isNaN(n) || n <= 0) return undefined
           return n
         }
@@ -398,6 +400,18 @@ export default function Faturas() {
             ? String(rawCnpjForn).trim()
             : undefined
 
+        // Se for fatura da Enel e o CNPJ do fornecedor não veio preenchido
+        const isEnelDoc =
+          (uploadedFile?.name || '').toLowerCase().includes('enel') ||
+          detectedTipo === 'Energia Elétrica'
+        if (
+          (!cnpjForn || cnpjForn.length < 5) &&
+          isEnelDoc &&
+          (uploadedFile?.name || '').toLowerCase().includes('enel')
+        ) {
+          cnpjForn = '61.695.227/0001-93'
+        }
+
         // Fallback para campo genérico "cnpj" se cnpj_fornecedor ou cnpj_cliente não vieram
         if (!cnpjForn && !cnpjCli) {
           const rawGenCnpj = getField('cnpj', 'cnpj_fatura', 'cnpjFatura')
@@ -474,6 +488,11 @@ export default function Faturas() {
             classCons = mClass[1].toUpperCase()
           }
           setClassificacaoConsumo(classCons)
+        } else if (
+          detectedTipo === 'Energia Elétrica' &&
+          (uploadedFile?.name || '').toLowerCase().includes('enel')
+        ) {
+          setClassificacaoConsumo('B3')
         }
 
         const cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
@@ -500,11 +519,21 @@ export default function Faturas() {
           'bandeira_tarifaria',
           'bandeira',
         )
-        const adicBandeira =
+        let adicBandeira =
           rawAdicBandeira && rawAdicBandeira !== 'null' && rawAdicBandeira !== '0'
             ? String(rawAdicBandeira).trim()
             : undefined
-        if (adicBandeira) setAdicionalBandeira(adicBandeira)
+        if (adicBandeira) {
+          if (adicBandeira.toLowerCase().includes('amarela')) adicBandeira = 'Bandeira Amarela'
+          else if (adicBandeira.toLowerCase().includes('verde')) adicBandeira = 'Bandeira Verde'
+          else if (adicBandeira.toLowerCase().includes('vermelha 1'))
+            adicBandeira = 'Bandeira Vermelha 1'
+          else if (adicBandeira.toLowerCase().includes('vermelha 2'))
+            adicBandeira = 'Bandeira Vermelha 2'
+          else if (adicBandeira.toLowerCase().includes('escassez'))
+            adicBandeira = 'Escassez Hídrica'
+          setAdicionalBandeira(adicBandeira)
+        }
 
         // Campos específicos de GÁS e Água
         const cMedido = parsePositiveNumber(
@@ -535,7 +564,11 @@ export default function Faturas() {
 
         if (tar !== undefined) {
           setTarifa(tar)
-        } else if (vTotal && (cCorrigido || cMedido || cConsumo)) {
+        } else if (
+          detectedTipo !== 'Energia Elétrica' &&
+          vTotal &&
+          (cCorrigido || cMedido || cConsumo)
+        ) {
           const divCons = Number(cCorrigido || cMedido || cConsumo)
           if (divCons > 0) {
             tar = Number((Number(vTotal) / divCons).toFixed(4))

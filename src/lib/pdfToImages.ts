@@ -84,8 +84,14 @@ export async function convertPdfToImages(
     const context = canvas.getContext('2d')
     if (!context) continue
 
-    canvas.width = Math.floor(viewport.width)
-    canvas.height = Math.floor(viewport.height)
+    const width = Math.floor(viewport.width)
+    const height = Math.floor(viewport.height)
+    canvas.width = width
+    canvas.height = height
+
+    // Pre-fill white background so transparent PDF backgrounds don't render black in JPEG
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, width, height)
 
     await page.render({
       canvasContext: context,
