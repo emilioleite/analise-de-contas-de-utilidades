@@ -534,11 +534,22 @@ export default function Faturas() {
       }
     } catch (err: any) {
       console.warn('Erro na extração IA:', err)
+      const rawErr = err?.message || String(err)
+      let cleanDesc = rawErr
+      if (
+        rawErr.includes('Failed to fetch') ||
+        rawErr.includes('NetworkError') ||
+        rawErr.includes('Load failed')
+      ) {
+        cleanDesc =
+          'Não foi possível conectar ao servidor de extração. Tente novamente ou preencha os campos manualmente.'
+      } else if (!cleanDesc) {
+        cleanDesc = 'Não foi possível concluir a extração. Preencha os campos manualmente.'
+      }
+
       toast({
         title: 'Extração assistida',
-        description:
-          err.message ||
-          'Não foi possível extrair automaticamente. Preencha os campos manualmente.',
+        description: cleanDesc,
         variant: 'destructive',
       })
     } finally {
@@ -2286,6 +2297,106 @@ export default function Faturas() {
                       className="h-8 text-xs"
                       value={tarifaTeFPonta}
                       onChange={(e) => setTarifaTeFPonta(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectedTipo === 'Gás' && (
+              <div className="p-3 rounded-xl bg-teal-50/50 border border-teal-200 space-y-2">
+                <span className="text-[11px] font-bold text-teal-900 block">Gás</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={medicaoAnterior}
+                      onChange={(e) => setMedicaoAnterior(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Medição Atual</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={medicaoAtual}
+                      onChange={(e) => setMedicaoAtual(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Consumo Medido (m³)</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={consumoMedido}
+                      onChange={(e) => setConsumoMedido(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Consumo Corrigido (m³)</Label>
+                    <Input
+                      type="number"
+                      step="0.001"
+                      className="h-8 text-xs"
+                      value={consumoCorrigido}
+                      onChange={(e) => setConsumoCorrigido(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Tarifa (R$/m³)</Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      className="h-8 text-xs"
+                      value={tarifa}
+                      onChange={(e) => setTarifa(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectedTipo === 'Água e Esgoto' && (
+              <div className="p-3 rounded-xl bg-sky-50/50 border border-sky-200 space-y-2">
+                <span className="text-[11px] font-bold text-sky-900 block">Água e Esgoto</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={medicaoAnterior}
+                      onChange={(e) => setMedicaoAnterior(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Medição Atual</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={medicaoAtual}
+                      onChange={(e) => setMedicaoAtual(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Consumo Medido (m³)</Label>
+                    <Input
+                      type="number"
+                      className="h-8 text-xs"
+                      value={consumoMedido}
+                      onChange={(e) => setConsumoMedido(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-gray-700">Tarifa (R$/m³)</Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      className="h-8 text-xs"
+                      value={tarifa}
+                      onChange={(e) => setTarifa(e.target.value)}
                     />
                   </div>
                 </div>

@@ -163,7 +163,7 @@ routerAdd(
       } catch (_) {}
     }
 
-    const systemPrompt = `Você é um extrator especialista de faturas de utilidades brasileiras (Energia Elétrica, Gás e Água).
+    const systemPrompt = `Você é um extrator especialista de faturas de utilidades brasileiras (Energia Elétrica, Gás, Água e Esgoto).
 Analise o documento e extraia todos os campos com precisão absoluta.
 Responda APENAS com um objeto JSON válido, sem texto explicativo, sem blocos de código além do JSON.`
 
@@ -172,30 +172,32 @@ Tipo de utilidade sugerido: "${requestedUtility || 'Detectar da fatura'}".
 
 Campos gerais obrigatórios:
 - tipo_utilidade: "Energia Elétrica" | "Gás" | "Água e Esgoto"
-- competencia: data YYYY-MM-01 (ex: "2026-08-01")
-- competencia_formatada: MM/AAAA (ex: "08/2026")
-- valor_total: número decimal do total a pagar (ex: 4363.05)
+- competencia: data YYYY-MM-01 (ex: "2024-05-01" ou "2026-08-01")
+- competencia_formatada: MM/AAAA (ex: "05/2024" ou "08/2026")
+- valor_total: número decimal do total a pagar (ex: 2143.97 ou 4363.05). ATENÇÃO: em faturas onde o valor aparece com asteriscos decorativos de proteção bancária (ex: "R$ ************2.143,97" ou "R$ 2.143,97"), extraia o valor numérico 2143.97 ignorando os asteriscos!
 - fatura_total: número decimal idêntico a valor_total
-- consumo: número decimal do consumo principal apurado/faturado
+- consumo: número decimal do consumo principal apurado/faturado (m³ para água/gás, kWh para energia)
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número do documento / nota fiscal (ex: "150.238.010")
-- vencimento: data YYYY-MM-DD (ex: "2026-09-08")
-- cnpj_cliente: CNPJ do cliente/titular da unidade (ex Comgás: no quadro superior direito com endereço do cliente, "04.151.776/0001-63")
-- cnpj_fornecedor: CNPJ da distribuidora (ex Comgás: "61.856.571/0006-21", Enel: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80")
+- numero_fatura: número do documento / nota fiscal (ex Sabesp: "SOR202458365156" em No. Documento ou código do fornecimento "58088806001"; ex Comgás: "150.238.010")
+- vencimento: data YYYY-MM-DD (ex: "2024-06-21")
+- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade (ex: "04.151.776/0001-63", se houver na identificação do cliente/endereço)
+- cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Sabesp: "43.776.517/0001-80", Enel: "61.695.227/0001-93", Comgás: "61.856.571/0006-21")
 
-Campos de medição e tarifas (preencha conforme aplicável):
-- medicao_anterior: leitura anterior do medidor/hidrômetro (ex: 431.304 ou 431304)
-- medicao_atual: leitura atual do medidor/hidrômetro (ex: 432.014 ou 432014)
-- consumo_medido: consumo medido (ex Comgás: 710)
-- consumo_corrigido: consumo faturado/corrigido por PTZ (ex Comgás: 682.168)
-- tarifa: tarifa unitária com tributos aplicada (ex Comgás: 6.395871)
+Campos de medição e tarifas:
+- medicao_anterior: leitura anterior do medidor/hidrômetro (ex Sabesp: "Leitura Anterior" = 5564; Comgás: 431304)
+- medicao_atual: leitura atual do medidor/hidrômetro (ex Sabesp: "Leitura Atual" = 5721; Comgás: 432014)
+- consumo_medido: consumo medido em m³ ou kWh (ex Sabesp: "Consumo (M3)" = 157; Comgás: 710)
+- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (ex: 682.168)
+- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido (ex: 2143.97 / 157 = 13.6558).
 
 Para Energia Elétrica:
 - classificacao_consumo: ex "B3 - Comercial"
 - consumo_ponta, consumo_fora_ponta, tarifa_tusd_ponta, tarifa_te_ponta, tarifa_tusd_f_ponta, tarifa_te_f_ponta, adicional_bandeira
 
-Para Água e Esgoto:
-- medicao_anterior, medicao_atual, consumo_medido, tarifa
+Para Água e Esgoto (Sabesp, Sanepar, Copasa):
+- Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
+- Localize o quadro "DISCRIMINAÇÃO DO FATURAMENTO" / "TOTAL" / "VENCIMENTO" (valores como "R$ ************2.143,97" representam R$ 2.143,97).
+- CNPJ Sabesp é sempre 43.776.517/0001-80.
 
 IMPORTANTE: Se um campo estiver visível na imagem/texto, NUNCA retorne null. Extraia os números exatamente como aparecem (usando ponto como separador decimal).
 
@@ -390,8 +392,13 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           } else if (s.includes(',')) {
             // "682,168" ou "6,395871" -> vírgula decimal
             s = s.replace(',', '.')
+          } else if (s.includes('*')) {
+            // Remover eventuais asteriscos residuais
+            s = s.replace(/[\*]+/g, '').trim()
           }
-          const num = Number(s)
+          // Remover qualquer caractere não numérico exceto ponto
+          const cleanedStr = s.replace(/[^0-9.]/g, '')
+          const num = Number(cleanedStr)
           if (isNaN(num) || num <= 0) return null
           return num
         }
@@ -650,11 +657,31 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           parsed.tipo_utilidade = 'Água e Esgoto'
           parsed.unidade_consumo = 'm³'
 
+          // Se a fatura é Sabesp e o CNPJ do fornecedor não veio preenchido, define o CNPJ oficial
+          if (!parsed.cnpj_fornecedor || parsed.cnpj_fornecedor.length < 5) {
+            parsed.cnpj_fornecedor = '43.776.517/0001-80'
+          }
+
           if (parsed.consumo_medido !== undefined && !parsed.consumo) {
             parsed.consumo = parsed.consumo_medido
           }
           if (parsed.consumo !== undefined && !parsed.consumo_medido) {
             parsed.consumo_medido = parsed.consumo
+          }
+
+          // Se temos leitura atual e anterior mas consumo_medido não veio
+          if (
+            (!parsed.consumo_medido || Number(parsed.consumo_medido) === 0) &&
+            parsed.medicao_atual !== undefined &&
+            parsed.medicao_anterior !== undefined &&
+            Number(parsed.medicao_atual) >= Number(parsed.medicao_anterior)
+          ) {
+            parsed.consumo_medido = Number(
+              (Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)).toFixed(3),
+            )
+            if (!parsed.consumo) {
+              parsed.consumo = parsed.consumo_medido
+            }
           }
 
           if (

@@ -69,9 +69,9 @@ export const faturasService = {
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
           scale: 2.0,
-          quality: 0.88,
-          maxWidth: 1800,
-          maxHeight: 2400,
+          quality: 0.85,
+          maxWidth: 1600,
+          maxHeight: 2200,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
@@ -89,16 +89,46 @@ export const faturasService = {
       formData.append('images', JSON.stringify(renderedImages))
     }
 
-    // Call custom hook route /backend/v1/faturas/extract with auth token
+    // Call custom hook route /backend/v1/faturas/extract with auth token and timeout controller
     const token = pb.authStore.token
     const baseUrl = import.meta.env.VITE_POCKETBASE_URL || ''
-    const res = await fetch(`${baseUrl}/backend/v1/faturas/extract`, {
-      method: 'POST',
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-      },
-      body: formData,
-    })
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, 60000) // 60 segundos de timeout para modelos de visão
+
+    let res: Response
+    try {
+      res = await fetch(`${baseUrl}/backend/v1/faturas/extract`, {
+        method: 'POST',
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+        body: formData,
+        signal: controller.signal,
+      })
+    } catch (networkErr: any) {
+      clearTimeout(timeoutId)
+      if (networkErr.name === 'AbortError') {
+        throw new Error(
+          'O processamento da fatura excedeu o tempo limite. Tente novamente ou preencha os campos manualmente.',
+        )
+      }
+      const rawMsg = networkErr?.message || String(networkErr)
+      if (
+        rawMsg.includes('Failed to fetch') ||
+        rawMsg.includes('NetworkError') ||
+        rawMsg.includes('Load failed')
+      ) {
+        throw new Error(
+          'Não foi possível conectar ao serviço de extração. Verifique sua conexão e tente novamente.',
+        )
+      }
+      throw new Error(`Falha na comunicação: ${rawMsg}`)
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}))
