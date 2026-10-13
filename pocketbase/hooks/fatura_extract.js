@@ -144,7 +144,6 @@ Retorne rigorosamente esta estrutura JSON:
       let aiMethodUsed = 'none'
 
       // Prioridade 1: Se o documento gerou texto via $documents.toMarkdown, usar texto direto no $ai.chat
-      // Isso é muito mais rápido, confiável e não consome cota multimodal.
       if (textExtracted && textContent && textContent.trim().length > 20) {
         try {
           const txt = textContent.slice(0, 14000)
@@ -175,8 +174,11 @@ Retorne rigorosamente esta estrutura JSON:
         }
       }
 
-      // Prioridade 2: Se não obteve texto ou se falhou, tentar visão computacional com as imagens (PDF escaneado)
+      // Prioridade 2: Se não obteve texto ou se falhou, tentar visão computacional com as imagens (PDF escaneado / rasterizado)
+      let visionAttempted = false
+      let visionErrorMsg = null
       if (!rawText && pageImages && pageImages.length > 0) {
+        visionAttempted = true
         try {
           const validImages = []
           // Limitar a no máximo 2 páginas principais (a página 1 quase sempre contém todos os dados cruciais)
@@ -200,20 +202,50 @@ Retorne rigorosamente esta estrutura JSON:
                 type: 'image_url',
                 image_url: {
                   url: validImages[i],
+                  detail: 'low',
                 },
               })
             }
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
+              'Tamanho img 1:',
+              validImages[0].length,
             )
-            const aiVisionResponse = $ai.chat({
-              model: 'fast',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: multimodalUserContent },
-              ],
-            })
+
+            let aiVisionResponse = null
+            // Tentativa 1: Modelo fast
+            try {
+              aiVisionResponse = $ai.chat({
+                model: 'fast',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: multimodalUserContent },
+                ],
+              })
+            } catch (fastErr) {
+              console.log(
+                '[fatura_extract] Modelo fast falhou na visão:',
+                fastErr.message || fastErr,
+                'Tentando modelo reasoning...',
+              )
+              // Tentativa 2: Modelo reasoning
+              try {
+                aiVisionResponse = $ai.chat({
+                  model: 'reasoning',
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: multimodalUserContent },
+                  ],
+                })
+              } catch (reasoningErr) {
+                console.log(
+                  '[fatura_extract] Modelo reasoning também falhou na visão:',
+                  reasoningErr.message || reasoningErr,
+                )
+                throw reasoningErr
+              }
+            }
 
             if (
               aiVisionResponse &&
@@ -227,13 +259,21 @@ Retorne rigorosamente esta estrutura JSON:
             }
           }
         } catch (visionErr) {
-          const vMsg = visionErr.message || String(visionErr)
-          console.log('[fatura_extract] Visão falhou:', vMsg)
+          visionErrorMsg = visionErr.message || String(visionErr)
+          console.log('[fatura_extract] Visão falhou:', visionErrorMsg)
         }
       }
 
       // Se ambas as vias falharam
       if (!rawText) {
+        // Se tentou visão computacional e o gateway retornou erro ou não suportou a imagem:
+        if (visionAttempted) {
+          throw new BadRequestError(
+            'Não foi possível extrair os dados visuais desta fatura escaneada no momento. Por favor, preencha os dados manualmente no formulário abaixo ou utilize uma fatura com texto selecionável.',
+          )
+        }
+
+        // Se falhou no toMarkdown e não havia imagens do cliente:
         if (toMarkdownError && toMarkdownError.status === 422) {
           throw new BadRequestError(
             'O documento é uma imagem ou digitalização escaneada sem camada de texto legível. Por favor, envie uma fatura digital com texto selecionável ou preencha os dados manualmente.',
@@ -294,23 +334,29 @@ Retorne rigorosamente esta estrutura JSON:
       const msg = aiErr.message || String(aiErr)
       console.log('[fatura_extract] Erro capturado no handler:', msg)
 
-      // Se já for uma BadRequestError com mensagem amigável criada por nós, repassar diretamente
+      // Se já for uma mensagem limpa em pt-BR criada por nós, repassar diretamente
       if (
         msg.includes('Não foi possível') ||
         msg.includes('Por favor') ||
-        msg.includes('camada de texto')
+        msg.includes('camada de texto') ||
+        msg.includes('escaneada')
       ) {
         throw new BadRequestError(msg)
       }
 
-      // Friendly translation of gateway errors
-      if (msg.includes('skip-ai-gateway') || msg.includes('400')) {
+      // Friendly translation of any gateway or unexpected errors
+      if (
+        msg.includes('skip-ai-gateway') ||
+        msg.includes('400') ||
+        msg.includes('gateway') ||
+        msg.includes('unsupported')
+      ) {
         throw new BadRequestError(
-          'Não foi possível processar a fatura com o assistente de IA no momento. Por favor, preencha os campos manualmente.',
+          'Não foi possível processar a fatura com o assistente de IA no momento. Por favor, preencha os campos manualmente no formulário.',
         )
       }
       throw new BadRequestError(
-        aiErr.message || 'Falha ao processar o documento. Tente novamente ou preencha manualmente.',
+        'Falha ao processar o documento. Você pode preencher os campos manualmente no formulário.',
       )
     }
   },

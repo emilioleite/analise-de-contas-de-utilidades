@@ -68,10 +68,10 @@ export const faturasService = {
         const { convertPdfToImages } = await import('@/lib/pdfToImages')
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
-          scale: 1.2,
-          quality: 0.72,
-          maxWidth: 1200,
-          maxHeight: 1600,
+          scale: 1.0,
+          quality: 0.65,
+          maxWidth: 1000,
+          maxHeight: 1400,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
@@ -103,10 +103,15 @@ export const faturasService = {
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}))
       let errMsg = errJson.message || 'Falha ao extrair dados do documento.'
-      // Clean up raw gateway error bodies if any leaked through
-      if (errMsg.includes('skip-ai-gateway') || errMsg.includes('{"error":{}}')) {
+      // Clean up raw gateway error bodies or developer diagnostics if any leaked through
+      if (
+        errMsg.includes('skip-ai-gateway') ||
+        errMsg.includes('{"error":{}}') ||
+        errMsg.includes('gateway') ||
+        errMsg.includes('400')
+      ) {
         errMsg =
-          'Não foi possível processar a fatura com o assistente de IA. Você pode preencher os campos diretamente na tela.'
+          'Não foi possível processar visualmente os dados desta fatura no momento. Preencha os campos diretamente no formulário abaixo.'
       }
       throw new Error(errMsg)
     }

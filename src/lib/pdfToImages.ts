@@ -62,7 +62,7 @@ export async function convertPdfToImages(
   file: File | Blob,
   options: ConvertPdfToImagesOptions = {},
 ): Promise<string[]> {
-  const { maxPages = 2, scale = 1.2, quality = 0.75, maxWidth = 1200, maxHeight = 1600 } = options
+  const { maxPages = 2, scale = 1.0, quality = 0.65, maxWidth = 1000, maxHeight = 1400 } = options
 
   const pdfjs = await loadPdfJs()
   const arrayBuffer = await file.arrayBuffer()
