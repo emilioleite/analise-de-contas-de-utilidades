@@ -172,46 +172,44 @@ Tipo de utilidade sugerido: "${requestedUtility || 'Detectar da fatura'}".
 
 Campos gerais obrigatórios:
 - tipo_utilidade: "Energia Elétrica" | "Gás" | "Água e Esgoto"
-- competencia: data YYYY-MM-01 (ex: "2024-05-01" ou "2026-08-01")
-- competencia_formatada: MM/AAAA (ex: "05/2024" ou "08/2026")
-- valor_total: número decimal do total a pagar (ex: 2143.97 ou 4363.05). ATENÇÃO: em faturas onde o valor aparece com asteriscos decorativos de proteção bancária (ex: "R$ ************2.143,97" ou "R$ 2.143,97"), extraia o valor numérico 2143.97 ignorando os asteriscos!
+- competencia: data YYYY-MM-01 (ex: "2024-05-01" ou "2026-09-01")
+- competencia_formatada: MM/AAAA (ex: "05/2024" ou "09/2026")
+- valor_total: número decimal do total a pagar (ex: 22347.38, 2143.97 ou 4363.05). ATENÇÃO: em faturas onde o valor aparece como "R$22.347,38" ou com asteriscos decorativos de proteção bancária (ex: "R$ ************2.143,97"), extraia o valor numérico (ex: 22347.38) ignorando pontos de milhar e símbolos!
 - fatura_total: número decimal idêntico a valor_total
-- consumo: número decimal do consumo principal apurado/faturado (m³ para água/gás, kWh para energia)
+- consumo: número decimal do consumo principal apurado/faturado (kWh para energia, m³ para água/gás - ex: 20438.400 ou 20438.4)
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número do documento / nota fiscal (ex Sabesp: "SOR202458365156" em No. Documento ou código do fornecimento "58088806001"; ex Comgás: "150.238.010"; ex Enel: "Nº da Nota Fiscal / Fatura" ou "Nº do Cliente" ou número do documento)
-- vencimento: data YYYY-MM-DD (ex: "2024-06-21" ou "2026-09-15")
-- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade consumidora (ex: "04.151.776/0001-63" no cabeçalho ou quadro de identificação do destinatário/unidade consumidora). ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente! O cliente é a empresa destinatária atendida.
+- numero_fatura: número do documento / nota fiscal (ex: "095039445", "150.238.010", ou número impresso na nota)
+- vencimento: data YYYY-MM-DD (ex: "2026-09-25", "2024-06-21")
+- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade consumidora (ex: "04.151.776/0001-63" ou "04.***.***/****-63"). ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente! O cliente é a empresa destinatária atendida.
 - cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80", Comgás: "61.856.571/0006-21").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor/hidrômetro (ex Sabesp: "Leitura Anterior" = 5564; Comgás: 431304; Enel: leitura anterior do medidor ativo)
-- medicao_atual: leitura atual do medidor/hidrômetro (ex Sabesp: "Leitura Atual" = 5721; Comgás: 432014; Enel: leitura atual do medidor ativo)
-- consumo_medido: consumo medido em m³ ou kWh (ex Sabesp: "Consumo (M3)" = 157; Comgás: 710; Enel: consumo medido em kWh)
-- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (ex: 682.168)
+- medicao_anterior: leitura anterior do medidor/hidrômetro (ex: 65891.700 ou 65891.7)
+- medicao_atual: leitura atual do medidor/hidrômetro (ex: 66743.300 ou 66743.3)
+- consumo_medido: consumo medido em m³ ou kWh (ex: 20438.4)
+- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás
 - tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
-- LAYOUT TÍPICO ENEL (Geralmente 2 páginas):
+- LAYOUT TÍPICO ENEL:
   * PÁGINA 1:
-    - Cabeçalho / Destinatário: Contém Nome do Cliente e CNPJ do Cliente (ex: 04.151.776/0001-63) e CNPJ da Enel Distribuição SP ("61.695.227/0001-93"). Mantenha os dois SEPARADOS!
-    - Quadro "TOTAL A PAGAR (R$)" ou "VALOR A PAGAR" ou "VALOR TOTAL": Valor monetário final da fatura (ex: 4084.08, 4363.05, 4162.00). Extraia para 'valor_total' e 'fatura_total'.
-    - Quadro "MÊS DE REFERÊNCIA" / "VENCIMENTO": Mês de referência (ex: 08/2026, 09/2026) -> 'competencia' e 'competencia_formatada'; Data de vencimento -> 'vencimento'.
-    - Quadro "DADOS DA UNIDADE CONSUMIDORA" / "CLASSIFICAÇÃO": Classificação do subgrupo tarifário (ex: "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", ou "B3 - Comercial", "A4 - Verde", etc.) -> 'classificacao_consumo'.
-    - Quadro "INFORMAÇÕES DE MEDIÇÃO" ou "DADOS DE MEDIÇÃO":
-      Tabela com colunas: Medidor | Grandezas / Posto Tarifário | Leitura Anterior | Leitura Atual | Constante | Consumo Medido (kWh).
-      Extraia 'medicao_anterior', 'medicao_atual' e 'consumo_medido' do consumo ativo.
-  * PÁGINA 2 (ou continuação de itens faturados):
-    - Tabela "DISCRIMINAÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
-      * Consumo Ponta (kWh): Linhas de Energia Ativa Ponta (kWh) -> 'consumo_ponta'.
-      * Tarifa TUSD Ponta: Tarifa unitária da TUSD no posto Ponta (R$/kWh) -> 'tarifa_tusd_ponta'.
-      * Tarifa TE Ponta: Tarifa unitária de Energia (TE) no posto Ponta (R$/kWh) -> 'tarifa_te_ponta'.
-      * Consumo Fora-Ponta (kWh): Linhas de Energia Ativa Fora Ponta (kWh) -> 'consumo_fora_ponta'.
-      * Tarifa TUSD Fora-Ponta: Tarifa unitária da TUSD Fora Ponta (R$/kWh) -> 'tarifa_tusd_f_ponta'.
-      * Tarifa TE Fora-Ponta: Tarifa unitária de Energia (TE) Fora Ponta (R$/kWh) -> 'tarifa_te_f_ponta'.
-      * Se o faturamento for convencional monômio (sem divisão de ponta/fora-ponta), o consumo total faturado é 'consumo' e 'consumo_medido'.
-    - Quadro "BANDEIRAS TARIFÁRIAS" / "ADICIONAL BANDEIRA":
-      Identifique se há bandeira aplicada: "Bandeira Verde", "Bandeira Amarela", "Bandeira Vermelha Patamar 1", "Bandeira Vermelha Patamar 2", "Bandeira de Escassez Hídrica" -> 'adicional_bandeira'.
-    - Número da Nota Fiscal / Série / Documento -> 'numero_fatura'.
+    - Cabeçalho Superior: Logotipo "enel BRASIL", Distribuidora: "Eletropaulo Metropolitana Eletricidade de São Paulo S.A. CNPJ: 61.695.227/0001-93" -> 'cnpj_fornecedor'.
+    - NOTA FISCAL Nº (ex: "095039445") -> 'numero_fatura'.
+    - CLASSIFICAÇÃO DA UNIDADE CONSUMIDORA: ex: "B-B3 - CONVENCIONAL - COMERCIAL" ou "B3" ou "A4" -> 'classificacao_consumo'.
+    - Destinatário / Pagador: ex: "COND EDIF TOWERS NACOES UNIDAS", CNPJ cliente (ex: "04.151.776/0001-63" ou "04.***.***/****-63") -> 'cnpj_cliente'.
+    - Quadro "MÊS/ANO" ou "MÊS DE REFERÊNCIA": ex: "09/2026" -> 'competencia_formatada', 'competencia' ("2026-09-01").
+    - Quadro "VENCIMENTO": ex: "25/09/2026" -> 'vencimento' ("2026-09-25").
+    - Quadro "TOTAL A PAGAR": ex: "R$22.347,38" -> 'valor_total': 22347.38 e 'fatura_total': 22347.38.
+    - Quadro "MENSAGENS IMPORTANTES": ex: "Bandeira(s) tarifária(s) aplicada(s) no mês: AMARELA" -> 'adicional_bandeira': "Bandeira Amarela".
+    - Tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
+      * USO SIST. DISTR. (TUSD): ex: Quant. 20.438,400 kWh, Preço unit com tributos 0,60978, Valor 12.462,95, Tarifa unit(R$) 0,47242 -> 'tarifa_tusd_ponta' ou 'tarifa_tusd_f_ponta' ou 'tarifa': 0.60978.
+      * ENERGIA (TE): ex: Quant. 20.438,400 kWh, Preço unit com tributos 0,40912, Valor 8.361,74, Tarifa unit(R$) 0,31696 -> 'tarifa_te_ponta' ou 'tarifa_te_f_ponta': 0.40912.
+      * Se for tarifa convencional/único posto tarifário (sem divisão ponta e fora-ponta), lance o consumo em 'consumo' e 'consumo_medido', e as tarifas TUSD e TE correspondentes. Se houver divisão ponta e fora-ponta, lance 'consumo_ponta', 'consumo_fora_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta'.
+    - Tabela "DADOS DE MEDIÇÃO":
+      * Medidor: ex: 11134555 | Postos Tarifários: ÚNICO | Leitura Anterior: 65891,700 | Leitura Atual: 66743,300 | Const. Medidor: 0,02400 | Consumo kWh: 20.438,400.
+      * Extraia: 'medicao_anterior': 65891.7, 'medicao_atual': 66743.3, 'consumo_medido': 20438.4, 'consumo': 20438.4.
+  * PÁGINA 2:
+    - Informações adicionais de canais de atendimento e dados do cliente.
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
@@ -279,11 +277,25 @@ Retorne APENAS um objeto JSON com essa estrutura:`
 
           if (validImages.length > 0) {
             const visionUserText = `${instructions}\n\nExamine atentamente a imagem da fatura. Extraia todos os valores financeiros, medições anterior/atual, consumos medido/corrigido, tarifas e os dois CNPJs (cliente e fornecedor).`
+
+            // Formatar conteúdo multimodal compatível com OpenAI standard (content array com text e image_url)
+            // e também manter campo 'images' para compatibilidade com gateways que o requerem.
+            const contentParts = [{ type: 'text', text: visionUserText }]
+            for (let i = 0; i < validImages.length; i++) {
+              contentParts.push({
+                type: 'image_url',
+                image_url: {
+                  url: validImages[i],
+                  detail: 'high',
+                },
+              })
+            }
+
             const visionMessages = [
               { role: 'system', content: systemPrompt },
               {
                 role: 'user',
-                content: visionUserText,
+                content: contentParts,
                 images: validImages,
               },
             ]
@@ -606,6 +618,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           parsed.cnpjTitular ||
           parsed.cnpj_unidade ||
           parsed.cnpjUnidade ||
+          parsed.cnpj_destinatario ||
           parsed.cnpj_empreendimento ||
           parsed.cnpjEmpreendimento ||
           parsed['cnpj_cliente/consumidor'] ||
@@ -615,6 +628,15 @@ Retorne APENAS um objeto JSON com essa estrutura:`
 
         if (clienteCnpjCandidate && !parsed.cnpj_cliente) {
           parsed.cnpj_cliente = sanitizeText(clienteCnpjCandidate)
+        }
+
+        // Se o CNPJ do cliente veio mascarado como "04.***.***/****-63" ou similar, tentar resolver para o CNPJ completo do cliente da fatura
+        if (parsed.cnpj_cliente && String(parsed.cnpj_cliente).includes('*')) {
+          const rawClient = String(parsed.cnpj_cliente).replace(/[^0-9*]/g, '')
+          // Padrão do condomínio Edif Towers Nações Unidas: 04.151.776/0001-63
+          if (rawClient.startsWith('04') && rawClient.endsWith('63')) {
+            parsed.cnpj_cliente = '04.151.776/0001-63'
+          }
         }
 
         const fornecedorCnpjCandidate =

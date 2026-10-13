@@ -60,18 +60,40 @@ export const faturasService = {
     const ext = fileName.toLowerCase().split('.').pop()
 
     let renderedImages: string[] = []
+    let clientExtractedText = ''
 
-    // If PDF, render high-clarity images of main pages for vision fallback
+    // If PDF, extract client-side text if selectable and render high-clarity images of main pages for vision fallback
     if (ext === 'pdf') {
       try {
         if (onProgress) onProgress('Otimizando documento para extração...')
-        const { convertPdfToImages } = await import('@/lib/pdfToImages')
+        const { loadPdfJs, convertPdfToImages } = await import('@/lib/pdfToImages')
+
+        // Tentativa de ler texto pelo PDF.js (caso disponível e não corrompido)
+        try {
+          const pdfjs = await loadPdfJs()
+          const arrayBuffer = await file.arrayBuffer()
+          const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise
+          let fullPdfText = ''
+          const maxP = Math.min(pdfDoc.numPages, 3)
+          for (let p = 1; p <= maxP; p++) {
+            const page = await pdfDoc.getPage(p)
+            const textContent = await page.getTextContent()
+            const pageStrings = textContent.items.map((item: any) => item.str || '').join(' ')
+            fullPdfText += `\n--- PÁGINA ${p} ---\n` + pageStrings
+          }
+          if (fullPdfText && fullPdfText.trim().length > 30) {
+            clientExtractedText = fullPdfText.trim()
+          }
+        } catch (textReadErr) {
+          console.warn('Não foi possível extrair texto do PDF via pdf.js:', textReadErr)
+        }
+
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
           scale: 2.2,
-          quality: 0.88,
-          maxWidth: 1800,
-          maxHeight: 2400,
+          quality: 0.92,
+          maxWidth: 2200,
+          maxHeight: 3000,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
@@ -84,6 +106,9 @@ export const faturasService = {
     formData.append('arquivo', file)
     if (tipoUtilidade) {
       formData.append('tipo_utilidade', tipoUtilidade)
+    }
+    if (clientExtractedText) {
+      formData.append('client_text', clientExtractedText)
     }
     if (renderedImages.length > 0) {
       formData.append('images', JSON.stringify(renderedImages))

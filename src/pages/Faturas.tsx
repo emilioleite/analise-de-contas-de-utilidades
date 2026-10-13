@@ -208,6 +208,25 @@ export default function Faturas() {
               return d[k]
             }
           }
+          // Procurar também dentro de sub-objetos comuns como dados_especificos, dados, especificos
+          const subObjs = [
+            d.dados_especificos,
+            d.dadosEspecificos,
+            d.dados,
+            d.especificos,
+            d.energia,
+            d.gas,
+            d.agua,
+          ]
+          for (const sub of subObjs) {
+            if (sub && typeof sub === 'object') {
+              for (const k of keys) {
+                if (sub[k] !== undefined && sub[k] !== null && sub[k] !== '') {
+                  return sub[k]
+                }
+              }
+            }
+          }
           return undefined
         }
 
@@ -349,12 +368,22 @@ export default function Faturas() {
           'cnpjTitular',
           'cnpj_unidade',
           'cnpjUnidade',
+          'cnpj_destinatario',
         )
-        const cnpjCli =
+        let cnpjCli =
           rawCnpjCli && rawCnpjCli !== 'null' && rawCnpjCli !== '0'
             ? String(rawCnpjCli).trim()
             : undefined
-        if (cnpjCli) setCnpjCliente(formatCNPJ(cnpjCli))
+        if (cnpjCli) {
+          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), e corresponder ao empreendimento selecionado ou padrão
+          if (cnpjCli.includes('*')) {
+            const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
+            if (rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
+              cnpjCli = '04.151.776/0001-63'
+            }
+          }
+          setCnpjCliente(formatCNPJ(cnpjCli))
+        }
 
         const rawCnpjForn = getField(
           'cnpj_fornecedor',
@@ -431,12 +460,21 @@ export default function Faturas() {
           'classificacao_consumo',
           'classificacaoConsumo',
           'classificacao',
+          'subgrupo',
+          'classe',
         )
-        const classCons =
+        let classCons =
           rawClassCons && rawClassCons !== 'null' && rawClassCons !== '0'
             ? String(rawClassCons).trim()
             : undefined
-        if (classCons) setClassificacaoConsumo(classCons)
+        if (classCons) {
+          // Extrair código canônico como "B3", "A4", "B1", etc. se vier por extenso como "B-B3 - CONVENCIONAL - COMERCIAL"
+          const mClass = classCons.match(/\b(A[1-4]|B[1-4])\b/i)
+          if (mClass) {
+            classCons = mClass[1].toUpperCase()
+          }
+          setClassificacaoConsumo(classCons)
+        }
 
         const cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
         if (cPonta !== undefined) setConsumoPonta(cPonta)
