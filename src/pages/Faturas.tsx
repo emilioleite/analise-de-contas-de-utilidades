@@ -247,10 +247,22 @@ export default function Faturas() {
           return !s || s === 'null' || s === 'undefined' || s.includes('1900')
         }
 
-        // Helper para valores numéricos: 0 ou valores não-positivos são sentinelas/ausentes
+        // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871") e ponto de milhar ("431.304")
         const parsePositiveNumber = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
-          const n = Number(val)
+          if (typeof val === 'number') {
+            return isNaN(val) || val <= 0 ? undefined : val
+          }
+          let s = String(val)
+            .trim()
+            .replace(/^R\$\s*/i, '')
+          if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
+          if (s.includes(',') && s.includes('.')) {
+            s = s.replace(/\./g, '').replace(',', '.')
+          } else if (s.includes(',')) {
+            s = s.replace(',', '.')
+          }
+          const n = Number(s)
           if (isNaN(n) || n <= 0) return undefined
           return n
         }

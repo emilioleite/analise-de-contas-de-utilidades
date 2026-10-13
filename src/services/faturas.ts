@@ -61,17 +61,17 @@ export const faturasService = {
 
     let renderedImages: string[] = []
 
-    // If PDF, render optimized images of main pages (up to 2 pages, compressed) for vision fallback
+    // If PDF, render high-clarity images of main pages for vision fallback
     if (ext === 'pdf') {
       try {
         if (onProgress) onProgress('Otimizando documento para extração...')
         const { convertPdfToImages } = await import('@/lib/pdfToImages')
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
-          scale: 1.5,
-          quality: 0.82,
-          maxWidth: 1600,
-          maxHeight: 2200,
+          scale: 2.0,
+          quality: 0.88,
+          maxWidth: 1800,
+          maxHeight: 2400,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)

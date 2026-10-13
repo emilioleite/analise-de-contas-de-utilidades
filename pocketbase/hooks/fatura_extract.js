@@ -187,7 +187,22 @@ routerAdd(
     const systemPrompt = `Você é um extrator de dados especialista e ultra-preciso para faturas de utilidades brasileiras (Energia Elétrica como Enel/CPFL/Light/Cemig, Gás Canalizado como Comgás/Naturgy, e Água e Esgoto como Sabesp/Sanepar/Copasa).
 Você analisa faturas digitais e escaneadas com máxima atenção a números decimais, datas de medição, leituras de hidrômetro/medidor, volumes faturados e valores totais.
 Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.
-REGRA ABSOLUTA DE AUSÊNCIA DE DADOS: Se um campo não estiver presente ou não for legível no documento, retorne null. NUNCA utilize valores sentinelas como "1900-01-01", datas do ano 1900, "01/1900", strings vazias "" ou o número 0 para representar valores desconhecidos ou ausentes.`
+IMPORTANTE: Localize e extraia os dados REAIS presentes na imagem ou texto do documento. Preencha todos os campos que conseguir identificar. Apenas se um campo realmente não existir ou estiver ilegível utilize null (nunca sentinelas como "1900-01-01" ou 0 para valores ausentes).
+
+LAYOUT ESPECÍFICO COMGÁS (Gás Natural Canalizado):
+- A fatura da Comgás possui no topo o logo 'comgás' e o CNPJ da distribuidora Comgás: 61.856.571/0006-21 (ou 61.856.571/0001-17).
+- Tipo de utilidade: "Gás".
+- "Valor a pagar (R$)" ou valor total: destaque no quadro superior direito e no boleto (ex: R$ 4.363,05 -> 4363.05).
+- "Data de apresentação" ou data de emissão/leitura: ex: 17.08.2026 -> competência "08/2026" ("2026-08-01").
+- "Vencimento": data de vencimento destacada no quadro da fatura (ex: 08.09.2026 -> "2026-09-08").
+- Número da fatura / conta: número no topo (ex: 150.238.010).
+- Quadro "Consumo e tarifas" e "Detalhamento do consumo":
+  * Leitura Anterior (ex: 431.304 -> 431.304)
+  * Leitura Atual (ex: 432.014 -> 432.014)
+  * Consumo Medido em m³ (ex: 710 -> 710)
+  * Consumo Corrigido / Faturado em m³ (ex: 682,168 -> 682.168)
+  * Tarifa aplicada com tributos / m³ (ex: 6,395871 -> 6.395871)
+Se a imagem da fatura contiver estes dados característicos da Comgás, extraia-os fielmente.`
 
     const instructions = `Analise a fatura anexada (arquivo "${fileName}").
 Tipo de utilidade sugerido: "${requestedUtility || 'Detectar automaticamente da fatura'}".
@@ -349,7 +364,7 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
             // No gateway skip-ai-gateway:
             // 1. O campo `content` de mensagens de usuário DEVE ser uma string (arrays tipo OpenAI [{type:'text'}, {type:'image_url'}] são rejeitados com 400).
             // 2. Imagens são enviadas no array `images` dentro do objeto da mensagem do usuário: `images: [dataUrl]`.
-            const visionUserText = `${instructions}\n\nAnalise visualmente com extremo cuidado e atenção as ${validImages.length} página(s) da fatura em anexo. Localize no documento:\n- Competência/mês de referência (ex: MM/AAAA)\n- Valor total a pagar (R$)\n- Leituras/Medições do medidor (Anterior e Atual)\n- Consumo apurado/medido e faturado/corrigido\n- Tarifa aplicada por unidade\n- Número da fatura/nota fiscal\n- CNPJ da distribuidora/emissor e vencimento\n\nATENÇÃO: Extraia com extrema precisão os valores reais impressos no documento. Se um campo não estiver presente ou não for legível, utilize null (NUNCA utilize sentinelas como 0 ou "1900-01-01"). Retorne rigorosamente o objeto JSON estruturado.`
+            const visionUserText = `${instructions}\n\nExamine a imagem da fatura em anexo. Extraia todos os dados visíveis no documento:\n- Tipo de utilidade (Energia Elétrica, Gás ou Água e Esgoto)\n- Competência / mês de referência (ex: MM/AAAA ou YYYY-MM-01)\n- Valor total a pagar (R$)\n- Consumo faturado / apurado\n- Medição anterior e medição atual do medidor\n- Consumo medido e consumo corrigido (para faturas de gás)\n- Tarifa unitária por unidade de consumo\n- Número da fatura / nota fiscal\n- CNPJ da distribuidora / fornecedora\n- Data de vencimento\n\nRetorne o JSON preenchido com todos os valores numéricos e textuais identificados na imagem da conta. Se algum campo específico não constar no documento, use null.`
             const visionMessages = [
               { role: 'system', content: systemPrompt },
               {
@@ -365,24 +380,25 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
             )
 
             let aiVisionResponse = null
-            // Tentativa 1: Modelo fast
+            // Para visão multimodal em faturas detalhadas ou escaneadas, usar preferencialmente modelo reasoning (maior capacidade visual de leitura de tabelas/números pequenos) com fallback para fast
             try {
-              aiVisionResponse = callAiChat('fast', visionMessages)
-            } catch (fastErr) {
+              aiVisionResponse = callAiChat('reasoning', visionMessages)
+              console.log('[fatura_extract] Modelo reasoning respondeu na visão.')
+            } catch (reasoningErr) {
               console.log(
-                '[fatura_extract] Modelo fast falhou na visão:',
-                fastErr.message || fastErr,
-                'Tentando modelo reasoning...',
+                '[fatura_extract] Modelo reasoning falhou na visão:',
+                reasoningErr.message || reasoningErr,
+                'Tentando modelo fast...',
               )
-              // Tentativa 2: Modelo reasoning
               try {
-                aiVisionResponse = callAiChat('reasoning', visionMessages)
-              } catch (reasoningErr) {
+                aiVisionResponse = callAiChat('fast', visionMessages)
+                console.log('[fatura_extract] Modelo fast respondeu na visão.')
+              } catch (fastErr) {
                 console.log(
-                  '[fatura_extract] Modelo reasoning também falhou na visão:',
-                  reasoningErr.message || reasoningErr,
+                  '[fatura_extract] Modelo fast também falhou na visão:',
+                  fastErr.message || fastErr,
                 )
-                throw reasoningErr
+                throw fastErr
               }
             }
 
@@ -463,12 +479,41 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
 
       // Normalizações específicas para faturas brasileiras
       if (parsed && typeof parsed === 'object') {
-        // Normalizar chaves se vierem aninhadas (ex: parsed.dados ou parsed.fields ou camelCase)
+        // Desembrulhar se vier aninhado em sub-objetos comuns
         if (parsed.dados && typeof parsed.dados === 'object' && !parsed.tipo_utilidade) {
           parsed = Object.assign({}, parsed.dados, parsed)
         }
+        if (parsed.fatura && typeof parsed.fatura === 'object' && !parsed.tipo_utilidade) {
+          parsed = Object.assign({}, parsed.fatura, parsed)
+        }
+        if (parsed.data && typeof parsed.data === 'object' && !parsed.tipo_utilidade) {
+          parsed = Object.assign({}, parsed.data, parsed)
+        }
 
-        // Sanitização de valores-sentinela ("1900-01-01", datas de ano 1900, strings vazias, e zeros em campos numéricos/essenciais)
+        // Sanitização e parsing robusto para valores numéricos brasileiros (suporta vírgula decimal "682,168" e ponto de milhar "431.304")
+        function parseBrazilianNumber(val) {
+          if (val === undefined || val === null || val === '') return null
+          if (typeof val === 'number') {
+            return isNaN(val) || val <= 0 ? null : val
+          }
+          let s = String(val).trim()
+          if (!s || s === 'null' || s === 'undefined' || s === '0') return null
+          // Limpar símbolo de moeda R$, espaços, etc.
+          s = s.replace(/^R\$\s*/i, '').trim()
+          // Tratar padrões como "4.363,05" ou "682,168" ou "431.304" ou "6,395871"
+          if (s.includes(',') && s.includes('.')) {
+            // "4.363,05" -> remove ponto de milhar, substitui vírgula por ponto
+            s = s.replace(/\./g, '').replace(',', '.')
+          } else if (s.includes(',')) {
+            // "682,168" ou "6,395871" -> vírgula decimal
+            s = s.replace(',', '.')
+          }
+          const num = Number(s)
+          if (isNaN(num) || num <= 0) return null
+          return num
+        }
+
+        // Sanitização de valores-sentinela ("1900-01-01", datas de ano 1900, strings vazias)
         function isSentinelDate(val) {
           if (!val) return true
           const s = String(val).trim()
@@ -478,10 +523,7 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
         }
 
         function sanitizeNumeric(val) {
-          if (val === undefined || val === null || val === '') return null
-          const num = Number(val)
-          if (isNaN(num) || num <= 0) return null
-          return num
+          return parseBrazilianNumber(val)
         }
 
         function sanitizeText(val) {
