@@ -93,10 +93,10 @@ export const faturasService = {
         // Renderizar imagens de páginas com limites adequados de dimensão e tamanho para LLMs multimodais
         renderedImages = await convertPdfToImages(file, {
           maxPages: 2,
-          scale: 1.8,
-          quality: 0.85,
-          maxWidth: 1600,
-          maxHeight: 2200,
+          scale: 1.6,
+          quality: 0.8,
+          maxWidth: 1400,
+          maxHeight: 1900,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)

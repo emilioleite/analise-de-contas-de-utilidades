@@ -227,6 +227,81 @@ IMPORTANTE: Se um campo estiver visível na imagem/texto, NUNCA retorne null. Ex
 
 Retorne APENAS um objeto JSON com essa estrutura:`
 
+    // Função para verificar se a resposta é válida (não é lixo DSML, não é vazia, contém JSON válido com números)
+    function validateAndExtractJson(textResp) {
+      if (!textResp || typeof textResp !== 'string') return null
+      const raw = textResp.trim()
+      // Defesa anti-DSML / shell tool-call leakage
+      if (
+        raw.includes('DSML') ||
+        raw.includes('<｜') ||
+        raw.includes('tool_calls') ||
+        raw.includes('/tmp/')
+      ) {
+        console.log(
+          '[fatura_extract] Resposta da IA continha markup inválido (DSML/tool_call). Rejeitando.',
+        )
+        return null
+      }
+
+      let t = raw
+      if (t.startsWith('```json')) t = t.substring(7)
+      else if (t.startsWith('```')) t = t.substring(3)
+      if (t.endsWith('```')) t = t.substring(0, t.length - 3)
+      t = t.trim()
+
+      let obj = null
+      try {
+        obj = JSON.parse(t)
+      } catch (_) {
+        const m = t.match(/\{[\s\S]*\}/)
+        if (m) {
+          try {
+            obj = JSON.parse(m[0])
+          } catch (_) {}
+        }
+      }
+      if (!obj || typeof obj !== 'object') return null
+      return obj
+    }
+
+    function checkHasRealValues(obj) {
+      if (!obj || typeof obj !== 'object') return false
+      const merged = Object.assign({}, obj.dados, obj.fatura, obj.data, obj)
+
+      function hasPositive(v) {
+        if (v === undefined || v === null || v === '' || v === 'null') return false
+        if (typeof v === 'number') return v > 0
+        let s = String(v)
+          .replace(/^R\$\s*/i, '')
+          .trim()
+        if (s.includes('*')) s = s.replace(/[\*]+/g, '').trim()
+        if (s.includes(',') && s.includes('.')) {
+          s = s.replace(/\./g, '').replace(',', '.')
+        } else if (s.includes(',')) {
+          s = s.replace(',', '.')
+        }
+        const num = Number(s.replace(/[^0-9.]/g, ''))
+        return !isNaN(num) && num > 0
+      }
+
+      return (
+        hasPositive(merged.valor_total) ||
+        hasPositive(merged.valorTotal) ||
+        hasPositive(merged.fatura_total) ||
+        hasPositive(merged.faturaTotal) ||
+        hasPositive(merged.consumo) ||
+        hasPositive(merged.consumo_medido) ||
+        hasPositive(merged.consumoMedido) ||
+        hasPositive(merged.consumo_ponta) ||
+        hasPositive(merged.consumo_fora_ponta) ||
+        hasPositive(merged.medicao_anterior) ||
+        hasPositive(merged.medicao_atual) ||
+        hasPositive(merged.tarifa) ||
+        hasPositive(merged.tarifa_tusd_ponta)
+      )
+    }
+
     try {
       let rawText = ''
       let aiMethodUsed = 'none'
@@ -258,9 +333,15 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             aiTextResponse.choices[0] &&
             aiTextResponse.choices[0].message
           ) {
-            rawText = aiTextResponse.choices[0].message.content || ''
-            aiMethodUsed = 'document_text'
-            console.log('[fatura_extract] Sucesso na extração por texto.')
+            const candidateContent = aiTextResponse.choices[0].message.content || ''
+            const parsedCandidate = validateAndExtractJson(candidateContent)
+            if (parsedCandidate && checkHasRealValues(parsedCandidate)) {
+              rawText = candidateContent
+              aiMethodUsed = 'document_text'
+              console.log('[fatura_extract] Sucesso na extração por texto.')
+            } else {
+              console.log('[fatura_extract] Extração por texto não gerou dados válidos.')
+            }
           }
         } catch (textErr) {
           console.log('[fatura_extract] Extração por texto falhou:', textErr.message || textErr)
@@ -277,7 +358,10 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           const maxPages = Math.min(pageImages.length, 2)
           for (let i = 0; i < maxPages; i++) {
             const imgUrl = pageImages[i]
-            if (typeof imgUrl === 'string' && imgUrl.startsWith('data:image/')) {
+            if (
+              typeof imgUrl === 'string' &&
+              (imgUrl.startsWith('data:image/') || imgUrl.length > 100)
+            ) {
               validImages.push(imgUrl)
             }
           }
@@ -285,131 +369,98 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           if (validImages.length > 0) {
             const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado)\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' (TUSD, TE, tarifas unitárias com tributos)\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo, Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
 
-            // Formatar conteúdo multimodal no padrão OpenAI
-            const contentParts = [{ type: 'text', text: visionUserText }]
-            for (let i = 0; i < validImages.length; i++) {
-              contentParts.push({
-                type: 'image_url',
-                image_url: {
-                  url: validImages[i],
-                  detail: 'high',
-                },
-              })
-            }
-
-            const visionMessages = [
-              { role: 'system', content: systemPrompt },
-              {
-                role: 'user',
-                content: contentParts,
-              },
-            ]
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
               'Tamanho img 1:',
               validImages[0].length,
             )
 
-            function checkHasRealValues(textResp) {
-              if (!textResp || typeof textResp !== 'string') return false
-              let t = textResp.trim()
-              if (t.startsWith('```json')) t = t.substring(7)
-              else if (t.startsWith('```')) t = t.substring(3)
-              if (t.endsWith('```')) t = t.substring(0, t.length - 3)
-              t = t.trim()
+            // Formatar duas estruturas de mensagens:
+            // 1. Formato A (Top-level images array - aceito nativamente pelo gateway Ollama/vLLM backend)
+            // Extrair apenas o base64 puro caso a string tenha prefixo data:image/...
+            const base64Images = validImages.map((img) => {
+              const commaIdx = img.indexOf(',')
+              return commaIdx !== -1 ? img.substring(commaIdx + 1) : img
+            })
 
-              let obj = null
+            const visionMessagesTopArray = [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: visionUserText,
+                images: base64Images,
+              },
+            ]
+
+            // 2. Formato B (OpenAI content parts fallback)
+            const contentParts = [{ type: 'text', text: visionUserText }]
+            for (let i = 0; i < validImages.length; i++) {
+              contentParts.push({
+                type: 'image_url',
+                image_url: {
+                  url: validImages[i],
+                },
+              })
+            }
+            const visionMessagesOpenAi = [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: contentParts,
+              },
+            ]
+
+            // Função interna para tentar chamada de visão com os formatos disponíveis
+            function tryCallVision(modelAlias) {
+              // Tenta Formato 1: images array no user message
               try {
-                obj = JSON.parse(t)
-              } catch (_) {
-                const m = t.match(/\{[\s\S]*\}/)
-                if (m) {
-                  try {
-                    obj = JSON.parse(m[0])
-                  } catch (_) {}
+                const res = callAiChat(modelAlias, visionMessagesTopArray)
+                if (res?.choices?.[0]?.message?.content) {
+                  return res
                 }
-              }
-              if (!obj || typeof obj !== 'object') return false
-              const merged = Object.assign({}, obj.dados, obj.fatura, obj.data, obj)
-
-              function hasPositive(v) {
-                if (v === undefined || v === null || v === '' || v === 'null') return false
-                if (typeof v === 'number') return v > 0
-                let s = String(v)
-                  .replace(/^R\$\s*/i, '')
-                  .trim()
-                if (s.includes('*')) s = s.replace(/[\*]+/g, '').trim()
-                if (s.includes(',') && s.includes('.')) {
-                  s = s.replace(/\./g, '').replace(',', '.')
-                } else if (s.includes(',')) {
-                  s = s.replace(',', '.')
-                }
-                const num = Number(s.replace(/[^0-9.]/g, ''))
-                return !isNaN(num) && num > 0
+              } catch (fmt1Err) {
+                console.log(
+                  `[fatura_extract] Modelo ${modelAlias} formato images array falhou (${fmt1Err.message || fmt1Err}). Tentando formato image_url...`,
+                )
               }
 
-              return (
-                hasPositive(merged.valor_total) ||
-                hasPositive(merged.valorTotal) ||
-                hasPositive(merged.fatura_total) ||
-                hasPositive(merged.faturaTotal) ||
-                hasPositive(merged.consumo) ||
-                hasPositive(merged.consumo_medido) ||
-                hasPositive(merged.consumoMedido) ||
-                hasPositive(merged.consumo_ponta) ||
-                hasPositive(merged.consumo_fora_ponta) ||
-                hasPositive(merged.medicao_anterior) ||
-                hasPositive(merged.medicao_atual) ||
-                hasPositive(merged.tarifa) ||
-                hasPositive(merged.tarifa_tusd_ponta)
-              )
+              // Tenta Formato 2: content array image_url
+              return callAiChat(modelAlias, visionMessagesOpenAi)
             }
 
-            // Ordem multimodal: testar modelo reasoning e modelo fast
             let aiVisionResponse = null
-            let primaryModel = 'reasoning'
-            let fallbackModel = 'fast'
+            // Prioridade de modelo: fast primeiro para visão rápida, reasoning como fallback ou vice-versa
+            const modelsToTry = ['fast', 'reasoning']
 
-            try {
-              aiVisionResponse = callAiChat(primaryModel, visionMessages)
-              console.log(`[fatura_extract] Modelo ${primaryModel} respondeu na visão.`)
-              const primaryContent = aiVisionResponse?.choices?.[0]?.message?.content || ''
-              if (!checkHasRealValues(primaryContent)) {
-                console.log(
-                  `[fatura_extract] Modelo ${primaryModel} retornou valores nulos na visão. Tentando modelo alternativo ${fallbackModel}...`,
-                )
-                try {
-                  const fallbackResp = callAiChat(fallbackModel, visionMessages)
-                  console.log(`[fatura_extract] Modelo ${fallbackModel} respondeu na visão.`)
-                  const fallbackContent = fallbackResp?.choices?.[0]?.message?.content || ''
-                  if (checkHasRealValues(fallbackContent)) {
-                    console.log(
-                      `[fatura_extract] Modelo ${fallbackModel} obteve dados melhores na visão!`,
-                    )
-                    aiVisionResponse = fallbackResp
-                  }
-                } catch (fbErr) {
-                  console.log(
-                    `[fatura_extract] Modelo ${fallbackModel} falhou no fallback:`,
-                    fbErr.message || fbErr,
-                  )
-                }
-              }
-            } catch (reasoningErr) {
-              console.log(
-                `[fatura_extract] Modelo ${primaryModel} falhou na visão:`,
-                reasoningErr.message || reasoningErr,
-                `Tentando modelo ${fallbackModel}...`,
-              )
+            for (const modelAlias of modelsToTry) {
               try {
-                aiVisionResponse = callAiChat(fallbackModel, visionMessages)
-                console.log(`[fatura_extract] Modelo ${fallbackModel} respondeu na visão.`)
-              } catch (fastErr) {
+                console.log(`[fatura_extract] Chamando visão com modelo ${modelAlias}...`)
+                const resp = tryCallVision(modelAlias)
+                const content = resp?.choices?.[0]?.message?.content || ''
                 console.log(
-                  `[fatura_extract] Modelo ${fallbackModel} também falhou na visão:`,
-                  fastErr.message || fastErr,
+                  `[fatura_extract] Modelo ${modelAlias} respondeu na visão (${content.length} caracteres).`,
                 )
-                throw fastErr
+
+                const parsed = validateAndExtractJson(content)
+                if (parsed && checkHasRealValues(parsed)) {
+                  console.log(
+                    `[fatura_extract] Modelo ${modelAlias} retornou dados válidos de fatura!`,
+                  )
+                  aiVisionResponse = resp
+                  break
+                } else {
+                  console.log(
+                    `[fatura_extract] Modelo ${modelAlias} retornou resposta vazia ou sem valores reais.`,
+                  )
+                  if (!aiVisionResponse && parsed) {
+                    aiVisionResponse = resp // salva como fallback se nenhum outro der certo
+                  }
+                }
+              } catch (modelErr) {
+                console.log(
+                  `[fatura_extract] Modelo ${modelAlias} falhou completamente na visão:`,
+                  modelErr.message || modelErr,
+                )
               }
             }
 
@@ -653,9 +704,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           if (rawClient.startsWith('04') && rawClient.endsWith('63')) {
             parsed.cnpj_cliente = '04.151.776/0001-63'
           }
-        } else if (!parsed.cnpj_cliente && (fileName.toLowerCase().includes('enel') || isEnergia)) {
-          // Se for fatura da Enel e o cliente não tiver sido resolvido
-          parsed.cnpj_cliente = '04.151.776/0001-63'
         }
 
         const fornecedorCnpjCandidate =
@@ -857,6 +905,14 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             parsed.cnpj_fornecedor = '61.695.227/0001-93'
           }
 
+          // Se for Enel e o CNPJ do cliente não veio
+          if (
+            !parsed.cnpj_cliente &&
+            (fileName.toLowerCase().includes('enel') || rawTipo.includes('enel'))
+          ) {
+            parsed.cnpj_cliente = '04.151.776/0001-63'
+          }
+
           // Se tiver medição anterior e atual mas não consumo_medido
           if (
             (!parsed.consumo_medido || Number(parsed.consumo_medido) === 0) &&
@@ -864,7 +920,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             parsed.medicao_anterior !== undefined &&
             Number(parsed.medicao_atual) >= Number(parsed.medicao_anterior)
           ) {
-            // Se a diferença for ~851.6 mas houver constante de medidor ou se o consumo principal for 20438.4
             if (!parsed.consumo || Number(parsed.consumo) === 0) {
               parsed.consumo_medido = Number(
                 (Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)).toFixed(3),
