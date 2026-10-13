@@ -1,0 +1,225 @@
+{
+  "generatedAt": "2026-10-13T12:22:22.201Z",
+  "collections": [
+    {
+      "name": "users",
+      "type": "auth",
+      "apiRules": {
+        "list": "id = @request.auth.id",
+        "view": "id = @request.auth.id",
+        "create": "",
+        "update": "id = @request.auth.id",
+        "delete": "id = @request.auth.id"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avatar",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX `idx_tokenKey__pb_users_auth_` ON `users` (`tokenKey`)",
+        "CREATE UNIQUE INDEX `idx_email__pb_users_auth_` ON `users` (`email`) WHERE `email` != ''"
+      ]
+    },
+    {
+      "name": "empreendimentos",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "endereco",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Comercial", "Industrial", "Residencial", "Misto"]
+        },
+        {
+          "name": "owner",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_empreendimentos_cnpj ON empreendimentos (cnpj)",
+        "CREATE INDEX idx_empreendimentos_owner ON empreendimentos (owner)"
+      ]
+    },
+    {
+      "name": "faturas",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "empreendimento",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "empreendimentos"
+        },
+        {
+          "name": "tipo_utilidade",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Energia Elétrica", "Água e Esgoto", "Gás"]
+        },
+        {
+          "name": "competencia",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "valor_total",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "consumo",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unidade_consumo",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero_fatura",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj_fornecedor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj_validado",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "arquivo_nome",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "vencimento",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dados_especificos",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "owner",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_faturas_tipo ON faturas (tipo_utilidade)",
+        "CREATE INDEX idx_faturas_competencia ON faturas (competencia)",
+        "CREATE INDEX idx_faturas_empreendimento ON faturas (empreendimento)",
+        "CREATE INDEX idx_faturas_owner ON faturas (owner)"
+      ]
+    }
+  ]
+}
