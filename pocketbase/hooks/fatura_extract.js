@@ -186,7 +186,8 @@ routerAdd(
 
     const systemPrompt = `Você é um extrator de dados especialista e ultra-preciso para faturas de utilidades brasileiras (Energia Elétrica como Enel/CPFL/Light/Cemig, Gás Canalizado como Comgás/Naturgy, e Água e Esgoto como Sabesp/Sanepar/Copasa).
 Você analisa faturas digitais e escaneadas com máxima atenção a números decimais, datas de medição, leituras de hidrômetro/medidor, volumes faturados e valores totais.
-Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.`
+Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.
+REGRA ABSOLUTA DE AUSÊNCIA DE DADOS: Se um campo não estiver presente ou não for legível no documento, retorne null. NUNCA utilize valores sentinelas como "1900-01-01", datas do ano 1900, "01/1900", strings vazias "" ou o número 0 para representar valores desconhecidos ou ausentes.`
 
     const instructions = `Analise a fatura anexada (arquivo "${fileName}").
 Tipo de utilidade sugerido: "${requestedUtility || 'Detectar automaticamente da fatura'}".
@@ -218,17 +219,28 @@ Orientações cruciais de extração:
    - "adicional_bandeira": bandeira tarifária indicada (ex: "Bandeira Amarela", "Bandeira Verde", "Bandeira Vermelha")
 
 3. Para GÁS NATURAL (ex: Comgás / Naturgy):
-   - "competencia": mês de referência / apresentação (ex: 08/2026 -> "2026-08-01", "08/2026")
+   - Layout Comgás detalhado:
+     * Logo "comgás" no canto superior esquerdo com CNPJ Comgás 61.856.571/0006-21 (ou no boleto "CIA. DE GÁS DE SÃO PAULO COMGÁS CNPJ - 61.856.571/0006-21").
+     * "NOTA FISCAL / CONTA DE GÁS": número no cabeçalho (ex: 150.238.010).
+     * Competência / Mês de Referência: localizada em "Data de apresentação" ou "Data da leitura atual" (ex: 17.08.2026 ou 12.08.2026 -> competência "08/2026", "2026-08-01").
+     * "Vencimento": no quadro superior direito ou no boleto (ex: 08.09.2026 ou 08/09/2026 -> "2026-09-08").
+     * "Valor a pagar (R$)": valor destacado no quadro superior direito, ex: 4.363,05 -> 4363.05.
+     * Bloco "Consumo e tarifas": "Consumo Corrigido/Faturado (m³)" (ex: 682,168 -> 682.168), "Tarifa Aplicada com ICMS" (ex: 6,395871 -> 6.395871).
+     * Bloco "Detalhamento do consumo":
+       - Colunas "Leitura": "Anterior" (ex: 431.304 -> 431.304) e "Atual" (ex: 432.014 -> 432.014).
+       - Coluna "consumo medido (m³)" (ex: 710 -> 710).
+       - Coluna "consumo corrigido (m³)" (ex: 682,168 -> 682.168).
+   - "competencia": mês de referência (ex: 08/2026 -> "2026-08-01", competencia_formatada: "08/2026")
    - "valor_total": valor a pagar total (ex: R$ 4.363,05 -> 4363.05)
    - "fatura_total": 4363.05
-   - "consumo": consumo faturado corrigido (ex: 682.168 -> 682.17)
+   - "consumo": consumo faturado corrigido (ex: 682.168)
    - "unidade_consumo": "m³"
    - "numero_fatura": número da nota fiscal / conta de gás (ex: 150.238.010)
    - "cnpj_fornecedor": CNPJ da distribuidora (ex Comgás: 61.856.571/0006-21)
-   - "vencimento": data de vencimento (ex: 08/09/2026 -> "2026-09-08")
-   - "medicao_anterior": leitura anterior (ex: 431.304 -> 431.304)
-   - "medicao_atual": leitura atual (ex: 432.014 -> 432.014)
-   - "consumo_medido": consumo medido antes da correção (ex: 710 -> 710)
+   - "vencimento": data de vencimento (ex: 08.09.2026 -> "2026-09-08")
+   - "medicao_anterior": leitura anterior (ex: 431.304)
+   - "medicao_atual": leitura atual (ex: 432.014)
+   - "consumo_medido": consumo medido antes da correção (ex: 710)
    - "consumo_corrigido": consumo corrigido por temperatura/pressão (ex: 682.168)
    - "tarifa": tarifa aplicada com ICMS por m³ (ex: 6,395871 -> 6.395871)
 
@@ -247,31 +259,35 @@ Orientações cruciais de extração:
    - "medicao_atual": Leitura Atual do hidrômetro (ex: 5721)
    - "tarifa": valor unitário médio por m³ (ex: se fatura é 2.143,97 e consumo é 157 m³, tarifa é ~ 13.6558) ou taxa unitária discriminada
 
-Retorne rigorosamente esta estrutura JSON:
+REGRAS OBRIGATÓRIAS DE RESPOSTA:
+1. Retorne APENAS os dados reais impressos na fatura. Se algum campo não estiver visível ou legível, retorne null (NÃO use 0, NÃO use "1900-01-01", NÃO use strings vazias).
+2. Números decimais devem usar ponto (.) como separador decimal no JSON (ex: 6.395871, 4363.05).
+
+Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
 {
-  "tipo_utilidade": "Energia Elétrica" | "Gás" | "Água e Esgoto",
-  "competencia": "YYYY-MM-01",
-  "competencia_formatada": "MM/AAAA",
-  "valor_total": float,
-  "consumo": float,
-  "unidade_consumo": "kWh" ou "m³",
-  "numero_fatura": string,
-  "cnpj_fornecedor": string,
-  "vencimento": "YYYY-MM-DD",
-  "medicao_anterior": float,
-  "medicao_atual": float,
-  "classificacao_consumo": string,
-  "consumo_ponta": float,
-  "tarifa_tusd_ponta": float,
-  "tarifa_te_ponta": float,
-  "consumo_fora_ponta": float,
-  "tarifa_tusd_f_ponta": float,
-  "tarifa_te_f_ponta": float,
-  "adicional_bandeira": string,
-  "consumo_medido": float,
-  "consumo_corrigido": float,
-  "tarifa": float,
-  "fatura_total": float
+  "tipo_utilidade": "Energia Elétrica" | "Gás" | "Água e Esgoto" | null,
+  "competencia": "YYYY-MM-01" | null,
+  "competencia_formatada": "MM/AAAA" | null,
+  "valor_total": float | null,
+  "consumo": float | null,
+  "unidade_consumo": "kWh" | "m³" | null,
+  "numero_fatura": string | null,
+  "cnpj_fornecedor": string | null,
+  "vencimento": "YYYY-MM-DD" | null,
+  "medicao_anterior": float | null,
+  "medicao_atual": float | null,
+  "classificacao_consumo": string | null,
+  "consumo_ponta": float | null,
+  "tarifa_tusd_ponta": float | null,
+  "tarifa_te_ponta": float | null,
+  "consumo_fora_ponta": float | null,
+  "tarifa_tusd_f_ponta": float | null,
+  "tarifa_te_f_ponta": float | null,
+  "adicional_bandeira": string | null,
+  "consumo_medido": float | null,
+  "consumo_corrigido": float | null,
+  "tarifa": float | null,
+  "fatura_total": float | null
 }`
 
     try {
@@ -333,7 +349,7 @@ Retorne rigorosamente esta estrutura JSON:
             // No gateway skip-ai-gateway:
             // 1. O campo `content` de mensagens de usuário DEVE ser uma string (arrays tipo OpenAI [{type:'text'}, {type:'image_url'}] são rejeitados com 400).
             // 2. Imagens são enviadas no array `images` dentro do objeto da mensagem do usuário: `images: [dataUrl]`.
-            const visionUserText = `${instructions}\n\nAnalise visualmente com extremo cuidado e atenção as ${validImages.length} página(s) da fatura em anexo. Localize no documento:\n- Competência/mês de referência (ex: MM/AAAA)\n- Valor total a pagar (R$)\n- Leituras/Medições do medidor (Anterior e Atual)\n- Consumo apurado/medido e faturado/corrigido\n- Tarifa aplicada por unidade\n- Número da fatura/nota fiscal\n- CNPJ da distribuidora/emissor e vencimento\n\nATENÇÃO: Extraia os valores reais impressos no documento. Não retorne null nem omitir os campos visíveis. Retorne rigorosamente o objeto JSON preenchido.`
+            const visionUserText = `${instructions}\n\nAnalise visualmente com extremo cuidado e atenção as ${validImages.length} página(s) da fatura em anexo. Localize no documento:\n- Competência/mês de referência (ex: MM/AAAA)\n- Valor total a pagar (R$)\n- Leituras/Medições do medidor (Anterior e Atual)\n- Consumo apurado/medido e faturado/corrigido\n- Tarifa aplicada por unidade\n- Número da fatura/nota fiscal\n- CNPJ da distribuidora/emissor e vencimento\n\nATENÇÃO: Extraia com extrema precisão os valores reais impressos no documento. Se um campo não estiver presente ou não for legível, utilize null (NUNCA utilize sentinelas como 0 ou "1900-01-01"). Retorne rigorosamente o objeto JSON estruturado.`
             const visionMessages = [
               { role: 'system', content: systemPrompt },
               {
@@ -447,38 +463,60 @@ Retorne rigorosamente esta estrutura JSON:
 
       // Normalizações específicas para faturas brasileiras
       if (parsed && typeof parsed === 'object') {
-        // Se todas ou a grande maioria das propriedades forem null/vazias, descartar para acionar erro amigável
-        let nonNullCount = 0
-        const sampleKeys = [
-          'valor_total',
-          'consumo',
-          'numero_fatura',
-          'vencimento',
-          'medicao_anterior',
-          'medicao_atual',
-          'consumo_medido',
-          'consumo_corrigido',
-          'tarifa',
-          'competencia',
-          'competencia_formatada',
-        ]
-        for (const k of sampleKeys) {
-          if (parsed[k] !== undefined && parsed[k] !== null && parsed[k] !== '') {
-            nonNullCount++
-          }
-        }
-        if (nonNullCount === 0) {
-          console.log(
-            '[fatura_extract] IA respondeu com JSON mas todos os campos são null ou vazios.',
-          )
-          throw new BadRequestError(
-            'Não foi possível identificar com clareza os campos da fatura na imagem digitalizada. Por favor, insira as informações manualmente nos campos abaixo.',
-          )
-        }
         // Normalizar chaves se vierem aninhadas (ex: parsed.dados ou parsed.fields ou camelCase)
         if (parsed.dados && typeof parsed.dados === 'object' && !parsed.tipo_utilidade) {
           parsed = Object.assign({}, parsed.dados, parsed)
         }
+
+        // Sanitização de valores-sentinela ("1900-01-01", datas de ano 1900, strings vazias, e zeros em campos numéricos/essenciais)
+        function isSentinelDate(val) {
+          if (!val) return true
+          const s = String(val).trim()
+          if (!s || s === 'null' || s === 'undefined') return true
+          if (s.includes('1900')) return true
+          return false
+        }
+
+        function sanitizeNumeric(val) {
+          if (val === undefined || val === null || val === '') return null
+          const num = Number(val)
+          if (isNaN(num) || num <= 0) return null
+          return num
+        }
+
+        function sanitizeText(val) {
+          if (val === undefined || val === null) return null
+          const s = String(val).trim()
+          if (!s || s === 'null' || s === 'undefined' || s === '0') return null
+          return s
+        }
+
+        // Sanitizar datas
+        if (isSentinelDate(parsed.competencia)) parsed.competencia = null
+        if (isSentinelDate(parsed.competencia_formatada)) parsed.competencia_formatada = null
+        if (isSentinelDate(parsed.vencimento)) parsed.vencimento = null
+
+        // Sanitizar strings de identificação
+        parsed.numero_fatura = sanitizeText(parsed.numero_fatura)
+        parsed.cnpj_fornecedor = sanitizeText(parsed.cnpj_fornecedor)
+        parsed.classificacao_consumo = sanitizeText(parsed.classificacao_consumo)
+        parsed.adicional_bandeira = sanitizeText(parsed.adicional_bandeira)
+
+        // Sanitizar numéricos essenciais
+        parsed.valor_total = sanitizeNumeric(parsed.valor_total)
+        parsed.fatura_total = sanitizeNumeric(parsed.fatura_total)
+        parsed.consumo = sanitizeNumeric(parsed.consumo)
+        parsed.medicao_anterior = sanitizeNumeric(parsed.medicao_anterior)
+        parsed.medicao_atual = sanitizeNumeric(parsed.medicao_atual)
+        parsed.consumo_ponta = sanitizeNumeric(parsed.consumo_ponta)
+        parsed.consumo_fora_ponta = sanitizeNumeric(parsed.consumo_fora_ponta)
+        parsed.tarifa_tusd_ponta = sanitizeNumeric(parsed.tarifa_tusd_ponta)
+        parsed.tarifa_te_ponta = sanitizeNumeric(parsed.tarifa_te_ponta)
+        parsed.tarifa_tusd_f_ponta = sanitizeNumeric(parsed.tarifa_tusd_f_ponta)
+        parsed.tarifa_te_f_ponta = sanitizeNumeric(parsed.tarifa_te_f_ponta)
+        parsed.consumo_medido = sanitizeNumeric(parsed.consumo_medido)
+        parsed.consumo_corrigido = sanitizeNumeric(parsed.consumo_corrigido)
+        parsed.tarifa = sanitizeNumeric(parsed.tarifa)
 
         // Desembrulhar campos com variações camelCase ou nomes alternativos
         if (parsed.consumoMedido !== undefined && parsed.consumo_medido === undefined) {
@@ -636,14 +674,43 @@ Retorne rigorosamente esta estrutura JSON:
           parsed.tipo_utilidade = 'Energia Elétrica'
           parsed.unidade_consumo = 'kWh'
         }
-      }
-      if (!parsed || Object.keys(parsed).length === 0) {
-        parsed = {
-          tipo_utilidade: requestedUtility || 'Energia Elétrica',
-          valor_total: 0,
-          consumo: 0,
-          unidade_consumo: requestedUtility === 'Energia Elétrica' ? 'kWh' : 'm³',
+
+        // Validação final de campos essenciais extraídos (evita falso sucesso com sentinelas ou campos nulos)
+        let realFieldCount = 0
+        const essentialKeys = [
+          'valor_total',
+          'consumo',
+          'numero_fatura',
+          'vencimento',
+          'medicao_anterior',
+          'medicao_atual',
+          'consumo_medido',
+          'consumo_corrigido',
+          'tarifa',
+          'competencia',
+          'competencia_formatada',
+        ]
+        for (const k of essentialKeys) {
+          const val = parsed[k]
+          if (val !== undefined && val !== null && val !== '') {
+            if (typeof val === 'number' && val > 0) {
+              realFieldCount++
+            } else if (typeof val === 'string' && val.trim().length > 0 && !val.includes('1900')) {
+              realFieldCount++
+            }
+          }
         }
+
+        if (realFieldCount === 0) {
+          console.log('[fatura_extract] Nenhum campo essencial válido extraído após sanitização.')
+          throw new BadRequestError(
+            'Não foi possível extrair dados automaticamente desta fatura. Por favor, revise o arquivo ou insira as medições e valores manualmente.',
+          )
+        }
+      } else {
+        throw new BadRequestError(
+          'Não foi possível extrair dados automaticamente desta fatura. Por favor, revise o arquivo ou insira as medições e valores manualmente.',
+        )
       }
 
       return e.json(200, {

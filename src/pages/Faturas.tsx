@@ -240,6 +240,21 @@ export default function Faturas() {
           setSelectedTipo(detectedTipo)
         }
 
+        // Helper para validar se data é sentinela ou inválida
+        const isSentinelDate = (val: any) => {
+          if (!val) return true
+          const s = String(val).trim()
+          return !s || s === 'null' || s === 'undefined' || s.includes('1900')
+        }
+
+        // Helper para valores numéricos: 0 ou valores não-positivos são sentinelas/ausentes
+        const parsePositiveNumber = (val: any) => {
+          if (val === undefined || val === null || val === '') return undefined
+          const n = Number(val)
+          if (isNaN(n) || n <= 0) return undefined
+          return n
+        }
+
         // Competência
         const compFmt = getField(
           'competencia_formatada',
@@ -248,25 +263,36 @@ export default function Faturas() {
           'referencia',
         )
         const compRaw = getField('competencia', 'periodo')
-        if (compFmt) {
+        let validCompetencia = false
+        if (compFmt && !isSentinelDate(compFmt)) {
           setCompetenciaInput(String(compFmt))
-        } else if (compRaw) {
+          validCompetencia = true
+        } else if (compRaw && !isSentinelDate(compRaw)) {
           const strComp = String(compRaw)
           if (strComp.includes('/')) {
             setCompetenciaInput(strComp)
+            validCompetencia = true
           } else {
             const parts = strComp.split('-')
-            if (parts.length >= 2) {
+            if (parts.length >= 2 && parts[0] !== '1900') {
               setCompetenciaInput(`${parts[1]}/${parts[0]}`)
+              validCompetencia = true
             }
           }
         }
 
         // Valores financeiros e consumo geral
-        const vTotal = getField('valor_total', 'fatura_total', 'total', 'valorTotal', 'faturaTotal')
-        if (vTotal !== undefined) setValorTotal(Number(vTotal) || vTotal)
+        const rawVTotal = getField(
+          'valor_total',
+          'fatura_total',
+          'total',
+          'valorTotal',
+          'faturaTotal',
+        )
+        const vTotal = parsePositiveNumber(rawVTotal)
+        if (vTotal !== undefined) setValorTotal(vTotal)
 
-        const cConsumo = getField(
+        const rawCConsumo = getField(
           'consumo',
           'consumo_faturado',
           'consumoFaturado',
@@ -276,16 +302,17 @@ export default function Faturas() {
           'consumo_medido',
           'consumoMedido',
         )
-        if (cConsumo !== undefined) setConsumo(Number(cConsumo) || cConsumo)
+        const cConsumo = parsePositiveNumber(rawCConsumo)
+        if (cConsumo !== undefined) setConsumo(cConsumo)
 
         const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
-        if (uConsumo) {
+        if (uConsumo && uConsumo !== 'null' && uConsumo !== '') {
           setUnidadeConsumo(String(uConsumo))
         } else {
           setUnidadeConsumo(detectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
         }
 
-        const numFat = getField(
+        const rawNumFat = getField(
           'numero_fatura',
           'numeroFatura',
           'numero_nota',
@@ -293,123 +320,149 @@ export default function Faturas() {
           'documento',
           'nf',
         )
-        if (numFat) setNumeroFatura(String(numFat))
+        const numFat =
+          rawNumFat && rawNumFat !== 'null' && rawNumFat !== '0'
+            ? String(rawNumFat).trim()
+            : undefined
+        if (numFat) setNumeroFatura(numFat)
 
-        const cnpjForn = getField('cnpj_fornecedor', 'cnpjFornecedor', 'cnpj', 'cnpj_distribuidora')
-        if (cnpjForn) setCnpjFornecedor(formatCNPJ(String(cnpjForn)))
+        const rawCnpjForn = getField(
+          'cnpj_fornecedor',
+          'cnpjFornecedor',
+          'cnpj',
+          'cnpj_distribuidora',
+        )
+        const cnpjForn =
+          rawCnpjForn && rawCnpjForn !== 'null' && rawCnpjForn !== '0'
+            ? String(rawCnpjForn).trim()
+            : undefined
+        if (cnpjForn) setCnpjFornecedor(formatCNPJ(cnpjForn))
 
-        const venc = getField('vencimento', 'data_vencimento', 'dataVencimento')
-        if (venc) {
-          const strVenc = String(venc)
+        const rawVenc = getField('vencimento', 'data_vencimento', 'dataVencimento')
+        let venc: string | undefined = undefined
+        if (rawVenc && !isSentinelDate(rawVenc)) {
+          const strVenc = String(rawVenc).trim()
           if (strVenc.includes('T')) {
-            setVencimento(strVenc.split('T')[0])
+            venc = strVenc.split('T')[0]
           } else if (strVenc.includes('/')) {
             const [dia, mes, ano] = strVenc.split('/')
-            if (ano && mes && dia) {
-              setVencimento(`${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`)
-            } else {
-              setVencimento(strVenc)
+            if (ano && mes && dia && ano !== '1900') {
+              venc = `${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
             }
           } else {
-            setVencimento(strVenc)
+            venc = strVenc
+          }
+          if (venc && !venc.includes('1900')) {
+            setVencimento(venc)
+          } else {
+            venc = undefined
           }
         }
 
         // Medições (comum a Energia, Gás e Água)
-        const medAnt = getField(
-          'medicao_anterior',
-          'medicaoAnterior',
-          'leitura_anterior',
-          'leituraAnterior',
+        const medAnt = parsePositiveNumber(
+          getField('medicao_anterior', 'medicaoAnterior', 'leitura_anterior', 'leituraAnterior'),
         )
-        if (medAnt !== undefined) setMedicaoAnterior(Number(medAnt) || medAnt)
+        if (medAnt !== undefined) setMedicaoAnterior(medAnt)
 
-        const medAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
-        if (medAtu !== undefined) setMedicaoAtual(Number(medAtu) || medAtu)
+        const medAtu = parsePositiveNumber(
+          getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual'),
+        )
+        if (medAtu !== undefined) setMedicaoAtual(medAtu)
 
         // Campos específicos de Energia Elétrica
-        const classCons = getField('classificacao_consumo', 'classificacaoConsumo', 'classificacao')
-        if (classCons) setClassificacaoConsumo(String(classCons))
+        const rawClassCons = getField(
+          'classificacao_consumo',
+          'classificacaoConsumo',
+          'classificacao',
+        )
+        const classCons =
+          rawClassCons && rawClassCons !== 'null' && rawClassCons !== '0'
+            ? String(rawClassCons).trim()
+            : undefined
+        if (classCons) setClassificacaoConsumo(classCons)
 
-        const cPonta = getField('consumo_ponta', 'consumoPonta')
-        if (cPonta !== undefined) setConsumoPonta(Number(cPonta) || cPonta)
+        const cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
+        if (cPonta !== undefined) setConsumoPonta(cPonta)
 
-        const tTusdPonta = getField('tarifa_tusd_ponta', 'tarifaTusdPonta')
-        if (tTusdPonta !== undefined) setTarifaTusdPonta(Number(tTusdPonta) || tTusdPonta)
+        const tTusdPonta = parsePositiveNumber(getField('tarifa_tusd_ponta', 'tarifaTusdPonta'))
+        if (tTusdPonta !== undefined) setTarifaTusdPonta(tTusdPonta)
 
-        const tTePonta = getField('tarifa_te_ponta', 'tarifaTePonta')
-        if (tTePonta !== undefined) setTarifaTePonta(Number(tTePonta) || tTePonta)
+        const tTePonta = parsePositiveNumber(getField('tarifa_te_ponta', 'tarifaTePonta'))
+        if (tTePonta !== undefined) setTarifaTePonta(tTePonta)
 
-        const cForaPonta = getField('consumo_fora_ponta', 'consumoForaPonta')
-        if (cForaPonta !== undefined) setConsumoForaPonta(Number(cForaPonta) || cForaPonta)
+        const cForaPonta = parsePositiveNumber(getField('consumo_fora_ponta', 'consumoForaPonta'))
+        if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
 
-        const tTusdFPonta = getField('tarifa_tusd_f_ponta', 'tarifaTusdFPonta')
-        if (tTusdFPonta !== undefined) setTarifaTusdFPonta(Number(tTusdFPonta) || tTusdFPonta)
+        const tTusdFPonta = parsePositiveNumber(getField('tarifa_tusd_f_ponta', 'tarifaTusdFPonta'))
+        if (tTusdFPonta !== undefined) setTarifaTusdFPonta(tTusdFPonta)
 
-        const tTeFPonta = getField('tarifa_te_f_ponta', 'tarifaTeFPonta')
-        if (tTeFPonta !== undefined) setTarifaTeFPonta(Number(tTeFPonta) || tTeFPonta)
+        const tTeFPonta = parsePositiveNumber(getField('tarifa_te_f_ponta', 'tarifaTeFPonta'))
+        if (tTeFPonta !== undefined) setTarifaTeFPonta(tTeFPonta)
 
-        const adicBandeira = getField(
+        const rawAdicBandeira = getField(
           'adicional_bandeira',
           'adicionalBandeira',
           'bandeira_tarifaria',
           'bandeira',
         )
-        if (adicBandeira) setAdicionalBandeira(String(adicBandeira))
+        const adicBandeira =
+          rawAdicBandeira && rawAdicBandeira !== 'null' && rawAdicBandeira !== '0'
+            ? String(rawAdicBandeira).trim()
+            : undefined
+        if (adicBandeira) setAdicionalBandeira(adicBandeira)
 
         // Campos específicos de GÁS e Água
-        const cMedido = getField(
-          'consumo_medido',
-          'consumoMedido',
-          'consumo_apurado',
-          'volume_medido',
+        const cMedido = parsePositiveNumber(
+          getField('consumo_medido', 'consumoMedido', 'consumo_apurado', 'volume_medido'),
         )
-        const cCorrigido = getField(
-          'consumo_corrigido',
-          'consumoCorrigido',
-          'consumo_faturado_corrigido',
+        const cCorrigido = parsePositiveNumber(
+          getField('consumo_corrigido', 'consumoCorrigido', 'consumo_faturado_corrigido'),
         )
-        const tar = getField('tarifa', 'tarifa_unitaria', 'valor_unitario', 'tarifaUnitaria')
+        let tar = parsePositiveNumber(
+          getField('tarifa', 'tarifa_unitaria', 'valor_unitario', 'tarifaUnitaria'),
+        )
 
         if (cMedido !== undefined) {
-          setConsumoMedido(Number(cMedido) || cMedido)
+          setConsumoMedido(cMedido)
         } else if (cCorrigido !== undefined) {
-          setConsumoMedido(Number(cCorrigido) || cCorrigido)
+          setConsumoMedido(cCorrigido)
         } else if (cConsumo !== undefined) {
-          setConsumoMedido(Number(cConsumo) || cConsumo)
+          setConsumoMedido(cConsumo)
         }
 
         if (cCorrigido !== undefined) {
-          setConsumoCorrigido(Number(cCorrigido) || cCorrigido)
+          setConsumoCorrigido(cCorrigido)
         } else if (cMedido !== undefined) {
-          setConsumoCorrigido(Number(cMedido) || cMedido)
+          setConsumoCorrigido(cMedido)
         } else if (cConsumo !== undefined) {
-          setConsumoCorrigido(Number(cConsumo) || cConsumo)
+          setConsumoCorrigido(cConsumo)
         }
 
         if (tar !== undefined) {
-          setTarifa(Number(tar) || tar)
+          setTarifa(tar)
         } else if (vTotal && (cCorrigido || cMedido || cConsumo)) {
           const divCons = Number(cCorrigido || cMedido || cConsumo)
           if (divCons > 0) {
-            setTarifa(Number((Number(vTotal) / divCons).toFixed(4)))
+            tar = Number((Number(vTotal) / divCons).toFixed(4))
+            setTarifa(tar)
           }
         }
 
-        // Verificar se algum campo relevante foi efetivamente preenchido
-        const hasAnyExtractedField =
-          vTotal !== undefined ||
-          cConsumo !== undefined ||
-          numFat !== undefined ||
-          cnpjForn !== undefined ||
-          venc !== undefined ||
-          medAnt !== undefined ||
-          medAtu !== undefined ||
-          cMedido !== undefined ||
-          cCorrigido !== undefined ||
-          tar !== undefined
+        // Validação refinada: só exibir toast de sucesso se houver ao menos um campo essencial com valor real (não-zero, não-sentinela)
+        const hasRealExtractedField =
+          validCompetencia ||
+          (vTotal !== undefined && vTotal > 0) ||
+          (cConsumo !== undefined && cConsumo > 0) ||
+          (cMedido !== undefined && cMedido > 0) ||
+          (cCorrigido !== undefined && cCorrigido > 0) ||
+          (medAnt !== undefined && medAnt > 0) ||
+          (medAtu !== undefined && medAtu > 0) ||
+          (tar !== undefined && tar > 0) ||
+          (venc !== undefined && !venc.includes('1900')) ||
+          (numFat !== undefined && numFat.length > 0)
 
-        if (hasAnyExtractedField) {
+        if (hasRealExtractedField) {
           toast({
             title: 'Extração inteligente concluída',
             description: 'Revise os dados extraídos antes de confirmar.',
