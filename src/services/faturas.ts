@@ -61,15 +61,17 @@ export const faturasService = {
 
     let renderedImages: string[] = []
 
-    // If PDF, convert pages to high-resolution images so Vision LLM can read scanned/encoded faturas
+    // If PDF, render optimized images of main pages (up to 2 pages, compressed) for vision fallback
     if (ext === 'pdf') {
       try {
-        if (onProgress) onProgress('Renderizando páginas do PDF em alta resolução...')
+        if (onProgress) onProgress('Otimizando documento para extração...')
         const { convertPdfToImages } = await import('@/lib/pdfToImages')
         renderedImages = await convertPdfToImages(file, {
-          maxPages: 3,
-          scale: 1.6,
-          quality: 0.82,
+          maxPages: 2,
+          scale: 1.2,
+          quality: 0.72,
+          maxWidth: 1200,
+          maxHeight: 1600,
         })
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
@@ -100,7 +102,13 @@ export const faturasService = {
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}))
-      throw new Error(errJson.message || 'Falha ao extrair dados do documento.')
+      let errMsg = errJson.message || 'Falha ao extrair dados do documento.'
+      // Clean up raw gateway error bodies if any leaked through
+      if (errMsg.includes('skip-ai-gateway') || errMsg.includes('{"error":{}}')) {
+        errMsg =
+          'Não foi possível processar a fatura com o assistente de IA. Você pode preencher os campos diretamente na tela.'
+      }
+      throw new Error(errMsg)
     }
 
     return res.json()

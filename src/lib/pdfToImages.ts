@@ -50,17 +50,19 @@ export interface ConvertPdfToImagesOptions {
   maxPages?: number
   scale?: number
   quality?: number
+  maxWidth?: number
+  maxHeight?: number
 }
 
 /**
  * Converts up to `maxPages` pages of a PDF File/Blob to base64 JPEG data URLs.
- * High quality rendering (scale 1.5 - 2.0) ensures clean OCR by vision models.
+ * Sized and compressed specifically for LLM vision input limits (capped dimensions & quality).
  */
 export async function convertPdfToImages(
   file: File | Blob,
   options: ConvertPdfToImagesOptions = {},
 ): Promise<string[]> {
-  const { maxPages = 3, scale = 1.75, quality = 0.85 } = options
+  const { maxPages = 2, scale = 1.2, quality = 0.75, maxWidth = 1200, maxHeight = 1600 } = options
 
   const pdfjs = await loadPdfJs()
   const arrayBuffer = await file.arrayBuffer()
@@ -71,7 +73,13 @@ export async function convertPdfToImages(
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdf.getPage(pageNum)
-    const viewport = page.getViewport({ scale })
+    let viewport = page.getViewport({ scale })
+
+    // If dimensions exceed target max, downscale appropriately
+    if (viewport.width > maxWidth || viewport.height > maxHeight) {
+      const fitScale = Math.min(maxWidth / viewport.width, maxHeight / viewport.height)
+      viewport = page.getViewport({ scale: scale * fitScale })
+    }
 
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d')
@@ -85,7 +93,7 @@ export async function convertPdfToImages(
       viewport: viewport,
     }).promise
 
-    // Convert to JPEG data URL with good compression/quality ratio
+    // Convert to JPEG data URL with optimal compression/quality ratio
     const dataUrl = canvas.toDataURL('image/jpeg', quality)
     images.push(dataUrl)
 

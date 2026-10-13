@@ -19,35 +19,36 @@ routerAdd(
         if (Array.isArray(parsedImages)) {
           pageImages = parsedImages
         }
-      } catch (_) {}
-    }
-
-    // Also collect image files if uploaded directly as image/png, image/jpeg
-    if (files && files.length > 0) {
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]
-        const fExt = (f.name || '').toLowerCase().split('.').pop()
-        if (['png', 'jpg', 'jpeg', 'webp'].includes(fExt)) {
-          // If we have byte reader or if sent as image
-          // Let client send data URLs in body.images for maximum fidelity
-        }
+      } catch (e) {
+        console.log('[fatura_extract] Falha ao parsear body.images:', e.message || e)
       }
     }
 
     let textContent = ''
     let textExtracted = false
+    let toMarkdownError = null
 
-    // Try $documents.toMarkdown if document format and text is not yet provided
+    // Try $documents.toMarkdown first whenever uploadedFile is a document
     if (uploadedFile && ['pdf', 'xlsx', 'xls', 'docx'].includes(ext)) {
       try {
+        console.log(`[fatura_extract] Tentando $documents.toMarkdown para ${fileName}...`)
         const docRes = $documents.toMarkdown({ file: uploadedFile })
-        if (docRes && docRes.markdown && docRes.markdown.trim().length > 30) {
+        if (docRes && docRes.markdown && docRes.markdown.trim().length > 20) {
           textContent = docRes.markdown
           textExtracted = true
+          console.log(
+            `[fatura_extract] $documents.toMarkdown obteve ${textContent.length} caracteres de texto.`,
+          )
+        } else {
+          console.log('[fatura_extract] $documents.toMarkdown retornou texto muito curto ou vazio.')
         }
       } catch (err) {
-        // Scanned PDF or unsupported encoding error (status 422)
-        // We will fall back to vision if images are available
+        toMarkdownError = err
+        console.log(
+          '[fatura_extract] $documents.toMarkdown erro:',
+          err.status || '',
+          err.message || err,
+        )
       }
     } else if (uploadedFile && (ext === 'csv' || ext === 'txt')) {
       try {
@@ -139,55 +140,114 @@ Retorne rigorosamente esta estrutura JSON:
 }`
 
     try {
-      let userMessageContent = []
+      let rawText = ''
+      let aiMethodUsed = 'none'
 
-      // If we have rendered images from the document (Vision pipeline)
-      if (pageImages && pageImages.length > 0) {
-        userMessageContent.push({
-          type: 'text',
-          text: `${instructions}\n\nAnalise visualmente as ${pageImages.length} página(s) anexadas da fatura com precisão cirúrgica.`,
-        })
+      // Prioridade 1: Se o documento gerou texto via $documents.toMarkdown, usar texto direto no $ai.chat
+      // Isso é muito mais rápido, confiável e não consome cota multimodal.
+      if (textExtracted && textContent && textContent.trim().length > 20) {
+        try {
+          const txt = textContent.slice(0, 14000)
+          const textUserContent = `${instructions}\n\nConteúdo textual extraído da fatura:\n"""\n${txt}\n"""`
+          console.log(
+            `[fatura_extract] Executando $ai.chat com texto (${txt.length} caracteres)...`,
+          )
+          const aiTextResponse = $ai.chat({
+            model: 'fast',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: textUserContent },
+            ],
+          })
 
-        // Limit to first 4 pages if multi-page to avoid exceeding token limit
-        const maxPages = Math.min(pageImages.length, 4)
-        for (let i = 0; i < maxPages; i++) {
-          const imgUrl = pageImages[i]
-          if (typeof imgUrl === 'string' && imgUrl.startsWith('data:image/')) {
-            userMessageContent.push({
-              type: 'image_url',
-              image_url: {
-                url: imgUrl,
-              },
-            })
+          if (
+            aiTextResponse &&
+            aiTextResponse.choices &&
+            aiTextResponse.choices[0] &&
+            aiTextResponse.choices[0].message
+          ) {
+            rawText = aiTextResponse.choices[0].message.content || ''
+            aiMethodUsed = 'document_text'
+            console.log('[fatura_extract] Sucesso na extração por texto.')
           }
+        } catch (textErr) {
+          console.log('[fatura_extract] Extração por texto falhou:', textErr.message || textErr)
         }
-      } else {
-        // Fallback to text content if no images
-        const txt =
-          textExtracted && textContent
-            ? textContent.slice(0, 14000)
-            : `Arquivo: ${fileName} (Sem texto pesquisável direto)`
-        userMessageContent = `${instructions}\n\nConteúdo textual disponível:\n"""\n${txt}\n"""`
       }
 
-      const aiResponse = $ai.chat({
-        model: 'fast',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt,
-          },
-          {
-            role: 'user',
-            content: userMessageContent,
-          },
-        ],
-      })
+      // Prioridade 2: Se não obteve texto ou se falhou, tentar visão computacional com as imagens (PDF escaneado)
+      if (!rawText && pageImages && pageImages.length > 0) {
+        try {
+          const validImages = []
+          // Limitar a no máximo 2 páginas principais (a página 1 quase sempre contém todos os dados cruciais)
+          const maxPages = Math.min(pageImages.length, 2)
+          for (let i = 0; i < maxPages; i++) {
+            const imgUrl = pageImages[i]
+            if (typeof imgUrl === 'string' && imgUrl.startsWith('data:image/')) {
+              validImages.push(imgUrl)
+            }
+          }
 
-      let rawText =
-        aiResponse.choices && aiResponse.choices[0] && aiResponse.choices[0].message
-          ? aiResponse.choices[0].message.content
-          : '{}'
+          if (validImages.length > 0) {
+            const multimodalUserContent = [
+              {
+                type: 'text',
+                text: `${instructions}\n\nAnalise visualmente as ${validImages.length} página(s) anexadas da fatura com precisão cirúrgica.`,
+              },
+            ]
+            for (let i = 0; i < validImages.length; i++) {
+              multimodalUserContent.push({
+                type: 'image_url',
+                image_url: {
+                  url: validImages[i],
+                },
+              })
+            }
+
+            console.log(
+              `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
+            )
+            const aiVisionResponse = $ai.chat({
+              model: 'fast',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: multimodalUserContent },
+              ],
+            })
+
+            if (
+              aiVisionResponse &&
+              aiVisionResponse.choices &&
+              aiVisionResponse.choices[0] &&
+              aiVisionResponse.choices[0].message
+            ) {
+              rawText = aiVisionResponse.choices[0].message.content || ''
+              aiMethodUsed = 'vision'
+              console.log('[fatura_extract] Sucesso na extração por visão computacional.')
+            }
+          }
+        } catch (visionErr) {
+          const vMsg = visionErr.message || String(visionErr)
+          console.log('[fatura_extract] Visão falhou:', vMsg)
+        }
+      }
+
+      // Se ambas as vias falharam
+      if (!rawText) {
+        if (toMarkdownError && toMarkdownError.status === 422) {
+          throw new BadRequestError(
+            'O documento é uma imagem ou digitalização escaneada sem camada de texto legível. Por favor, envie uma fatura digital com texto selecionável ou preencha os dados manualmente.',
+          )
+        }
+        if (!textExtracted && (!pageImages || pageImages.length === 0)) {
+          throw new BadRequestError(
+            'Não foi possível ler o documento: certifique-se de que o PDF possui camada de texto ou preencha os campos manualmente.',
+          )
+        }
+        throw new BadRequestError(
+          'Não foi possível extrair dados automaticamente desta fatura. Por favor, revise o arquivo ou insira as medições e valores manualmente.',
+        )
+      }
 
       // Strip markdown code fences if model enclosed in ```json or ```
       rawText = rawText.trim()
@@ -231,8 +291,26 @@ Retorne rigorosamente esta estrutura JSON:
         dados: parsed,
       })
     } catch (aiErr) {
+      const msg = aiErr.message || String(aiErr)
+      console.log('[fatura_extract] Erro capturado no handler:', msg)
+
+      // Se já for uma BadRequestError com mensagem amigável criada por nós, repassar diretamente
+      if (
+        msg.includes('Não foi possível') ||
+        msg.includes('Por favor') ||
+        msg.includes('camada de texto')
+      ) {
+        throw new BadRequestError(msg)
+      }
+
+      // Friendly translation of gateway errors
+      if (msg.includes('skip-ai-gateway') || msg.includes('400')) {
+        throw new BadRequestError(
+          'Não foi possível processar a fatura com o assistente de IA no momento. Por favor, preencha os campos manualmente.',
+        )
+      }
       throw new BadRequestError(
-        'Falha na extração por IA: ' + (aiErr.message || 'Erro desconhecido'),
+        aiErr.message || 'Falha ao processar o documento. Tente novamente ou preencha manualmente.',
       )
     }
   },
