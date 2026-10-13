@@ -506,11 +506,18 @@ export const FatoresEmissaoTab: React.FC = () => {
                 Valores oficiais calculados e divulgados pelo Ministério da Ciência, Tecnologia e
                 Inovação para inventários corporativos.
               </CardDescription>
+              <div className="mt-2.5 flex items-center gap-2 p-2.5 bg-teal-50/70 border border-teal-200 rounded-md text-xs text-teal-900">
+                <Info className="w-4 h-4 text-teal-700 shrink-0" />
+                <span>
+                  Fatores oficiais do SIN são atualizados automaticamente a cada 3 meses a partir do
+                  MCTI/SIRENE.
+                </span>
+              </div>
             </div>
             <Button
               size="sm"
               onClick={() => setModalNovoAberto(true)}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold"
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold self-start sm:self-auto"
             >
               <Plus className="w-3.5 h-3.5 mr-1" />
               Adicionar Mês do SIN
