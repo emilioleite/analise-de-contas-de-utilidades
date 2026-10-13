@@ -2,6 +2,48 @@ routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
   (e) => {
+    function callAiChat(modelAlias, messages) {
+      // Tenta primeiro $ai.chat (se suportar os campos customizados)
+      try {
+        const res = $ai.chat({
+          model: modelAlias,
+          messages: messages,
+        })
+        if (res && res.choices && res.choices[0] && res.choices[0].message) {
+          return res
+        }
+      } catch (sdkErr) {
+        // Se $ai.chat falhar ou o SDK não repassar o array `images`, faz a chamada HTTP direta ao Skip AI Gateway
+        const gwUrl = $os.getenv('SKIP_AI_GATEWAY_URL')
+        const gwKey = $os.getenv('SKIP_AI_GATEWAY_API_KEY')
+        if (!gwUrl || !gwKey) {
+          throw sdkErr
+        }
+        const cleanUrl = `${gwUrl.replace(/\/+$/, '')}/chat/completions`
+        const resp = $http.send({
+          url: cleanUrl,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${gwKey}`,
+          },
+          body: JSON.stringify({
+            model: modelAlias,
+            messages: messages,
+          }),
+        })
+
+        if (resp.statusCode !== 200) {
+          throw new Error(`skip-ai-gateway ${resp.statusCode}: ${resp.raw || ''}`)
+        }
+
+        try {
+          return JSON.parse(resp.raw)
+        } catch (_) {
+          throw new Error(`skip-ai-gateway invalid json: ${resp.raw}`)
+        }
+      }
+    }
     const files = e.findUploadedFiles('arquivo')
     const uploadedFile = files && files.length > 0 ? files[0] : null
     const fileName = uploadedFile ? uploadedFile.name || 'arquivo' : 'arquivo'
@@ -246,23 +288,15 @@ Retorne rigorosamente esta estrutura JSON:
           )
 
           let aiTextResponse = null
+          const textMessages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: textUserContent },
+          ]
           try {
-            aiTextResponse = $ai.chat({
-              model: 'fast',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: textUserContent },
-              ],
-            })
+            aiTextResponse = callAiChat('fast', textMessages)
           } catch (fastErr) {
             console.log('[fatura_extract] Modelo fast falhou no texto, tentando reasoning...')
-            aiTextResponse = $ai.chat({
-              model: 'reasoning',
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: textUserContent },
-              ],
-            })
+            aiTextResponse = callAiChat('reasoning', textMessages)
           }
 
           if (
@@ -296,20 +330,18 @@ Retorne rigorosamente esta estrutura JSON:
           }
 
           if (validImages.length > 0) {
-            const multimodalUserContent = [
+            // No gateway skip-ai-gateway:
+            // 1. O campo `content` de mensagens de usuário DEVE ser uma string (arrays tipo OpenAI [{type:'text'}, {type:'image_url'}] são rejeitados com 400).
+            // 2. Imagens são enviadas no array `images` dentro do objeto da mensagem do usuário: `images: [dataUrl]`.
+            const visionUserText = `${instructions}\n\nAnalise visualmente as ${validImages.length} página(s) da fatura anexada e extraia todos os dados solicitados no formato JSON.`
+            const visionMessages = [
+              { role: 'system', content: systemPrompt },
               {
-                type: 'text',
-                text: `${instructions}\n\nAnalise visualmente as ${validImages.length} página(s) anexadas da fatura com precisão cirúrgica.`,
+                role: 'user',
+                content: visionUserText,
+                images: validImages,
               },
             ]
-            for (let i = 0; i < validImages.length; i++) {
-              multimodalUserContent.push({
-                type: 'image_url',
-                image_url: {
-                  url: validImages[i],
-                },
-              })
-            }
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
@@ -320,13 +352,7 @@ Retorne rigorosamente esta estrutura JSON:
             let aiVisionResponse = null
             // Tentativa 1: Modelo fast
             try {
-              aiVisionResponse = $ai.chat({
-                model: 'fast',
-                messages: [
-                  { role: 'system', content: systemPrompt },
-                  { role: 'user', content: multimodalUserContent },
-                ],
-              })
+              aiVisionResponse = callAiChat('fast', visionMessages)
             } catch (fastErr) {
               console.log(
                 '[fatura_extract] Modelo fast falhou na visão:',
@@ -335,13 +361,7 @@ Retorne rigorosamente esta estrutura JSON:
               )
               // Tentativa 2: Modelo reasoning
               try {
-                aiVisionResponse = $ai.chat({
-                  model: 'reasoning',
-                  messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: multimodalUserContent },
-                  ],
-                })
+                aiVisionResponse = callAiChat('reasoning', visionMessages)
               } catch (reasoningErr) {
                 console.log(
                   '[fatura_extract] Modelo reasoning também falhou na visão:',
