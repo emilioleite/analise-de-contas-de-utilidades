@@ -3,119 +3,184 @@ routerAdd(
   '/backend/v1/faturas/extract',
   (e) => {
     const files = e.findUploadedFiles('arquivo')
-    if (!files || files.length === 0) {
-      throw new BadRequestError("Nenhum arquivo enviado. Envie um arquivo em 'arquivo'.")
-    }
-
-    const uploadedFile = files[0]
-    const fileName = uploadedFile.name || 'arquivo'
+    const uploadedFile = files && files.length > 0 ? files[0] : null
+    const fileName = uploadedFile ? uploadedFile.name || 'arquivo' : 'arquivo'
     const ext = fileName.toLowerCase().split('.').pop()
 
-    let textContent = ''
-
-    // If PDF, DOCX, XLSX: use $documents.toMarkdown
-    if (['pdf', 'xlsx', 'xls', 'docx'].includes(ext)) {
-      try {
-        const docRes = $documents.toMarkdown({ file: uploadedFile })
-        textContent = docRes.markdown || ''
-      } catch (err) {
-        if (err && err.status === 422) {
-          throw new BadRequestError(
-            'Não foi possível ler o texto do documento. Certifique-se de que o PDF possui camada de texto pesquisável.',
-          )
-        }
-        // If error converting, try fallback or rethrow
-        throw new BadRequestError(
-          'Erro ao processar documento: ' + (err.message || 'formato não suportado'),
-        )
-      }
-    } else if (ext === 'csv' || ext === 'txt') {
-      // For CSV/TXT, read text content directly
-      try {
-        const bytes = uploadedFile.bytes ? uploadedFile.bytes() : null
-        if (bytes) {
-          textContent = $security.decrypt ? String.fromCharCode.apply(null, bytes) : ''
-        }
-      } catch (_) {
-        // fallback
-      }
-    }
-
-    // If text is still empty, throw friendly message
-    if (!textContent || textContent.trim().length === 0) {
-      // If $documents didn't extract or CSV reading was blank
-      textContent = 'Arquivo de fatura recebido: ' + fileName
-    }
-
-    // Optional hint utility from form body
     const body = e.requestInfo().body || {}
     const requestedUtility = body.tipo_utilidade || ''
 
-    // Prompt the LLM using $ai.chat
-    const prompt = `Você é um especialista em análise e extração de faturas de utilidades brasileiras (Energia Elétrica, Gás Natural/GLP e Água e Esgoto).
-Analise o conteúdo abaixo extraído do arquivo "${fileName}".
+    // Check for images provided in body (e.g. from vision conversion in client or payload)
+    // Could be a JSON string array of data URLs in body.images or uploaded image files
+    let pageImages = []
+    if (body.images) {
+      try {
+        const parsedImages = typeof body.images === 'string' ? JSON.parse(body.images) : body.images
+        if (Array.isArray(parsedImages)) {
+          pageImages = parsedImages
+        }
+      } catch (_) {}
+    }
 
-Tipo de utilidade sugerido pelo usuário: "${requestedUtility || 'Detectar automaticamente'}".
+    // Also collect image files if uploaded directly as image/png, image/jpeg
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        const fExt = (f.name || '').toLowerCase().split('.').pop()
+        if (['png', 'jpg', 'jpeg', 'webp'].includes(fExt)) {
+          // If we have byte reader or if sent as image
+          // Let client send data URLs in body.images for maximum fidelity
+        }
+      }
+    }
 
-Extraia estritamente os dados presentes na fatura e retorne APENAS um JSON no formato especificado, sem formatação markdown ou explicações fora do JSON.
+    let textContent = ''
+    let textExtracted = false
 
-Campos gerais obrigatórios para retornar:
-- "tipo_utilidade": "Energia Elétrica" | "Água e Esgoto" | "Gás"
-- "competencia": string no formato "YYYY-MM-01" (se encontrar mês/ano ex: 03/2024, retorne "2024-03-01")
-- "competencia_formatada": "MM/AAAA"
-- "valor_total": número float com o valor total da fatura
-- "consumo": número float com o consumo faturado principal
-- "unidade_consumo": "kWh" se Energia Elétrica, ou "m³" se Água ou Gás
-- "numero_fatura": string com o código/número da nota ou fatura
-- "cnpj_fornecedor": string com o CNPJ do cliente/consumidor ou fornecedor identificado na fatura (no formato XX.XXX.XXX/XXXX-XX ou números)
-- "vencimento": string no formato "YYYY-MM-DD" se identificado
+    // Try $documents.toMarkdown if document format and text is not yet provided
+    if (uploadedFile && ['pdf', 'xlsx', 'xls', 'docx'].includes(ext)) {
+      try {
+        const docRes = $documents.toMarkdown({ file: uploadedFile })
+        if (docRes && docRes.markdown && docRes.markdown.trim().length > 30) {
+          textContent = docRes.markdown
+          textExtracted = true
+        }
+      } catch (err) {
+        // Scanned PDF or unsupported encoding error (status 422)
+        // We will fall back to vision if images are available
+      }
+    } else if (uploadedFile && (ext === 'csv' || ext === 'txt')) {
+      try {
+        const bytes = uploadedFile.bytes ? uploadedFile.bytes() : null
+        if (bytes) {
+          textContent = String.fromCharCode.apply(null, bytes)
+          textExtracted = true
+        }
+      } catch (_) {}
+    }
 
-Campos específicos OBRIGATÓRIOS dependendo do tipo:
-Se Energia Elétrica:
-- "medicao_anterior": número
-- "medicao_atual": número
-- "classificacao_consumo": string (ex: "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4")
-- "consumo_ponta": número
-- "tarifa_tusd_ponta": número
-- "tarifa_te_ponta": número
-- "consumo_fora_ponta": número
-- "tarifa_tusd_f_ponta": número
-- "tarifa_te_f_ponta": número
-- "adicional_bandeira": string (ex: "Bandeira Verde", "Bandeira Amarela", "Bandeira Vermelha")
-- "fatura_total": número float
+    const systemPrompt = `Você é um extrator de dados especialista e ultra-preciso para faturas de utilidades brasileiras (Energia Elétrica como Enel/CPFL/Light/Cemig, Gás Canalizado como Comgás/Naturgy, e Água/Saneamento como Sabesp/Sanepar).
+Você analisa imagens escaneadas e faturas digitais com máxima atenção a números decimais, datas, medições e tarifas regulatórias.
+Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.`
 
-Se Gás:
-- "medicao_anterior": número
-- "medicao_atual": número
-- "consumo_medido": número
-- "consumo_corrigido": número
-- "tarifa": número
-- "fatura_total": número float
+    const instructions = `Analise a fatura anexada (arquivo "${fileName}").
+Tipo de utilidade sugerido: "${requestedUtility || 'Detectar automaticamente da fatura'}".
 
-Se Água:
-- "medicao_anterior": número
-- "medicao_atual": número
-- "consumo_medido": número
-- "tarifa": número
-- "fatura_total": número float
+Orientações cruciais de extração:
+1. Identifique o tipo de utilidade:
+   - "Energia Elétrica" (se houver kWh, Enel, CPFL, Light, Cemig, TUSD, TE, Bandeira Tarifária, etc.)
+   - "Gás" (se houver Comgás, Naturgy, Gás Natural, m³, fator de correção PTZ/PCS, etc.)
+   - "Água e Esgoto" (se Sabesp, Sanepar, Copasa, m³, ligação de água/esgoto)
 
-Conteúdo extraído do documento:
-"""
-${textContent.slice(0, 14000)}
-"""
+2. Para ENERGIA ELÉTRICA (ex: Enel Brasil / Eletropaulo):
+   - "competencia": mês de referência (ex: MÊS/ANO 09/2026 -> "2026-09-01", "09/2026")
+   - "valor_total": valor TOTAL A PAGAR (ex: R$ 22.347,38 -> 22347.38)
+   - "fatura_total": mesmo valor total float (22347.38)
+   - "consumo": consumo faturado ativo total em kWh (ex: 20.438,40 -> 20438.40)
+   - "unidade_consumo": "kWh"
+   - "numero_fatura": número do documento / nota fiscal / número da conta (ex: 519519027339 ou 095039445)
+   - "cnpj_fornecedor": CNPJ da distribuidora (ex Enel: 61.695.227/0001-93) ou do cliente
+   - "vencimento": data de vencimento (ex: 25/09/2026 -> "2026-09-25")
+   - "medicao_anterior": leitura anterior do medidor (ex: 65891.700 -> 65891.7)
+   - "medicao_atual": leitura atual do medidor (ex: 66743.300 -> 66743.3)
+   - "classificacao_consumo": classificação da unidade consumidora (ex: "B3 - CONVENCIONAL - Comercial", "B3", "A4", etc. Se B3 retorne "B3", se A4 retorne "A4")
+   - "consumo_ponta": consumo no posto tarifário ponta em kWh (se convencional/único sem separação de ponta, pode ser 0 ou o consumo total se tarifado único)
+   - "consumo_fora_ponta": consumo no posto fora-ponta em kWh (se aplicável, ou o consumo total convencional)
+   - "tarifa_tusd_ponta": tarifa unitária TUSD com tributos (ex: se único/ponta: 0.60078 ou 0.47242 sem trib)
+   - "tarifa_te_ponta": tarifa unitária TE com tributos (ex: 0.40912 ou 0.31696 sem trib)
+   - "tarifa_tusd_f_ponta": tarifa TUSD fora de ponta (se não diferenciado, igual a TUSD)
+   - "tarifa_te_f_ponta": tarifa TE fora de ponta (se não diferenciado, igual a TE)
+   - "adicional_bandeira": bandeira tarifária indicada nas mensagens (ex: "AMARELA", "Bandeira Amarela", "Bandeira Verde", "Bandeira Vermelha")
 
-Retorne o JSON estrito.`
+3. Para GÁS NATURAL (ex: Comgás):
+   - "competencia": mês de referência / apresentação (ex: 08/2026 -> "2026-08-01", "08/2026")
+   - "valor_total": valor a pagar total (ex: R$ 4.363,05 -> 4363.05)
+   - "fatura_total": 4363.05
+   - "consumo": consumo faturado corrigido (ex: 682.168 -> 682.17 ou 682.168)
+   - "unidade_consumo": "m³"
+   - "numero_fatura": número da nota fiscal / conta de gás (ex: 150.238.010 ou 150238010)
+   - "cnpj_fornecedor": CNPJ da distribuidora (ex Comgás: 61.856.571/0006-21)
+   - "vencimento": data de vencimento (ex: 08/09/2026 -> "2026-09-08")
+   - "medicao_anterior": leitura anterior (ex: 431.304 -> 431.304)
+   - "medicao_atual": leitura atual (ex: 432.014 -> 432.014)
+   - "consumo_medido": consumo medido antes da correção (ex: 710 -> 710)
+   - "consumo_corrigido": consumo corrigido por temperatura/pressão (ex: 682.168 -> 682.168)
+   - "tarifa": tarifa aplicada com ICMS por m³ (ex: 6,395871 -> 6.395871)
+
+4. Para ÁGUA E ESGOTO:
+   - "competencia", "valor_total", "consumo", "unidade_consumo": "m³", "numero_fatura", "cnpj_fornecedor", "vencimento"
+   - "medicao_anterior", "medicao_atual", "consumo_medido", "tarifa", "fatura_total"
+
+Retorne rigorosamente esta estrutura JSON:
+{
+  "tipo_utilidade": "Energia Elétrica" | "Gás" | "Água e Esgoto",
+  "competencia": "YYYY-MM-01",
+  "competencia_formatada": "MM/AAAA",
+  "valor_total": float,
+  "consumo": float,
+  "unidade_consumo": "kWh" ou "m³",
+  "numero_fatura": string,
+  "cnpj_fornecedor": string,
+  "vencimento": "YYYY-MM-DD",
+  "medicao_anterior": float,
+  "medicao_atual": float,
+  "classificacao_consumo": string,
+  "consumo_ponta": float,
+  "tarifa_tusd_ponta": float,
+  "tarifa_te_ponta": float,
+  "consumo_fora_ponta": float,
+  "tarifa_tusd_f_ponta": float,
+  "tarifa_te_f_ponta": float,
+  "adicional_bandeira": string,
+  "consumo_medido": float,
+  "consumo_corrigido": float,
+  "tarifa": float,
+  "fatura_total": float
+}`
 
     try {
+      let userMessageContent = []
+
+      // If we have rendered images from the document (Vision pipeline)
+      if (pageImages && pageImages.length > 0) {
+        userMessageContent.push({
+          type: 'text',
+          text: `${instructions}\n\nAnalise visualmente as ${pageImages.length} página(s) anexadas da fatura com precisão cirúrgica.`,
+        })
+
+        // Limit to first 4 pages if multi-page to avoid exceeding token limit
+        const maxPages = Math.min(pageImages.length, 4)
+        for (let i = 0; i < maxPages; i++) {
+          const imgUrl = pageImages[i]
+          if (typeof imgUrl === 'string' && imgUrl.startsWith('data:image/')) {
+            userMessageContent.push({
+              type: 'image_url',
+              image_url: {
+                url: imgUrl,
+              },
+            })
+          }
+        }
+      } else {
+        // Fallback to text content if no images
+        const txt =
+          textExtracted && textContent
+            ? textContent.slice(0, 14000)
+            : `Arquivo: ${fileName} (Sem texto pesquisável direto)`
+        userMessageContent = `${instructions}\n\nConteúdo textual disponível:\n"""\n${txt}\n"""`
+      }
+
       const aiResponse = $ai.chat({
         model: 'fast',
         messages: [
           {
             role: 'system',
-            content:
-              'Você é um extrator de dados de faturas altamente preciso. Responda APENAS com JSON puro e válido.',
+            content: systemPrompt,
           },
-          { role: 'user', content: prompt },
+          {
+            role: 'user',
+            content: userMessageContent,
+          },
         ],
       })
 
@@ -124,22 +189,34 @@ Retorne o JSON estrito.`
           ? aiResponse.choices[0].message.content
           : '{}'
 
-      // Strip markdown code fences if model enclosed in ```json
+      // Strip markdown code fences if model enclosed in ```json or ```
       rawText = rawText.trim()
       if (rawText.startsWith('```json')) {
-        rawText = rawText
-          .replace(/^```json/, '')
-          .replace(/```$/, '')
-          .trim()
+        rawText = rawText.substring(7)
       } else if (rawText.startsWith('```')) {
-        rawText = rawText.replace(/^```/, '').replace(/```$/, '').trim()
+        rawText = rawText.substring(3)
       }
+      if (rawText.endsWith('```')) {
+        rawText = rawText.substring(0, rawText.length - 3)
+      }
+      rawText = rawText.trim()
 
       let parsed = {}
       try {
         parsed = JSON.parse(rawText)
       } catch (_) {
-        // Fallback object if parsing failed
+        // Try regex extraction of JSON object {...}
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          try {
+            parsed = JSON.parse(jsonMatch[0])
+          } catch (e2) {
+            parsed = {}
+          }
+        }
+      }
+
+      if (!parsed || Object.keys(parsed).length === 0) {
         parsed = {
           tipo_utilidade: requestedUtility || 'Energia Elétrica',
           valor_total: 0,

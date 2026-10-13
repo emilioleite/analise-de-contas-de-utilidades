@@ -89,6 +89,7 @@ export default function Faturas() {
   const [selectedEmpId, setSelectedEmpId] = useState<string>('')
   const [selectedTipo, setSelectedTipo] = useState<TipoUtilidade>('Energia Elétrica')
   const [extracting, setExtracting] = useState<boolean>(false)
+  const [extractingStatus, setExtractingStatus] = useState<string>('')
 
   // Form values (for step 3 review and edit modal)
   const [competenciaInput, setCompetenciaInput] = useState<string>('') // MM/AAAA or YYYY-MM
@@ -180,13 +181,16 @@ export default function Faturas() {
 
     setStep(3)
     setExtracting(true)
+    setExtractingStatus('Preparando documento...')
 
     // Pre-set unit based on utility
     setUnidadeConsumo(selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
 
     try {
       if (uploadedFile) {
-        const res = await faturasService.extractFromDocument(uploadedFile, selectedTipo)
+        const res = await faturasService.extractFromDocument(uploadedFile, selectedTipo, (status) =>
+          setExtractingStatus(status),
+        )
         const d = res.dados || {}
 
         // Apply extracted general fields
@@ -1063,9 +1067,12 @@ export default function Faturas() {
                       <Zap className="w-7 h-7 text-teal-700 animate-bounce" />
                     </div>
                   </div>
-                  <h4 className="text-sm font-bold text-gray-900">Extraindo dados da fatura...</h4>
+                  <h4 className="text-sm font-bold text-gray-900">
+                    {extractingStatus || 'Extraindo dados da fatura...'}
+                  </h4>
                   <p className="text-xs text-gray-500 max-w-xs">
-                    Nossa IA está lendo o arquivo e identificando medições, tarifas, consumo e CNPJ.
+                    Nossa IA com Visão Computacional está analisando a fatura e identificando
+                    medições, tarifas, consumo e CNPJ.
                   </p>
                 </div>
               ) : (

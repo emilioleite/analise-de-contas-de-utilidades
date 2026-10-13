@@ -54,11 +54,37 @@ export const faturasService = {
   async extractFromDocument(
     file: File,
     tipoUtilidade?: TipoUtilidade,
+    onProgress?: (status: string) => void,
   ): Promise<{ sucesso: boolean; arquivo_nome: string; dados: any }> {
+    const fileName = file.name || ''
+    const ext = fileName.toLowerCase().split('.').pop()
+
+    let renderedImages: string[] = []
+
+    // If PDF, convert pages to high-resolution images so Vision LLM can read scanned/encoded faturas
+    if (ext === 'pdf') {
+      try {
+        if (onProgress) onProgress('Renderizando páginas do PDF em alta resolução...')
+        const { convertPdfToImages } = await import('@/lib/pdfToImages')
+        renderedImages = await convertPdfToImages(file, {
+          maxPages: 3,
+          scale: 1.6,
+          quality: 0.82,
+        })
+      } catch (pdfErr) {
+        console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
+      }
+    }
+
+    if (onProgress) onProgress('Extraindo dados com IA e Visão Computacional...')
+
     const formData = new FormData()
     formData.append('arquivo', file)
     if (tipoUtilidade) {
       formData.append('tipo_utilidade', tipoUtilidade)
+    }
+    if (renderedImages.length > 0) {
+      formData.append('images', JSON.stringify(renderedImages))
     }
 
     // Call custom hook route /backend/v1/faturas/extract with auth token
