@@ -97,6 +97,7 @@ export default function Faturas() {
   const [consumo, setConsumo] = useState<number | string>('')
   const [unidadeConsumo, setUnidadeConsumo] = useState<string>('kWh')
   const [numeroFatura, setNumeroFatura] = useState<string>('')
+  const [cnpjCliente, setCnpjCliente] = useState<string>('')
   const [cnpjFornecedor, setCnpjFornecedor] = useState<string>('')
   const [vencimento, setVencimento] = useState<string>('')
 
@@ -135,6 +136,7 @@ export default function Faturas() {
     setConsumo('')
     setUnidadeConsumo('kWh')
     setNumeroFatura('')
+    setCnpjCliente('')
     setCnpjFornecedor('')
     setVencimento('')
     setMedicaoAnterior('')
@@ -338,16 +340,58 @@ export default function Faturas() {
             : undefined
         if (numFat) setNumeroFatura(numFat)
 
+        const rawCnpjCli = getField(
+          'cnpj_cliente',
+          'cnpjCliente',
+          'cnpj_consumidor',
+          'cnpjConsumidor',
+          'cnpj_titular',
+          'cnpjTitular',
+          'cnpj_unidade',
+          'cnpjUnidade',
+        )
+        const cnpjCli =
+          rawCnpjCli && rawCnpjCli !== 'null' && rawCnpjCli !== '0'
+            ? String(rawCnpjCli).trim()
+            : undefined
+        if (cnpjCli) setCnpjCliente(formatCNPJ(cnpjCli))
+
         const rawCnpjForn = getField(
           'cnpj_fornecedor',
           'cnpjFornecedor',
-          'cnpj',
           'cnpj_distribuidora',
+          'cnpjDistribuidora',
+          'cnpj_emitente',
+          'cnpjEmitente',
         )
-        const cnpjForn =
+        let cnpjForn =
           rawCnpjForn && rawCnpjForn !== 'null' && rawCnpjForn !== '0'
             ? String(rawCnpjForn).trim()
             : undefined
+
+        // Fallback para campo genérico "cnpj" se cnpj_fornecedor ou cnpj_cliente não vieram
+        if (!cnpjForn && !cnpjCli) {
+          const rawGenCnpj = getField('cnpj', 'cnpj_fatura', 'cnpjFatura')
+          if (rawGenCnpj && rawGenCnpj !== 'null' && rawGenCnpj !== '0') {
+            const cleanGen = String(rawGenCnpj).replace(/\D/g, '')
+            const knownDistributors = [
+              '61856571000621',
+              '61856571000117',
+              '61695227000193',
+              '43776517000180',
+              '33050196000188',
+              '02474103000119',
+              '60744463000190',
+              '04172213000151',
+              '17281106000103',
+            ]
+            if (knownDistributors.some((d) => cleanGen.startsWith(d))) {
+              cnpjForn = String(rawGenCnpj).trim()
+            } else {
+              setCnpjCliente(formatCNPJ(String(rawGenCnpj).trim()))
+            }
+          }
+        }
         if (cnpjForn) setCnpjFornecedor(formatCNPJ(cnpjForn))
 
         const rawVenc = getField('vencimento', 'data_vencimento', 'dataVencimento')
@@ -507,13 +551,15 @@ export default function Faturas() {
     return empreendimentos.find((e) => e.id === selectedEmpId)
   }, [empreendimentos, selectedEmpId])
 
+  // A conferência deve comparar o CNPJ do CLIENTE/CONSUMIDOR com o CNPJ do empreendimento.
+  // Se o CNPJ do cliente não foi identificado/está vazio, NÃO deve gerar falso alerta de divergência.
   const cnpjMismatch = useMemo(() => {
-    if (!selectedEnterprise || !cnpjFornecedor) return false
+    if (!selectedEnterprise || !cnpjCliente) return false
     const empCnpjDigits = cleanCNPJ(selectedEnterprise.cnpj)
-    const faturaCnpjDigits = cleanCNPJ(cnpjFornecedor)
-    if (!faturaCnpjDigits) return false
-    return empCnpjDigits !== faturaCnpjDigits
-  }, [selectedEnterprise, cnpjFornecedor])
+    const clienteCnpjDigits = cleanCNPJ(cnpjCliente)
+    if (!clienteCnpjDigits) return false
+    return empCnpjDigits !== clienteCnpjDigits
+  }, [selectedEnterprise, cnpjCliente])
 
   // Save new invoice from Step 3
   const handleSaveInvoice = async () => {
@@ -585,6 +631,7 @@ export default function Faturas() {
         consumo: Number(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
+        cnpj_cliente: cnpjCliente ? formatCNPJ(cnpjCliente) : undefined,
         cnpj_fornecedor: cnpjFornecedor ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: !cnpjMismatch,
         arquivo_nome: uploadedFile?.name || null,
@@ -617,6 +664,7 @@ export default function Faturas() {
       fat.unidade_consumo || (fat.tipo_utilidade === 'Energia Elétrica' ? 'kWh' : 'm³'),
     )
     setNumeroFatura(fat.numero_fatura || '')
+    setCnpjCliente(fat.cnpj_cliente || '')
     setCnpjFornecedor(fat.cnpj_fornecedor || '')
     setVencimento(fat.vencimento ? fat.vencimento.split('T')[0] : '')
 
@@ -665,7 +713,7 @@ export default function Faturas() {
 
     const empObj = empreendimentos.find((e) => e.id === selectedEmpId)
     const isMatched =
-      empObj && cnpjFornecedor ? cleanCNPJ(empObj.cnpj) === cleanCNPJ(cnpjFornecedor) : true
+      empObj && cnpjCliente ? cleanCNPJ(empObj.cnpj) === cleanCNPJ(cnpjCliente) : true
 
     let dadosEsp: any = {}
     if (selectedTipo === 'Energia Elétrica') {
@@ -711,6 +759,7 @@ export default function Faturas() {
         consumo: Number(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
+        cnpj_cliente: cnpjCliente ? formatCNPJ(cnpjCliente) : undefined,
         cnpj_fornecedor: cnpjFornecedor ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: isMatched,
         vencimento: vencimento || undefined,
@@ -774,13 +823,16 @@ export default function Faturas() {
           const query = searchTerm.toLowerCase()
           const empNome = fat.expand?.empreendimento?.nome?.toLowerCase() || ''
           const empCnpj = fat.expand?.empreendimento?.cnpj?.toLowerCase() || ''
-          const fatCnpj = fat.cnpj_fornecedor?.toLowerCase() || ''
-          const numFat = fat.numero_fatura?.toLowerCase() || ''
+          const cliCnpj = fat.cnpj_cliente?.toLowerCase() || ''
+          const fornCnpj = fat.cnpj_fornecedor?.toLowerCase() || ''
+          const numFatura = fat.numero_fatura?.toLowerCase() || ''
+
           if (
             !empNome.includes(query) &&
             !empCnpj.includes(query) &&
-            !fatCnpj.includes(query) &&
-            !numFat.includes(query)
+            !cliCnpj.includes(query) &&
+            !fornCnpj.includes(query) &&
+            !numFatura.includes(query)
           ) {
             return false
           }
@@ -1334,12 +1386,13 @@ export default function Faturas() {
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div>
                           <p className="font-bold">
-                            Atenção: o CNPJ da fatura não corresponde ao CNPJ do empreendimento
-                            selecionado. Deseja continuar?
+                            Atenção: o CNPJ do cliente/titular na fatura não corresponde ao CNPJ do
+                            empreendimento selecionado. Deseja continuar?
                           </p>
                           <p className="text-[11px] text-amber-700 mt-0.5">
                             CNPJ do Empreendimento: <strong>{selectedEnterprise?.cnpj}</strong> |
-                            CNPJ da fatura: <strong>{cnpjFornecedor || 'Não identificado'}</strong>
+                            CNPJ do Cliente na fatura:{' '}
+                            <strong>{cnpjCliente || 'Não identificado'}</strong>
                           </p>
                         </div>
                       </div>
@@ -1426,7 +1479,22 @@ export default function Faturas() {
 
                       <div>
                         <Label className="text-xs font-semibold text-gray-700">
-                          CNPJ da Fatura / Fornecedor
+                          CNPJ do Cliente (Titular da Unidade)
+                        </Label>
+                        <Input
+                          placeholder="00.000.000/0000-00"
+                          className="h-9 text-xs font-mono"
+                          value={cnpjCliente}
+                          onChange={(e) => setCnpjCliente(e.target.value)}
+                        />
+                        <span className="text-[10px] text-gray-400 block mt-0.5">
+                          Usado para conferência contra o CNPJ do empreendimento
+                        </span>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs font-semibold text-gray-700">
+                          CNPJ do Fornecedor (Distribuidora)
                         </Label>
                         <Input
                           placeholder="00.000.000/0000-00"
@@ -1434,6 +1502,9 @@ export default function Faturas() {
                           value={cnpjFornecedor}
                           onChange={(e) => setCnpjFornecedor(e.target.value)}
                         />
+                        <span className="text-[10px] text-gray-400 block mt-0.5">
+                          Emitente da fatura (ex: Comgás, Enel, Sabesp)
+                        </span>
                       </div>
 
                       <div>
@@ -1811,11 +1882,33 @@ export default function Faturas() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-400 block text-[10px] uppercase">CNPJ Titular</span>
+                  <span className="text-gray-400 block text-[10px] uppercase">
+                    CNPJ Empreendimento
+                  </span>
                   <span className="font-mono text-gray-800">
                     {formatCNPJ(selectedFatura.expand?.empreendimento?.cnpj || '')}
                   </span>
                 </div>
+                {selectedFatura.cnpj_cliente && (
+                  <div>
+                    <span className="text-gray-400 block text-[10px] uppercase">
+                      CNPJ Cliente (Fatura)
+                    </span>
+                    <span className="font-mono text-gray-800">
+                      {formatCNPJ(selectedFatura.cnpj_cliente)}
+                    </span>
+                  </div>
+                )}
+                {selectedFatura.cnpj_fornecedor && (
+                  <div>
+                    <span className="text-gray-400 block text-[10px] uppercase">
+                      CNPJ Fornecedor
+                    </span>
+                    <span className="font-mono text-gray-800">
+                      {formatCNPJ(selectedFatura.cnpj_fornecedor)}
+                    </span>
+                  </div>
+                )}
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase">Valor Total</span>
                   <span className="font-bold text-teal-800 text-sm tabular-nums">
@@ -1951,8 +2044,23 @@ export default function Faturas() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold text-gray-700">CNPJ da Fatura</Label>
+                <Label className="text-xs font-semibold text-gray-700">
+                  CNPJ do Cliente (Titular)
+                </Label>
                 <Input
+                  placeholder="00.000.000/0000-00"
+                  className="h-9 text-xs font-mono"
+                  value={cnpjCliente}
+                  onChange={(e) => setCnpjCliente(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-gray-700">
+                  CNPJ do Fornecedor (Distribuidora)
+                </Label>
+                <Input
+                  placeholder="00.000.000/0000-00"
                   className="h-9 text-xs font-mono"
                   value={cnpjFornecedor}
                   onChange={(e) => setCnpjFornecedor(e.target.value)}

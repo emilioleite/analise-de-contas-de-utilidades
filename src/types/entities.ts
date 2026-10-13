@@ -56,6 +56,7 @@ export interface FaturaRecord {
   consumo?: number
   unidade_consumo?: string
   numero_fatura?: string
+  cnpj_cliente?: string
   cnpj_fornecedor?: string
   cnpj_validado?: boolean
   arquivo_nome?: string | null

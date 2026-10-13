@@ -189,8 +189,23 @@ Você analisa faturas digitais e escaneadas com máxima atenção a números dec
 Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.
 IMPORTANTE: Localize e extraia os dados REAIS presentes na imagem ou texto do documento. Preencha todos os campos que conseguir identificar. Apenas se um campo realmente não existir ou estiver ilegível utilize null (nunca sentinelas como "1900-01-01" ou 0 para valores ausentes).
 
+DISTINÇÃO OBRIGATÓRIA ENTRE OS DOIS CNPJs:
+Em faturas de utilidades SEMPRE existem ou podem existir DOIS CNPJs diferentes:
+1. "cnpj_cliente" (CNPJ do CLIENTE / CONSUMIDOR / TITULAR / DESTINATÁRIO / EMPREENDIMENTO):
+   - É o CNPJ ou CPF do tomador do serviço, cliente ou condomínio/empresa titular da unidade consumidora.
+   - Na Comgás: fica no quadro superior direito da fatura, junto aos dados do cliente/destinatário (Razão Social/Nome, Endereço de entrega/consumo, CNPJ/CPF do cliente - ex: "04.151.776/0001-63").
+   - Na Enel / CPFL / Light: fica no quadro "DADOS DO CLIENTE" / "DESTINATÁRIO" / "UNIDADE CONSUMIDORA" (CNPJ/CPF do titular).
+   - Na Sabesp: fica no quadro de identificação do cliente / ligação / usuário consumidor.
+2. "cnpj_fornecedor" (CNPJ do FORNECEDOR / DISTRIBUIDORA / CONCESSIONÁRIA EMITENTE):
+   - É o CNPJ da empresa que fornece a utilidade (emitente da nota fiscal).
+   - Comgás: 61.856.571/0006-21 ou 61.856.571/0001-17 (COMPANHIA DE GAS DE SAO PAULO COMGAS).
+   - Enel SP: 61.695.227/0001-93.
+   - Sabesp: 43.776.517/0001-80.
+NUNCA CONFUNDA O CNPJ DO CLIENTE COM O DO FORNECEDOR. O CNPJ do cliente é crucial para conferir a conta com o empreendimento cadastrado.
+
 LAYOUT ESPECÍFICO COMGÁS (Gás Natural Canalizado):
-- A fatura da Comgás possui no topo o logo 'comgás' e o CNPJ da distribuidora Comgás: 61.856.571/0006-21 (ou 61.856.571/0001-17).
+- "cnpj_fornecedor": CNPJ da Comgás (61.856.571/0006-21 ou 61.856.571/0001-17), no cabeçalho ou canhoto/boleto.
+- "cnpj_cliente": CNPJ do cliente/empreendimento titular, localizado no canto superior direito nos dados do cliente (ex: 04.151.776/0001-63).
 - Tipo de utilidade: "Gás".
 - "Valor a pagar (R$)" ou valor total: destaque no quadro superior direito e no boleto (ex: R$ 4.363,05 -> 4363.05).
 - "Data de apresentação" ou data de emissão/leitura: ex: 17.08.2026 -> competência "08/2026" ("2026-08-01").
@@ -213,14 +228,19 @@ Orientações cruciais de extração:
    - "Gás" (se houver Comgás, Naturgy, Gás Natural, m³, fator de correção PTZ/PCS, etc.)
    - "Água e Esgoto" (se Sabesp, Sanepar, Copasa, Cia de Saneamento, Fornecimento, Pde/Rgi, Hidrômetro, Leitura Anterior, Leitura Atual, Consumo m³, Água/Esgoto)
 
-2. Para ENERGIA ELÉTRICA (ex: Enel Brasil / CPFL / Light):
+2. EXTRAÇÃO RIGOROSA DE CNPJs (NÃO CONFUNDIR):
+   - "cnpj_cliente": CNPJ do cliente/titular da unidade (ex: 04.151.776/0001-63 na Comgás canto superior direito; ou CNPJ do consumidor na Enel/Sabesp).
+   - "cnpj_fornecedor": CNPJ da distribuidora emitente (ex: Comgás 61.856.571/0006-21, Enel 61.695.227/0001-93, Sabesp 43.776.517/0001-80).
+
+3. Para ENERGIA ELÉTRICA (ex: Enel Brasil / CPFL / Light):
    - "competencia": mês de referência (ex: MÊS/ANO 09/2026 -> "2026-09-01", "09/2026")
    - "valor_total": valor TOTAL A PAGAR (ex: R$ 22.347,38 -> 22347.38)
    - "fatura_total": 22347.38
    - "consumo": consumo faturado ativo total em kWh (ex: 20.438,40 -> 20438.40)
    - "unidade_consumo": "kWh"
    - "numero_fatura": número do documento / nota fiscal / número da conta (ex: 519519027339 ou 095039445)
-   - "cnpj_fornecedor": CNPJ da distribuidora (ex Enel: 61.695.227/0001-93) ou do cliente
+   - "cnpj_cliente": CNPJ do cliente/unidade consumidora titular da conta
+   - "cnpj_fornecedor": CNPJ da distribuidora emitente (ex Enel: 61.695.227/0001-93)
    - "vencimento": data de vencimento (ex: 25/09/2026 -> "2026-09-25")
    - "medicao_anterior": leitura anterior do medidor (ex: 65891.700 -> 65891.7)
    - "medicao_atual": leitura atual do medidor (ex: 66743.300 -> 66743.3)
@@ -233,10 +253,11 @@ Orientações cruciais de extração:
    - "tarifa_te_f_ponta": tarifa TE fora de ponta
    - "adicional_bandeira": bandeira tarifária indicada (ex: "Bandeira Amarela", "Bandeira Verde", "Bandeira Vermelha")
 
-3. Para GÁS NATURAL (ex: Comgás / Naturgy):
+4. Para GÁS NATURAL (ex: Comgás / Naturgy):
    - Layout Comgás detalhado:
      * Logo "comgás" no canto superior esquerdo com CNPJ Comgás 61.856.571/0006-21 (ou no boleto "CIA. DE GÁS DE SÃO PAULO COMGÁS CNPJ - 61.856.571/0006-21").
      * "NOTA FISCAL / CONTA DE GÁS": número no cabeçalho (ex: 150.238.010).
+     * DADOS DO CLIENTE (canto superior direito): Razão Social e CNPJ do CLIENTE (ex: 04.151.776/0001-63). Esse é o "cnpj_cliente".
      * Competência / Mês de Referência: localizada em "Data de apresentação" ou "Data da leitura atual" (ex: 17.08.2026 ou 12.08.2026 -> competência "08/2026", "2026-08-01").
      * "Vencimento": no quadro superior direito ou no boleto (ex: 08.09.2026 ou 08/09/2026 -> "2026-09-08").
      * "Valor a pagar (R$)": valor destacado no quadro superior direito, ex: 4.363,05 -> 4363.05.
@@ -251,7 +272,8 @@ Orientações cruciais de extração:
    - "consumo": consumo faturado corrigido (ex: 682.168)
    - "unidade_consumo": "m³"
    - "numero_fatura": número da nota fiscal / conta de gás (ex: 150.238.010)
-   - "cnpj_fornecedor": CNPJ da distribuidora (ex Comgás: 61.856.571/0006-21)
+   - "cnpj_cliente": CNPJ do cliente/titular no canto superior direito (ex: 04.151.776/0001-63)
+   - "cnpj_fornecedor": CNPJ da distribuidora Comgás (61.856.571/0006-21)
    - "vencimento": data de vencimento (ex: 08.09.2026 -> "2026-09-08")
    - "medicao_anterior": leitura anterior (ex: 431.304)
    - "medicao_atual": leitura atual (ex: 432.014)
@@ -259,7 +281,7 @@ Orientações cruciais de extração:
    - "consumo_corrigido": consumo corrigido por temperatura/pressão (ex: 682.168)
    - "tarifa": tarifa aplicada com ICMS por m³ (ex: 6,395871 -> 6.395871)
 
-4. Para ÁGUA E ESGOTO (ex: Sabesp - Companhia de Saneamento Básico do Estado de São Paulo):
+5. Para ÁGUA E ESGOTO (ex: Sabesp - Companhia de Saneamento Básico do Estado de São Paulo):
    - "tipo_utilidade": "Água e Esgoto"
    - "competencia": mês/ano de referência ou faturamento. Exemplo Sabesp: "05/2024" ou da data de emissão/leitura -> "2024-05-01", "competencia_formatada": "05/2024"
    - "valor_total": valor TOTAL ou TOTAL A PAGAR do documento (ex: R$ 2.143,97 -> 2143.97)
@@ -268,6 +290,7 @@ Orientações cruciais de extração:
    - "consumo_medido": consumo medido em m³ (ex: Consumo (M3) 157 -> 157.0)
    - "unidade_consumo": "m³"
    - "numero_fatura": No. Documento ou Fatura Tipo ou Fornecimento / PDE (ex: "SOR202458365156" ou "58088806001")
+   - "cnpj_cliente": CNPJ do titular/cliente na área de dados do cliente / ligação
    - "cnpj_fornecedor": CNPJ da concessionária de água (ex Sabesp: "43.776.517/0001-80" ou CNPJ no topo)
    - "vencimento": data de vencimento no campo VENCIMENTO (ex: 21/06/2024 -> "2024-06-21")
    - "medicao_anterior": Leitura Anterior do hidrômetro (ex: 5564)
@@ -287,6 +310,7 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
   "consumo": float | null,
   "unidade_consumo": "kWh" | "m³" | null,
   "numero_fatura": string | null,
+  "cnpj_cliente": string | null,
   "cnpj_fornecedor": string | null,
   "vencimento": "YYYY-MM-DD" | null,
   "medicao_anterior": float | null,
@@ -364,7 +388,7 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
             // No gateway skip-ai-gateway:
             // 1. O campo `content` de mensagens de usuário DEVE ser uma string (arrays tipo OpenAI [{type:'text'}, {type:'image_url'}] são rejeitados com 400).
             // 2. Imagens são enviadas no array `images` dentro do objeto da mensagem do usuário: `images: [dataUrl]`.
-            const visionUserText = `${instructions}\n\nExamine a imagem da fatura em anexo. Extraia todos os dados visíveis no documento:\n- Tipo de utilidade (Energia Elétrica, Gás ou Água e Esgoto)\n- Competência / mês de referência (ex: MM/AAAA ou YYYY-MM-01)\n- Valor total a pagar (R$)\n- Consumo faturado / apurado\n- Medição anterior e medição atual do medidor\n- Consumo medido e consumo corrigido (para faturas de gás)\n- Tarifa unitária por unidade de consumo\n- Número da fatura / nota fiscal\n- CNPJ da distribuidora / fornecedora\n- Data de vencimento\n\nRetorne o JSON preenchido com todos os valores numéricos e textuais identificados na imagem da conta. Se algum campo específico não constar no documento, use null.`
+            const visionUserText = `${instructions}\n\nExamine a imagem da fatura em anexo. Extraia todos os dados visíveis no documento:\n- Tipo de utilidade (Energia Elétrica, Gás ou Água e Esgoto)\n- Competência / mês de referência (ex: MM/AAAA ou YYYY-MM-01)\n- Valor total a pagar (R$)\n- Consumo faturado / apurado\n- Medição anterior e medição atual do medidor\n- Consumo medido e consumo corrigido (para faturas de gás)\n- Tarifa unitária por unidade de consumo\n- Número da fatura / nota fiscal\n- CNPJ do CLIENTE / CONSUMIDOR / TITULAR (canto superior direito no caso da Comgás; dados do cliente)\n- CNPJ da distribuidora / fornecedora emitente (Comgás, Enel, Sabesp)\n- Data de vencimento\n\nRetorne o JSON preenchido com todos os valores numéricos e textuais identificados na imagem da conta. Se algum campo específico não constar no documento, use null.`
             const visionMessages = [
               { role: 'system', content: systemPrompt },
               {
@@ -540,6 +564,7 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
 
         // Sanitizar strings de identificação
         parsed.numero_fatura = sanitizeText(parsed.numero_fatura)
+        parsed.cnpj_cliente = sanitizeText(parsed.cnpj_cliente)
         parsed.cnpj_fornecedor = sanitizeText(parsed.cnpj_fornecedor)
         parsed.classificacao_consumo = sanitizeText(parsed.classificacao_consumo)
         parsed.adicional_bandeira = sanitizeText(parsed.adicional_bandeira)
@@ -579,8 +604,73 @@ Retorne rigorosamente esta estrutura JSON (com null nos campos ausentes):
         if (parsed.faturaTotal !== undefined && parsed.fatura_total === undefined) {
           parsed.fatura_total = parsed.faturaTotal
         }
-        if (parsed.cnpjFornecedor !== undefined && parsed.cnpj_fornecedor === undefined) {
-          parsed.cnpj_fornecedor = parsed.cnpjFornecedor
+        // Mapeamento e normalização robusta de CNPJs: cliente vs fornecedor
+        // Mapear variações de CNPJ do cliente/titular
+        const clienteCnpjCandidate =
+          parsed.cnpj_cliente ||
+          parsed.cnpjCliente ||
+          parsed.cnpj_consumidor ||
+          parsed.cnpjConsumidor ||
+          parsed.cnpj_titular ||
+          parsed.cnpjTitular ||
+          parsed.cnpj_unidade ||
+          parsed.cnpjUnidade ||
+          parsed.cnpj_empreendimento ||
+          parsed.cnpjEmpreendimento ||
+          parsed['cnpj_cliente/consumidor'] ||
+          parsed['CNPJ do cliente'] ||
+          parsed['CNPJ Cliente'] ||
+          parsed['cnpj cliente']
+
+        if (clienteCnpjCandidate && !parsed.cnpj_cliente) {
+          parsed.cnpj_cliente = sanitizeText(clienteCnpjCandidate)
+        }
+
+        // Mapear variações de CNPJ do fornecedor/distribuidora
+        const fornecedorCnpjCandidate =
+          parsed.cnpj_fornecedor ||
+          parsed.cnpjFornecedor ||
+          parsed.cnpj_distribuidora ||
+          parsed.cnpjDistribuidora ||
+          parsed.cnpj_emitente ||
+          parsed.cnpjEmitente ||
+          parsed.cnpj_concessionaria ||
+          parsed.cnpjConcessionaria ||
+          parsed['CNPJ do fornecedor'] ||
+          parsed['CNPJ fornecedor'] ||
+          parsed['cnpj fornecedor']
+
+        if (fornecedorCnpjCandidate && !parsed.cnpj_fornecedor) {
+          parsed.cnpj_fornecedor = sanitizeText(fornecedorCnpjCandidate)
+        }
+
+        // Se a IA enviou apenas um campo genérico "cnpj" ou "cnpj_fatura"
+        const genericCnpj = sanitizeText(parsed.cnpj || parsed.cnpj_fatura || parsed.cnpjFatura)
+        if (genericCnpj) {
+          const cleanGen = genericCnpj.replace(/\D/g, '')
+          // CNPJs de fornecedores/distribuidoras comuns conhecidas no Brasil
+          const knownDistributors = [
+            '61856571000621', // Comgás filial
+            '61856571000117', // Comgás matriz
+            '61695227000193', // Enel SP
+            '43776517000180', // Sabesp
+            '33050196000188', // Naturgy / CEG
+            '02474103000119', // CPFL Paulista
+            '60744463000190', // CPFL Piratininga
+            '04172213000151', // Sanepar
+            '17281106000103', // Copasa
+          ]
+          const isKnownDist = knownDistributors.some((d) => cleanGen.startsWith(d))
+          if (isKnownDist) {
+            if (!parsed.cnpj_fornecedor) parsed.cnpj_fornecedor = genericCnpj
+          } else {
+            // Se não é distribuidora conhecida e não temos cnpj_cliente, atribuir a cliente
+            if (!parsed.cnpj_cliente) {
+              parsed.cnpj_cliente = genericCnpj
+            } else if (!parsed.cnpj_fornecedor) {
+              parsed.cnpj_fornecedor = genericCnpj
+            }
+          }
         }
         if (parsed.numeroFatura !== undefined && parsed.numero_fatura === undefined) {
           parsed.numero_fatura = parsed.numeroFatura
