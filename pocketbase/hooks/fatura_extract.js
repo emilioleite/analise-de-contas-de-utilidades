@@ -378,7 +378,7 @@ routerAdd(
             'descricao',
             `${String(item.mes).padStart(2, '0')}/${item.ano} — Atualização automática trimestral MCTI`,
           )
-          novoRec.save()
+          e.app.save(novoRec)
           registrosInseridos++
         }
       }

@@ -167,6 +167,39 @@ export const emissoesService = {
   },
 
   /**
+   * Dispara verificação e atualização manual dos fatores oficiais do SIN via backend
+   */
+  async sincronizarFatoresSin(): Promise<{
+    sucesso: boolean
+    paginaAcessada?: boolean
+    urlConsultada?: string
+    fatoresIdentificados?: number
+    registrosInseridos?: number
+    registrosAtualizados?: number
+    registrosIgnorados?: number
+    aviso?: string
+  }> {
+    try {
+      const res = await pb.send<{
+        sucesso: boolean
+        paginaAcessada?: boolean
+        urlConsultada?: string
+        fatoresIdentificados?: number
+        registrosInseridos?: number
+        registrosAtualizados?: number
+        registrosIgnorados?: number
+        aviso?: string
+      }>('/backend/v1/emissoes/atualizar-fatores-sin', {
+        method: 'POST',
+      })
+      return res
+    } catch (err: any) {
+      console.error('Erro ao sincronizar fatores SIN:', err)
+      throw err
+    }
+  },
+
+  /**
    * Restaura todos os fatores padrão (SIN conhecidos + fallbacks + gás + água)
    */
   async restaurarPadrao(): Promise<void> {

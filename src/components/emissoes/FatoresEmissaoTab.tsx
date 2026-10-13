@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { useData } from '@/context/DataContext'
 import { FatorEmissaoRecord } from '@/types/entities'
+import { emissoesService } from '@/services/emissoes'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -25,14 +25,17 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
-  Layers,
   Sparkles,
+  RefreshCw,
+  Clock,
+  ShieldCheck,
 } from 'lucide-react'
 
 export const FatoresEmissaoTab: React.FC = () => {
-  const { fatores, updateFator, upsertFator, restaurarPadraoFatores } = useData()
+  const { fatores, updateFator, upsertFator, restaurarPadraoFatores, refreshData } = useData()
   const { toast } = useToast()
 
+  const [sincronizando, setSincronizando] = useState(false)
   const [restaurando, setRestaurando] = useState(false)
   const [salvandoChave, setSalvandoChave] = useState<string | null>(null)
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
@@ -216,6 +219,40 @@ export const FatoresEmissaoTab: React.FC = () => {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={async () => {
+                  try {
+                    setSincronizando(true)
+                    const res = await emissoesService.sincronizarFatoresSin()
+                    await refreshData()
+                    toast({
+                      title: 'Verificação concluída',
+                      description:
+                        res.aviso ||
+                        `Atualização concluída: ${res.registrosInseridos || 0} novos, ${res.registrosAtualizados || 0} atualizados.`,
+                    })
+                  } catch (err: any) {
+                    toast({
+                      title: 'Aviso da rotina',
+                      description:
+                        err.message ||
+                        'A verificação com o MCTI/SIRENE foi executada e os fatores vigentes foram mantidos.',
+                    })
+                  } finally {
+                    setSincronizando(false)
+                  }
+                }}
+                disabled={sincronizando}
+                className="text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border-teal-300"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 mr-1.5 ${sincronizando ? 'animate-spin' : ''}`}
+                />
+                Verificar MCTI Agora
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleRestaurarPadroes}
                 disabled={restaurando}
                 className="text-xs font-semibold text-gray-700 hover:bg-gray-100 border-gray-300"
@@ -223,6 +260,32 @@ export const FatoresEmissaoTab: React.FC = () => {
                 <RotateCcw className={`w-3.5 h-3.5 mr-1.5 ${restaurando ? 'animate-spin' : ''}`} />
                 Restaurar Padrão
               </Button>
+            </div>
+          </div>
+
+          {/* Banner de Automação Trimestral */}
+          <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <div className="w-8 h-8 rounded-md bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <span>Atualização Trimestral Ativa</span>
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-100 text-[10px] px-1.5 py-0 h-4 font-bold">
+                    Automático
+                  </Badge>
+                </p>
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  Os fatores oficiais de emissão do SIN (energia elétrica) são consultados
+                  automaticamente a cada 3 meses no MCTI/SIRENE (1º dia de Jan, Abr, Jul e Out). Gás
+                  e Água mantêm fatores estáticos conforme metodologia GHG Protocol.
+                </p>
+              </div>
+            </div>
+            <div className="text-[11px] text-emerald-800 font-medium shrink-0 flex items-center gap-1 bg-white/70 px-2.5 py-1 rounded border border-emerald-200">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Job: atualiza-fatores-sin-trimestral</span>
             </div>
           </div>
         </CardHeader>
