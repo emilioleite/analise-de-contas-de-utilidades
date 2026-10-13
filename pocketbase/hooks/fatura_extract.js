@@ -414,6 +414,11 @@ Retorne rigorosamente esta estrutura JSON:
       }
 
       // Strip markdown code fences if model enclosed in ```json or ```
+      console.log(
+        '[fatura_extract] Resposta bruta da IA (' + aiMethodUsed + '):',
+        rawText.slice(0, 300),
+      )
+
       rawText = rawText.trim()
       if (rawText.startsWith('```json')) {
         rawText = rawText.substring(7)
@@ -439,9 +444,47 @@ Retorne rigorosamente esta estrutura JSON:
           }
         }
       }
+      console.log('[fatura_extract] Objeto extraído antes da normalização:', JSON.stringify(parsed))
 
       // Normalizações específicas para faturas brasileiras
       if (parsed && typeof parsed === 'object') {
+        // Normalizar chaves se vierem aninhadas (ex: parsed.dados ou parsed.fields ou camelCase)
+        if (parsed.dados && typeof parsed.dados === 'object' && !parsed.tipo_utilidade) {
+          parsed = Object.assign({}, parsed.dados, parsed)
+        }
+
+        // Desembrulhar campos com variações camelCase ou nomes alternativos
+        if (parsed.consumoMedido !== undefined && parsed.consumo_medido === undefined) {
+          parsed.consumo_medido = parsed.consumoMedido
+        }
+        if (parsed.consumoCorrigido !== undefined && parsed.consumo_corrigido === undefined) {
+          parsed.consumo_corrigido = parsed.consumoCorrigido
+        }
+        if (parsed.medicaoAnterior !== undefined && parsed.medicao_anterior === undefined) {
+          parsed.medicao_anterior = parsed.medicaoAnterior
+        }
+        if (parsed.medicaoAtual !== undefined && parsed.medicao_atual === undefined) {
+          parsed.medicao_atual = parsed.medicaoAtual
+        }
+        if (parsed.valorTotal !== undefined && parsed.valor_total === undefined) {
+          parsed.valor_total = parsed.valorTotal
+        }
+        if (parsed.faturaTotal !== undefined && parsed.fatura_total === undefined) {
+          parsed.fatura_total = parsed.faturaTotal
+        }
+        if (parsed.cnpjFornecedor !== undefined && parsed.cnpj_fornecedor === undefined) {
+          parsed.cnpj_fornecedor = parsed.cnpjFornecedor
+        }
+        if (parsed.numeroFatura !== undefined && parsed.numero_fatura === undefined) {
+          parsed.numero_fatura = parsed.numeroFatura
+        }
+        if (parsed.unidadeConsumo !== undefined && parsed.unidade_consumo === undefined) {
+          parsed.unidade_consumo = parsed.unidadeConsumo
+        }
+        if (parsed.tipoUtilidade !== undefined && parsed.tipo_utilidade === undefined) {
+          parsed.tipo_utilidade = parsed.tipoUtilidade
+        }
+
         // Garantir compatibilidade de fatura_total e valor_total
         if (parsed.valor_total !== undefined && parsed.fatura_total === undefined) {
           parsed.fatura_total = parsed.valor_total
@@ -450,11 +493,80 @@ Retorne rigorosamente esta estrutura JSON:
           parsed.valor_total = parsed.fatura_total
         }
 
+        // Normalização do tipo de utilidade
+        const rawTipo = String(parsed.tipo_utilidade || '').toLowerCase()
+        if (
+          rawTipo.includes('gás') ||
+          rawTipo.includes('gas') ||
+          rawTipo.includes('comgás') ||
+          rawTipo.includes('comgas') ||
+          rawTipo.includes('naturgy') ||
+          requestedUtility === 'Gás'
+        ) {
+          parsed.tipo_utilidade = 'Gás'
+          parsed.unidade_consumo = 'm³'
+
+          // Para Gás: consumo principal geralmente é o consumo_corrigido ou consumo_medido
+          if (
+            parsed.consumo_corrigido !== undefined &&
+            (parsed.consumo === undefined || Number(parsed.consumo) === 0)
+          ) {
+            parsed.consumo = parsed.consumo_corrigido
+          } else if (
+            parsed.consumo_medido !== undefined &&
+            (parsed.consumo === undefined || Number(parsed.consumo) === 0)
+          ) {
+            parsed.consumo = parsed.consumo_medido
+          }
+
+          // Consumo medido e corrigido preenchimentos recíprocos se um estiver ausente
+          if (parsed.consumo !== undefined && parsed.consumo_medido === undefined) {
+            parsed.consumo_medido = parsed.consumo
+          }
+          if (parsed.consumo !== undefined && parsed.consumo_corrigido === undefined) {
+            parsed.consumo_corrigido = parsed.consumo
+          }
+
+          // Se leitura anterior e atual existirem mas consumo medido não
+          if (
+            (parsed.consumo_medido === undefined || Number(parsed.consumo_medido) === 0) &&
+            parsed.medicao_atual !== undefined &&
+            parsed.medicao_anterior !== undefined &&
+            Number(parsed.medicao_atual) >= Number(parsed.medicao_anterior)
+          ) {
+            parsed.consumo_medido = Number(
+              (Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)).toFixed(3),
+            )
+            if (parsed.consumo_corrigido === undefined) {
+              parsed.consumo_corrigido = parsed.consumo_medido
+            }
+            if (parsed.consumo === undefined) {
+              parsed.consumo = parsed.consumo_corrigido
+            }
+          }
+
+          // Calcular tarifa se ausente
+          if (
+            (!parsed.tarifa || Number(parsed.tarifa) === 0) &&
+            parsed.valor_total > 0 &&
+            (parsed.consumo_corrigido > 0 || parsed.consumo > 0)
+          ) {
+            const baseCons = Number(parsed.consumo_corrigido || parsed.consumo)
+            parsed.tarifa = Number((Number(parsed.valor_total) / baseCons).toFixed(6))
+          }
+        }
+
         // Se for Água e Esgoto ou detectado Sabesp / saneamento
         const isAgua =
           parsed.tipo_utilidade === 'Água e Esgoto' ||
+          rawTipo.includes('água') ||
+          rawTipo.includes('agua') ||
+          rawTipo.includes('esgoto') ||
+          rawTipo.includes('sabesp') ||
+          rawTipo.includes('sanepar') ||
+          rawTipo.includes('copasa') ||
           requestedUtility === 'Água e Esgoto' ||
-          (parsed.cnpj_fornecedor && parsed.cnpj_fornecedor.includes('43.776.517'))
+          (parsed.cnpj_fornecedor && String(parsed.cnpj_fornecedor).includes('43.776.517'))
 
         if (isAgua) {
           parsed.tipo_utilidade = 'Água e Esgoto'
@@ -476,6 +588,26 @@ Retorne rigorosamente esta estrutura JSON:
           ) {
             parsed.tarifa = Number((parsed.fatura_total / parsed.consumo).toFixed(4))
           }
+        }
+
+        // Se for Energia Elétrica
+        const isEnergia =
+          parsed.tipo_utilidade === 'Energia Elétrica' ||
+          rawTipo.includes('energia') ||
+          rawTipo.includes('eletric') ||
+          rawTipo.includes('enel') ||
+          rawTipo.includes('cpfl') ||
+          rawTipo.includes('light') ||
+          rawTipo.includes('cemig') ||
+          requestedUtility === 'Energia Elétrica'
+
+        if (
+          isEnergia &&
+          parsed.tipo_utilidade !== 'Gás' &&
+          parsed.tipo_utilidade !== 'Água e Esgoto'
+        ) {
+          parsed.tipo_utilidade = 'Energia Elétrica'
+          parsed.unidade_consumo = 'kWh'
         }
       }
       if (!parsed || Object.keys(parsed).length === 0) {

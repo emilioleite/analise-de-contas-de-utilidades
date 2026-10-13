@@ -191,47 +191,210 @@ export default function Faturas() {
         const res = await faturasService.extractFromDocument(uploadedFile, selectedTipo, (status) =>
           setExtractingStatus(status),
         )
-        const d = res.dados || {}
+        // Desembrulhar res.dados caso venha aninhado (ex: { dados: { ... } } ou { data: { ... } })
+        let d: any = res.dados || {}
+        if (d.dados && typeof d.dados === 'object') {
+          d = { ...d.dados, ...d }
+        } else if (d.data && typeof d.data === 'object') {
+          d = { ...d.data, ...d }
+        }
 
-        // Apply extracted general fields
-        if (d.tipo_utilidade) {
-          if (['Energia Elétrica', 'Água e Esgoto', 'Gás'].includes(d.tipo_utilidade)) {
-            setSelectedTipo(d.tipo_utilidade as TipoUtilidade)
+        // Helper para resolver campos com nomes alternativos (snake_case e camelCase)
+        const getField = (...keys: string[]) => {
+          for (const k of keys) {
+            if (d[k] !== undefined && d[k] !== null && d[k] !== '') {
+              return d[k]
+            }
+          }
+          return undefined
+        }
+
+        // Determinar e sincronizar tipo de utilidade
+        const rawTipo = getField('tipo_utilidade', 'tipoUtilidade', 'tipo', 'utilidade')
+        let detectedTipo: TipoUtilidade = selectedTipo
+
+        if (rawTipo) {
+          const strTipo = String(rawTipo).trim().toLowerCase()
+          if (
+            strTipo.includes('gás') ||
+            strTipo.includes('gas') ||
+            strTipo.includes('comgás') ||
+            strTipo.includes('naturgy')
+          ) {
+            detectedTipo = 'Gás'
+          } else if (
+            strTipo.includes('água') ||
+            strTipo.includes('agua') ||
+            strTipo.includes('esgoto') ||
+            strTipo.includes('sabesp')
+          ) {
+            detectedTipo = 'Água e Esgoto'
+          } else if (
+            strTipo.includes('energia') ||
+            strTipo.includes('elétric') ||
+            strTipo.includes('eletric') ||
+            strTipo.includes('luz')
+          ) {
+            detectedTipo = 'Energia Elétrica'
+          }
+          setSelectedTipo(detectedTipo)
+        }
+
+        // Competência
+        const compFmt = getField(
+          'competencia_formatada',
+          'competenciaFormatada',
+          'mes_ano',
+          'referencia',
+        )
+        const compRaw = getField('competencia', 'periodo')
+        if (compFmt) {
+          setCompetenciaInput(String(compFmt))
+        } else if (compRaw) {
+          const strComp = String(compRaw)
+          if (strComp.includes('/')) {
+            setCompetenciaInput(strComp)
+          } else {
+            const parts = strComp.split('-')
+            if (parts.length >= 2) {
+              setCompetenciaInput(`${parts[1]}/${parts[0]}`)
+            }
           }
         }
 
-        if (d.competencia_formatada) {
-          setCompetenciaInput(d.competencia_formatada)
-        } else if (d.competencia) {
-          // parse YYYY-MM
-          const parts = d.competencia.split('-')
-          if (parts.length >= 2) {
-            setCompetenciaInput(`${parts[1]}/${parts[0]}`)
+        // Valores financeiros e consumo geral
+        const vTotal = getField('valor_total', 'fatura_total', 'total', 'valorTotal', 'faturaTotal')
+        if (vTotal !== undefined) setValorTotal(Number(vTotal) || vTotal)
+
+        const cConsumo = getField(
+          'consumo',
+          'consumo_faturado',
+          'consumoFaturado',
+          'volume',
+          'consumo_corrigido',
+          'consumoCorrigido',
+          'consumo_medido',
+          'consumoMedido',
+        )
+        if (cConsumo !== undefined) setConsumo(Number(cConsumo) || cConsumo)
+
+        const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
+        if (uConsumo) {
+          setUnidadeConsumo(String(uConsumo))
+        } else {
+          setUnidadeConsumo(detectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
+        }
+
+        const numFat = getField(
+          'numero_fatura',
+          'numeroFatura',
+          'numero_nota',
+          'nota_fiscal',
+          'documento',
+          'nf',
+        )
+        if (numFat) setNumeroFatura(String(numFat))
+
+        const cnpjForn = getField('cnpj_fornecedor', 'cnpjFornecedor', 'cnpj', 'cnpj_distribuidora')
+        if (cnpjForn) setCnpjFornecedor(formatCNPJ(String(cnpjForn)))
+
+        const venc = getField('vencimento', 'data_vencimento', 'dataVencimento')
+        if (venc) {
+          const strVenc = String(venc)
+          if (strVenc.includes('T')) {
+            setVencimento(strVenc.split('T')[0])
+          } else if (strVenc.includes('/')) {
+            const [dia, mes, ano] = strVenc.split('/')
+            if (ano && mes && dia) {
+              setVencimento(`${ano}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`)
+            } else {
+              setVencimento(strVenc)
+            }
+          } else {
+            setVencimento(strVenc)
           }
         }
 
-        if (d.valor_total !== undefined) setValorTotal(d.valor_total)
-        if (d.consumo !== undefined) setConsumo(d.consumo)
-        if (d.unidade_consumo) setUnidadeConsumo(d.unidade_consumo)
-        if (d.numero_fatura) setNumeroFatura(d.numero_fatura)
-        if (d.cnpj_fornecedor) setCnpjFornecedor(formatCNPJ(d.cnpj_fornecedor))
-        if (d.vencimento) setVencimento(d.vencimento)
+        // Medições (comum a Energia, Gás e Água)
+        const medAnt = getField(
+          'medicao_anterior',
+          'medicaoAnterior',
+          'leitura_anterior',
+          'leituraAnterior',
+        )
+        if (medAnt !== undefined) setMedicaoAnterior(Number(medAnt) || medAnt)
 
-        // Utility specific
-        if (d.medicao_anterior !== undefined) setMedicaoAnterior(d.medicao_anterior)
-        if (d.medicao_atual !== undefined) setMedicaoAtual(d.medicao_atual)
-        if (d.classificacao_consumo) setClassificacaoConsumo(d.classificacao_consumo)
-        if (d.consumo_ponta !== undefined) setConsumoPonta(d.consumo_ponta)
-        if (d.tarifa_tusd_ponta !== undefined) setTarifaTusdPonta(d.tarifa_tusd_ponta)
-        if (d.tarifa_te_ponta !== undefined) setTarifaTePonta(d.tarifa_te_ponta)
-        if (d.consumo_fora_ponta !== undefined) setConsumoForaPonta(d.consumo_fora_ponta)
-        if (d.tarifa_tusd_f_ponta !== undefined) setTarifaTusdFPonta(d.tarifa_tusd_f_ponta)
-        if (d.tarifa_te_f_ponta !== undefined) setTarifaTeFPonta(d.tarifa_te_f_ponta)
-        if (d.adicional_bandeira) setAdicionalBandeira(d.adicional_bandeira)
+        const medAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
+        if (medAtu !== undefined) setMedicaoAtual(Number(medAtu) || medAtu)
 
-        if (d.consumo_medido !== undefined) setConsumoMedido(d.consumo_medido)
-        if (d.consumo_corrigido !== undefined) setConsumoCorrigido(d.consumo_corrigido)
-        if (d.tarifa !== undefined) setTarifa(d.tarifa)
+        // Campos específicos de Energia Elétrica
+        const classCons = getField('classificacao_consumo', 'classificacaoConsumo', 'classificacao')
+        if (classCons) setClassificacaoConsumo(String(classCons))
+
+        const cPonta = getField('consumo_ponta', 'consumoPonta')
+        if (cPonta !== undefined) setConsumoPonta(Number(cPonta) || cPonta)
+
+        const tTusdPonta = getField('tarifa_tusd_ponta', 'tarifaTusdPonta')
+        if (tTusdPonta !== undefined) setTarifaTusdPonta(Number(tTusdPonta) || tTusdPonta)
+
+        const tTePonta = getField('tarifa_te_ponta', 'tarifaTePonta')
+        if (tTePonta !== undefined) setTarifaTePonta(Number(tTePonta) || tTePonta)
+
+        const cForaPonta = getField('consumo_fora_ponta', 'consumoForaPonta')
+        if (cForaPonta !== undefined) setConsumoForaPonta(Number(cForaPonta) || cForaPonta)
+
+        const tTusdFPonta = getField('tarifa_tusd_f_ponta', 'tarifaTusdFPonta')
+        if (tTusdFPonta !== undefined) setTarifaTusdFPonta(Number(tTusdFPonta) || tTusdFPonta)
+
+        const tTeFPonta = getField('tarifa_te_f_ponta', 'tarifaTeFPonta')
+        if (tTeFPonta !== undefined) setTarifaTeFPonta(Number(tTeFPonta) || tTeFPonta)
+
+        const adicBandeira = getField(
+          'adicional_bandeira',
+          'adicionalBandeira',
+          'bandeira_tarifaria',
+          'bandeira',
+        )
+        if (adicBandeira) setAdicionalBandeira(String(adicBandeira))
+
+        // Campos específicos de GÁS e Água
+        const cMedido = getField(
+          'consumo_medido',
+          'consumoMedido',
+          'consumo_apurado',
+          'volume_medido',
+        )
+        const cCorrigido = getField(
+          'consumo_corrigido',
+          'consumoCorrigido',
+          'consumo_faturado_corrigido',
+        )
+        const tar = getField('tarifa', 'tarifa_unitaria', 'valor_unitario', 'tarifaUnitaria')
+
+        if (cMedido !== undefined) {
+          setConsumoMedido(Number(cMedido) || cMedido)
+        } else if (cCorrigido !== undefined) {
+          setConsumoMedido(Number(cCorrigido) || cCorrigido)
+        } else if (cConsumo !== undefined) {
+          setConsumoMedido(Number(cConsumo) || cConsumo)
+        }
+
+        if (cCorrigido !== undefined) {
+          setConsumoCorrigido(Number(cCorrigido) || cCorrigido)
+        } else if (cMedido !== undefined) {
+          setConsumoCorrigido(Number(cMedido) || cMedido)
+        } else if (cConsumo !== undefined) {
+          setConsumoCorrigido(Number(cConsumo) || cConsumo)
+        }
+
+        if (tar !== undefined) {
+          setTarifa(Number(tar) || tar)
+        } else if (vTotal && (cCorrigido || cMedido || cConsumo)) {
+          const divCons = Number(cCorrigido || cMedido || cConsumo)
+          if (divCons > 0) {
+            setTarifa(Number((Number(vTotal) / divCons).toFixed(4)))
+          }
+        }
 
         toast({
           title: 'Extração inteligente concluída',
