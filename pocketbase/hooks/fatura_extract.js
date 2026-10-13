@@ -24,21 +24,103 @@ routerAdd(
       }
     }
 
+    // Client-provided OCR or extracted text in body
+    let clientProvidedText = body.client_text || body.extracted_text || ''
+
     let textContent = ''
     let textExtracted = false
     let toMarkdownError = null
 
-    // Try $documents.toMarkdown first whenever uploadedFile is a document
-    if (uploadedFile && ['pdf', 'xlsx', 'xls', 'docx'].includes(ext)) {
+    // Heurística de validação de qualidade de texto (detecta texto cifrado / fontes embaralhadas como Sabesp)
+    function isQualityText(raw) {
+      if (!raw || typeof raw !== 'string') return false
+      const trimmed = raw.trim()
+      if (trimmed.length < 30) return false
+
+      // Proporção de caracteres alfanuméricos e espaços vs símbolos bizarros
+      const normalChars = trimmed.match(/[a-zA-Z0-9À-ÿ\s,.\-:/\(\)%$]/g) || []
+      const normalRatio = normalChars.length / trimmed.length
+      if (normalRatio < 0.65) {
+        console.log(
+          '[fatura_extract] Texto rejeitado por baixa proporção de caracteres normais:',
+          normalRatio,
+        )
+        return false
+      }
+
+      // Procurar termos comuns de faturas brasileiras
+      const lower = trimmed.toLowerCase()
+      const commonTerms = [
+        'sabesp',
+        'sanepar',
+        'copasa',
+        'enel',
+        'cpfl',
+        'light',
+        'cemig',
+        'comgas',
+        'naturgy',
+        'consumo',
+        'leitura',
+        'anterior',
+        'atual',
+        'vencimento',
+        'total',
+        'fatura',
+        'emissao',
+        'hidrometro',
+        'medidor',
+        'esgoto',
+        'agua',
+        'energia',
+        'gas',
+        'cnpj',
+        'tarifa',
+        'tributos',
+      ]
+      let termsFound = 0
+      for (const term of commonTerms) {
+        if (lower.includes(term)) termsFound++
+      }
+
+      // Se o texto for longo mas não contém termos básicos reconhecíveis, é provavelmente texto embaralhado
+      if (trimmed.length > 100 && termsFound === 0) {
+        console.log(
+          '[fatura_extract] Texto rejeitado: nenhum termo reconhecível de faturas encontrado',
+        )
+        return false
+      }
+
+      return true
+    }
+
+    // Se o cliente forneceu texto extraído/OCR de boa qualidade, usar como candidato
+    if (clientProvidedText && isQualityText(clientProvidedText)) {
+      textContent = clientProvidedText
+      textExtracted = true
+      console.log(
+        `[fatura_extract] Usando texto pré-extraído pelo cliente (${textContent.length} chars).`,
+      )
+    }
+
+    // Try $documents.toMarkdown first whenever uploadedFile is a document (se ainda não temos texto confiável)
+    if (!textExtracted && uploadedFile && ['pdf', 'xlsx', 'xls', 'docx'].includes(ext)) {
       try {
         console.log(`[fatura_extract] Tentando $documents.toMarkdown para ${fileName}...`)
         const docRes = $documents.toMarkdown({ file: uploadedFile })
         if (docRes && docRes.markdown && docRes.markdown.trim().length > 20) {
-          textContent = docRes.markdown
-          textExtracted = true
-          console.log(
-            `[fatura_extract] $documents.toMarkdown obteve ${textContent.length} caracteres de texto.`,
-          )
+          const candidateText = docRes.markdown
+          if (isQualityText(candidateText)) {
+            textContent = candidateText
+            textExtracted = true
+            console.log(
+              `[fatura_extract] $documents.toMarkdown obteve ${textContent.length} caracteres de texto válido.`,
+            )
+          } else {
+            console.log(
+              '[fatura_extract] $documents.toMarkdown retornou texto corrompido/embaralhado. Descartando.',
+            )
+          }
         } else {
           console.log('[fatura_extract] $documents.toMarkdown retornou texto muito curto ou vazio.')
         }
@@ -50,7 +132,7 @@ routerAdd(
           err.message || err,
         )
       }
-    } else if (uploadedFile && (ext === 'csv' || ext === 'txt')) {
+    } else if (!textExtracted && uploadedFile && (ext === 'csv' || ext === 'txt')) {
       try {
         const bytes = uploadedFile.bytes ? uploadedFile.bytes() : null
         if (bytes) {
@@ -60,8 +142,8 @@ routerAdd(
       } catch (_) {}
     }
 
-    const systemPrompt = `Você é um extrator de dados especialista e ultra-preciso para faturas de utilidades brasileiras (Energia Elétrica como Enel/CPFL/Light/Cemig, Gás Canalizado como Comgás/Naturgy, e Água/Saneamento como Sabesp/Sanepar).
-Você analisa imagens escaneadas e faturas digitais com máxima atenção a números decimais, datas, medições e tarifas regulatórias.
+    const systemPrompt = `Você é um extrator de dados especialista e ultra-preciso para faturas de utilidades brasileiras (Energia Elétrica como Enel/CPFL/Light/Cemig, Gás Canalizado como Comgás/Naturgy, e Água e Esgoto como Sabesp/Sanepar/Copasa).
+Você analisa faturas digitais e escaneadas com máxima atenção a números decimais, datas de medição, leituras de hidrômetro/medidor, volumes faturados e valores totais.
 Responda APENAS com um objeto JSON válido, sem cercas de código markdown e sem comentários.`
 
     const instructions = `Analise a fatura anexada (arquivo "${fileName}").
@@ -71,12 +153,12 @@ Orientações cruciais de extração:
 1. Identifique o tipo de utilidade:
    - "Energia Elétrica" (se houver kWh, Enel, CPFL, Light, Cemig, TUSD, TE, Bandeira Tarifária, etc.)
    - "Gás" (se houver Comgás, Naturgy, Gás Natural, m³, fator de correção PTZ/PCS, etc.)
-   - "Água e Esgoto" (se Sabesp, Sanepar, Copasa, m³, ligação de água/esgoto)
+   - "Água e Esgoto" (se Sabesp, Sanepar, Copasa, Cia de Saneamento, Fornecimento, Pde/Rgi, Hidrômetro, Leitura Anterior, Leitura Atual, Consumo m³, Água/Esgoto)
 
-2. Para ENERGIA ELÉTRICA (ex: Enel Brasil / Eletropaulo):
+2. Para ENERGIA ELÉTRICA (ex: Enel Brasil / CPFL / Light):
    - "competencia": mês de referência (ex: MÊS/ANO 09/2026 -> "2026-09-01", "09/2026")
    - "valor_total": valor TOTAL A PAGAR (ex: R$ 22.347,38 -> 22347.38)
-   - "fatura_total": mesmo valor total float (22347.38)
+   - "fatura_total": 22347.38
    - "consumo": consumo faturado ativo total em kWh (ex: 20.438,40 -> 20438.40)
    - "unidade_consumo": "kWh"
    - "numero_fatura": número do documento / nota fiscal / número da conta (ex: 519519027339 ou 095039445)
@@ -84,33 +166,44 @@ Orientações cruciais de extração:
    - "vencimento": data de vencimento (ex: 25/09/2026 -> "2026-09-25")
    - "medicao_anterior": leitura anterior do medidor (ex: 65891.700 -> 65891.7)
    - "medicao_atual": leitura atual do medidor (ex: 66743.300 -> 66743.3)
-   - "classificacao_consumo": classificação da unidade consumidora (ex: "B3 - CONVENCIONAL - Comercial", "B3", "A4", etc. Se B3 retorne "B3", se A4 retorne "A4")
-   - "consumo_ponta": consumo no posto tarifário ponta em kWh (se convencional/único sem separação de ponta, pode ser 0 ou o consumo total se tarifado único)
-   - "consumo_fora_ponta": consumo no posto fora-ponta em kWh (se aplicável, ou o consumo total convencional)
-   - "tarifa_tusd_ponta": tarifa unitária TUSD com tributos (ex: se único/ponta: 0.60078 ou 0.47242 sem trib)
-   - "tarifa_te_ponta": tarifa unitária TE com tributos (ex: 0.40912 ou 0.31696 sem trib)
-   - "tarifa_tusd_f_ponta": tarifa TUSD fora de ponta (se não diferenciado, igual a TUSD)
-   - "tarifa_te_f_ponta": tarifa TE fora de ponta (se não diferenciado, igual a TE)
-   - "adicional_bandeira": bandeira tarifária indicada nas mensagens (ex: "AMARELA", "Bandeira Amarela", "Bandeira Verde", "Bandeira Vermelha")
+   - "classificacao_consumo": classificação da unidade consumidora (ex: "B3 - CONVENCIONAL - Comercial", "B3", "A4", etc.)
+   - "consumo_ponta": consumo no posto tarifário ponta em kWh
+   - "consumo_fora_ponta": consumo no posto fora-ponta em kWh
+   - "tarifa_tusd_ponta": tarifa unitária TUSD com tributos
+   - "tarifa_te_ponta": tarifa unitária TE com tributos
+   - "tarifa_tusd_f_ponta": tarifa TUSD fora de ponta
+   - "tarifa_te_f_ponta": tarifa TE fora de ponta
+   - "adicional_bandeira": bandeira tarifária indicada (ex: "Bandeira Amarela", "Bandeira Verde", "Bandeira Vermelha")
 
-3. Para GÁS NATURAL (ex: Comgás):
+3. Para GÁS NATURAL (ex: Comgás / Naturgy):
    - "competencia": mês de referência / apresentação (ex: 08/2026 -> "2026-08-01", "08/2026")
    - "valor_total": valor a pagar total (ex: R$ 4.363,05 -> 4363.05)
    - "fatura_total": 4363.05
-   - "consumo": consumo faturado corrigido (ex: 682.168 -> 682.17 ou 682.168)
+   - "consumo": consumo faturado corrigido (ex: 682.168 -> 682.17)
    - "unidade_consumo": "m³"
-   - "numero_fatura": número da nota fiscal / conta de gás (ex: 150.238.010 ou 150238010)
+   - "numero_fatura": número da nota fiscal / conta de gás (ex: 150.238.010)
    - "cnpj_fornecedor": CNPJ da distribuidora (ex Comgás: 61.856.571/0006-21)
    - "vencimento": data de vencimento (ex: 08/09/2026 -> "2026-09-08")
    - "medicao_anterior": leitura anterior (ex: 431.304 -> 431.304)
    - "medicao_atual": leitura atual (ex: 432.014 -> 432.014)
    - "consumo_medido": consumo medido antes da correção (ex: 710 -> 710)
-   - "consumo_corrigido": consumo corrigido por temperatura/pressão (ex: 682.168 -> 682.168)
+   - "consumo_corrigido": consumo corrigido por temperatura/pressão (ex: 682.168)
    - "tarifa": tarifa aplicada com ICMS por m³ (ex: 6,395871 -> 6.395871)
 
-4. Para ÁGUA E ESGOTO:
-   - "competencia", "valor_total", "consumo", "unidade_consumo": "m³", "numero_fatura", "cnpj_fornecedor", "vencimento"
-   - "medicao_anterior", "medicao_atual", "consumo_medido", "tarifa", "fatura_total"
+4. Para ÁGUA E ESGOTO (ex: Sabesp - Companhia de Saneamento Básico do Estado de São Paulo):
+   - "tipo_utilidade": "Água e Esgoto"
+   - "competencia": mês/ano de referência ou faturamento. Exemplo Sabesp: "05/2024" ou da data de emissão/leitura -> "2024-05-01", "competencia_formatada": "05/2024"
+   - "valor_total": valor TOTAL ou TOTAL A PAGAR do documento (ex: R$ 2.143,97 -> 2143.97)
+   - "fatura_total": 2143.97
+   - "consumo": volume faturado ou consumo medido em m³ (ex: 157 m³ -> 157.0)
+   - "consumo_medido": consumo medido em m³ (ex: Consumo (M3) 157 -> 157.0)
+   - "unidade_consumo": "m³"
+   - "numero_fatura": No. Documento ou Fatura Tipo ou Fornecimento / PDE (ex: "SOR202458365156" ou "58088806001")
+   - "cnpj_fornecedor": CNPJ da concessionária de água (ex Sabesp: "43.776.517/0001-80" ou CNPJ no topo)
+   - "vencimento": data de vencimento no campo VENCIMENTO (ex: 21/06/2024 -> "2024-06-21")
+   - "medicao_anterior": Leitura Anterior do hidrômetro (ex: 5564)
+   - "medicao_atual": Leitura Atual do hidrômetro (ex: 5721)
+   - "tarifa": valor unitário médio por m³ (ex: se fatura é 2.143,97 e consumo é 157 m³, tarifa é ~ 13.6558) ou taxa unitária discriminada
 
 Retorne rigorosamente esta estrutura JSON:
 {
@@ -143,7 +236,7 @@ Retorne rigorosamente esta estrutura JSON:
       let rawText = ''
       let aiMethodUsed = 'none'
 
-      // Prioridade 1: Se o documento gerou texto via $documents.toMarkdown, usar texto direto no $ai.chat
+      // Prioridade 1: Se o documento gerou texto via $documents.toMarkdown ou OCR cliente, usar texto direto no $ai.chat
       if (textExtracted && textContent && textContent.trim().length > 20) {
         try {
           const txt = textContent.slice(0, 14000)
@@ -151,13 +244,26 @@ Retorne rigorosamente esta estrutura JSON:
           console.log(
             `[fatura_extract] Executando $ai.chat com texto (${txt.length} caracteres)...`,
           )
-          const aiTextResponse = $ai.chat({
-            model: 'fast',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: textUserContent },
-            ],
-          })
+
+          let aiTextResponse = null
+          try {
+            aiTextResponse = $ai.chat({
+              model: 'fast',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: textUserContent },
+              ],
+            })
+          } catch (fastErr) {
+            console.log('[fatura_extract] Modelo fast falhou no texto, tentando reasoning...')
+            aiTextResponse = $ai.chat({
+              model: 'reasoning',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: textUserContent },
+              ],
+            })
+          }
 
           if (
             aiTextResponse &&
@@ -173,7 +279,6 @@ Retorne rigorosamente esta estrutura JSON:
           console.log('[fatura_extract] Extração por texto falhou:', textErr.message || textErr)
         }
       }
-
       // Prioridade 2: Se não obteve texto ou se falhou, tentar visão computacional com as imagens (PDF escaneado / rasterizado)
       let visionAttempted = false
       let visionErrorMsg = null
@@ -202,7 +307,6 @@ Retorne rigorosamente esta estrutura JSON:
                 type: 'image_url',
                 image_url: {
                   url: validImages[i],
-                  detail: 'low',
                 },
               })
             }
@@ -316,6 +420,44 @@ Retorne rigorosamente esta estrutura JSON:
         }
       }
 
+      // Normalizações específicas para faturas brasileiras
+      if (parsed && typeof parsed === 'object') {
+        // Garantir compatibilidade de fatura_total e valor_total
+        if (parsed.valor_total !== undefined && parsed.fatura_total === undefined) {
+          parsed.fatura_total = parsed.valor_total
+        }
+        if (parsed.fatura_total !== undefined && parsed.valor_total === undefined) {
+          parsed.valor_total = parsed.fatura_total
+        }
+
+        // Se for Água e Esgoto ou detectado Sabesp / saneamento
+        const isAgua =
+          parsed.tipo_utilidade === 'Água e Esgoto' ||
+          requestedUtility === 'Água e Esgoto' ||
+          (parsed.cnpj_fornecedor && parsed.cnpj_fornecedor.includes('43.776.517'))
+
+        if (isAgua) {
+          parsed.tipo_utilidade = 'Água e Esgoto'
+          parsed.unidade_consumo = 'm³'
+
+          // Consumo medido vs consumo faturado
+          if (parsed.consumo_medido !== undefined && !parsed.consumo) {
+            parsed.consumo = parsed.consumo_medido
+          }
+          if (parsed.consumo !== undefined && !parsed.consumo_medido) {
+            parsed.consumo_medido = parsed.consumo
+          }
+
+          // Se a tarifa não veio explicitamente, calcular tarifa média (fatura_total / consumo)
+          if (
+            (!parsed.tarifa || Number(parsed.tarifa) === 0) &&
+            parsed.fatura_total > 0 &&
+            parsed.consumo > 0
+          ) {
+            parsed.tarifa = Number((parsed.fatura_total / parsed.consumo).toFixed(4))
+          }
+        }
+      }
       if (!parsed || Object.keys(parsed).length === 0) {
         parsed = {
           tipo_utilidade: requestedUtility || 'Energia Elétrica',
