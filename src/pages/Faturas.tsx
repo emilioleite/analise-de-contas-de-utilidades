@@ -396,10 +396,32 @@ export default function Faturas() {
           }
         }
 
-        toast({
-          title: 'Extração inteligente concluída',
-          description: 'Revise os dados extraídos antes de confirmar.',
-        })
+        // Verificar se algum campo relevante foi efetivamente preenchido
+        const hasAnyExtractedField =
+          vTotal !== undefined ||
+          cConsumo !== undefined ||
+          numFat !== undefined ||
+          cnpjForn !== undefined ||
+          venc !== undefined ||
+          medAnt !== undefined ||
+          medAtu !== undefined ||
+          cMedido !== undefined ||
+          cCorrigido !== undefined ||
+          tar !== undefined
+
+        if (hasAnyExtractedField) {
+          toast({
+            title: 'Extração inteligente concluída',
+            description: 'Revise os dados extraídos antes de confirmar.',
+          })
+        } else {
+          toast({
+            title: 'Campos não detectados',
+            description:
+              'A IA não conseguiu identificar os dados com precisão neste comprovante. Por favor, preencha as medições e valores manualmente no formulário.',
+            variant: 'destructive',
+          })
+        }
       }
     } catch (err: any) {
       console.warn('Erro na extração IA:', err)

@@ -333,7 +333,7 @@ Retorne rigorosamente esta estrutura JSON:
             // No gateway skip-ai-gateway:
             // 1. O campo `content` de mensagens de usuário DEVE ser uma string (arrays tipo OpenAI [{type:'text'}, {type:'image_url'}] são rejeitados com 400).
             // 2. Imagens são enviadas no array `images` dentro do objeto da mensagem do usuário: `images: [dataUrl]`.
-            const visionUserText = `${instructions}\n\nAnalise visualmente as ${validImages.length} página(s) da fatura anexada e extraia todos os dados solicitados no formato JSON.`
+            const visionUserText = `${instructions}\n\nAnalise visualmente com extremo cuidado e atenção as ${validImages.length} página(s) da fatura em anexo. Localize no documento:\n- Competência/mês de referência (ex: MM/AAAA)\n- Valor total a pagar (R$)\n- Leituras/Medições do medidor (Anterior e Atual)\n- Consumo apurado/medido e faturado/corrigido\n- Tarifa aplicada por unidade\n- Número da fatura/nota fiscal\n- CNPJ da distribuidora/emissor e vencimento\n\nATENÇÃO: Extraia os valores reais impressos no documento. Não retorne null nem omitir os campos visíveis. Retorne rigorosamente o objeto JSON preenchido.`
             const visionMessages = [
               { role: 'system', content: systemPrompt },
               {
@@ -342,7 +342,6 @@ Retorne rigorosamente esta estrutura JSON:
                 images: validImages,
               },
             ]
-
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
               'Tamanho img 1:',
@@ -448,6 +447,34 @@ Retorne rigorosamente esta estrutura JSON:
 
       // Normalizações específicas para faturas brasileiras
       if (parsed && typeof parsed === 'object') {
+        // Se todas ou a grande maioria das propriedades forem null/vazias, descartar para acionar erro amigável
+        let nonNullCount = 0
+        const sampleKeys = [
+          'valor_total',
+          'consumo',
+          'numero_fatura',
+          'vencimento',
+          'medicao_anterior',
+          'medicao_atual',
+          'consumo_medido',
+          'consumo_corrigido',
+          'tarifa',
+          'competencia',
+          'competencia_formatada',
+        ]
+        for (const k of sampleKeys) {
+          if (parsed[k] !== undefined && parsed[k] !== null && parsed[k] !== '') {
+            nonNullCount++
+          }
+        }
+        if (nonNullCount === 0) {
+          console.log(
+            '[fatura_extract] IA respondeu com JSON mas todos os campos são null ou vazios.',
+          )
+          throw new BadRequestError(
+            'Não foi possível identificar com clareza os campos da fatura na imagem digitalizada. Por favor, insira as informações manualmente nos campos abaixo.',
+          )
+        }
         // Normalizar chaves se vierem aninhadas (ex: parsed.dados ou parsed.fields ou camelCase)
         if (parsed.dados && typeof parsed.dados === 'object' && !parsed.tipo_utilidade) {
           parsed = Object.assign({}, parsed.dados, parsed)
