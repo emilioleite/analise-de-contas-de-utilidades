@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import dekazenLogo from '@/assets/monograma-dkz-2e2a6.png'
 import { useAuth } from '@/context/AuthContext'
 import { useData } from '@/context/DataContext'
 import {
@@ -88,14 +89,18 @@ export default function Layout() {
         {/* Brand Header */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-[#E5E7EB]">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
-              <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+            <div className="w-9 h-9 rounded-lg bg-white border border-teal-100 p-0.5 flex items-center justify-center shrink-0 shadow-xs">
+              <img
+                src={dekazenLogo}
+                alt="Monograma Dekazen"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div className="hidden lg:flex flex-col truncate">
               <span className="font-bold text-sm leading-tight text-gray-900 truncate">
                 Gestor de Utilidades
               </span>
-              <span className="text-[10px] text-gray-400 font-medium">Controle de Faturas</span>
+              <span className="text-[10px] text-teal-700 font-semibold tracking-wide">DEKAZEN</span>
             </div>
           </div>
 

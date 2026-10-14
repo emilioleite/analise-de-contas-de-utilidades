@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useData } from '@/context/DataContext'
@@ -11,12 +11,24 @@ import {
   PlusCircle,
   FileText,
   TrendingUp,
+  Building2,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { formatCurrencyBRL } from '@/lib/cnpj'
 import { useCountUp } from '@/hooks/use-count-up'
+import { useToast } from '@/hooks/use-toast'
+import { gerarRelatorioDashboardPDF } from '@/services/relatorioDashboardPdf'
 import {
   ResponsiveContainer,
   PieChart,
@@ -78,12 +90,16 @@ function AnimatedKPICard({
 
 export default function Index() {
   const { user } = useAuth()
-  const { faturas, loading } = useData()
+  const { faturas, empreendimentos, loading } = useData()
+  const { toast } = useToast()
+
+  const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
+  const [exportandoPdf, setExportandoPdf] = useState(false)
 
   const userName = user?.name ? user.name.split(' ')[0] : 'Gestor'
 
-  // Calculations for last 12 months
-  const { total12m, energia12m, agua12m, gas12m, donutData, lineData, topConsumos } =
+  // Calculations for last 12 months respecting selectedEmpreendimento filter
+  const { total12m, energia12m, agua12m, gas12m, donutData, lineData, topConsumos, periodoTexto } =
     useMemo(() => {
       if (!faturas || faturas.length === 0) {
         return {
@@ -94,11 +110,31 @@ export default function Index() {
           donutData: [],
           lineData: [],
           topConsumos: [],
+          periodoTexto: 'Sem dados',
+        }
+      }
+
+      // Filtrar por empreendimento se selecionado
+      const filteredFaturas =
+        selectedEmpreendimento === 'todos'
+          ? faturas
+          : faturas.filter((f) => f.empreendimento === selectedEmpreendimento)
+
+      if (filteredFaturas.length === 0) {
+        return {
+          total12m: 0,
+          energia12m: 0,
+          agua12m: 0,
+          gas12m: 0,
+          donutData: [],
+          lineData: [],
+          topConsumos: [],
+          periodoTexto: 'Sem faturas no filtro',
         }
       }
 
       // Determine the 12-month period based on newest invoice or current date
-      const sorted = [...faturas].sort(
+      const sorted = [...filteredFaturas].sort(
         (a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime(),
       )
       const newestDate = new Date(sorted[0].competencia)
@@ -184,7 +220,7 @@ export default function Index() {
       const lines = Object.values(monthlyMap)
 
       // Top 5 invoices by value across all utilities
-      const top5 = [...faturas]
+      const top5 = [...filteredFaturas]
         .sort((a, b) => (Number(b.valor_total) || 0) - (Number(a.valor_total) || 0))
         .slice(0, 5)
         .map((fat) => ({
@@ -195,6 +231,8 @@ export default function Index() {
           valor: Number(fat.valor_total) || 0,
         }))
 
+      const periodoStr = `${monthNames[cutoffDate.getMonth()]} ${cutoffDate.getFullYear()} — ${monthNames[newestDate.getMonth()]} ${newestDate.getFullYear()}`
+
       return {
         total12m: total,
         energia12m: energia,
@@ -203,8 +241,9 @@ export default function Index() {
         donutData: donut,
         lineData: lines,
         topConsumos: top5,
+        periodoTexto: periodoStr,
       }
-    }, [faturas])
+    }, [faturas, selectedEmpreendimento])
 
   // Custom Dark Tooltip for charts
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -269,15 +308,101 @@ export default function Index() {
       {/* Header Greeting */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
-            Olá, {userName}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
+              Olá, {userName}
+            </h2>
+            <Badge
+              variant="outline"
+              className="text-[11px] font-semibold text-teal-800 bg-teal-50 border-teal-200"
+            >
+              Dekazen
+            </Badge>
+          </div>
           <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
             Visão consolidada de energia elétrica, água e gás nos últimos 12 meses.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Controls: Filtro Empreendimento + Exportar PDF + Enviar Fatura */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Empreendimento */}
+          <div className="w-56">
+            <Select value={selectedEmpreendimento} onValueChange={setSelectedEmpreendimento}>
+              <SelectTrigger className="h-9 text-xs bg-white border-gray-200 shadow-sm">
+                <Building2 className="w-3.5 h-3.5 mr-1.5 text-gray-500 shrink-0" />
+                <SelectValue placeholder="Selecione empreendimento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos" className="text-xs">
+                  Todos os Empreendimentos
+                </SelectItem>
+                {empreendimentos.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id} className="text-xs">
+                    {emp.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Botão Exportar PDF */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                setExportandoPdf(true)
+                const nomeEmp =
+                  selectedEmpreendimento === 'todos'
+                    ? 'Todos os Empreendimentos'
+                    : empreendimentos.find((e) => e.id === selectedEmpreendimento)?.nome ||
+                      'Empreendimento Selecionado'
+
+                await gerarRelatorioDashboardPDF({
+                  nomeEmpreendimento: nomeEmp,
+                  periodoCobertura: periodoTexto,
+                  total12m,
+                  energia12m,
+                  agua12m,
+                  gas12m,
+                  donutData,
+                  lineData,
+                  topConsumos,
+                })
+
+                toast({
+                  title: 'Relatório PDF gerado!',
+                  description:
+                    'O download do relatório do Dashboard Geral foi iniciado com sucesso.',
+                })
+              } catch (err: any) {
+                console.error('Erro ao gerar PDF do dashboard:', err)
+                toast({
+                  title: 'Erro ao gerar PDF',
+                  description: err.message || 'Falha ao construir o documento PDF do dashboard.',
+                  variant: 'destructive',
+                })
+              } finally {
+                setExportandoPdf(false)
+              }
+            }}
+            disabled={exportandoPdf || loading || faturas.length === 0}
+            className="h-9 text-xs font-semibold bg-white border-gray-200 hover:bg-gray-50 text-gray-700 shadow-sm flex items-center gap-1.5"
+          >
+            {exportandoPdf ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-700" />
+                <span>Gerando PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5 text-teal-700" />
+                <span>Exportar PDF</span>
+              </>
+            )}
+          </Button>
+
           <Link to="/faturas">
             <Button className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-9 shadow-sm">
               <PlusCircle className="w-3.5 h-3.5 mr-1.5" />

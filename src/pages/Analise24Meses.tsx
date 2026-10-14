@@ -13,9 +13,22 @@ import {
   ArrowUp,
   ArrowDown,
   Calendar,
+  Building2,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useToast } from '@/hooks/use-toast'
+import { gerarRelatorioAnalise24MesesPDF } from '@/services/relatorioAnalise24MesesPdf'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -30,8 +43,12 @@ import {
 } from 'recharts'
 
 export default function Analise24Meses() {
-  const { faturas } = useData()
+  const { faturas, empreendimentos, loading } = useData()
+  const { toast } = useToast()
+
+  const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
   const [activeTab, setActiveTab] = useState<'Total Geral' | TipoUtilidade>('Total Geral')
+  const [exportandoPdf, setExportandoPdf] = useState(false)
 
   // Process data over 24 months
   const {
@@ -40,6 +57,7 @@ export default function Analise24Meses() {
     maxPoint,
     minPoint,
     mediaMensal,
+    totalPeriodo,
     comparativoData,
     tableRows,
     accentColor,
@@ -51,6 +69,27 @@ export default function Analise24Meses() {
         maxPoint: null,
         minPoint: null,
         mediaMensal: 0,
+        totalPeriodo: 0,
+        comparativoData: [],
+        tableRows: [],
+        accentColor: '#0F766E',
+      }
+    }
+
+    // Filter by empreendimento first
+    const empFiltered =
+      selectedEmpreendimento === 'todos'
+        ? faturas
+        : faturas.filter((f) => f.empreendimento === selectedEmpreendimento)
+
+    if (empFiltered.length === 0) {
+      return {
+        coverageText: 'Sem dados para o filtro',
+        monthPoints: [],
+        maxPoint: null,
+        minPoint: null,
+        mediaMensal: 0,
+        totalPeriodo: 0,
         comparativoData: [],
         tableRows: [],
         accentColor: '#0F766E',
@@ -59,10 +98,12 @@ export default function Analise24Meses() {
 
     // Filter faturas by activeTab if not 'Total Geral'
     const relevantFaturas =
-      activeTab === 'Total Geral' ? faturas : faturas.filter((f) => f.tipo_utilidade === activeTab)
+      activeTab === 'Total Geral'
+        ? empFiltered
+        : empFiltered.filter((f) => f.tipo_utilidade === activeTab)
 
-    // Determine available date range
-    const sorted = [...faturas].sort(
+    // Determine available date range based on empFiltered
+    const sorted = [...empFiltered].sort(
       (a, b) => new Date(a.competencia).getTime() - new Date(b.competencia).getTime(),
     )
     const oldestDate = new Date(sorted[0].competencia)
@@ -179,14 +220,15 @@ export default function Analise24Meses() {
     return {
       coverageText: coverage,
       monthPoints: slots,
-      maxPoint: max,
-      minPoint: min,
+      maxPoint: max?.valor > 0 ? max : null,
+      minPoint: min?.valor > 0 ? min : null,
       mediaMensal: avg,
+      totalPeriodo: sum,
       comparativoData: comparativo,
       tableRows: tableData,
       accentColor: color,
     }
-  }, [faturas, activeTab])
+  }, [faturas, selectedEmpreendimento, activeTab])
 
   // Custom Dot for Area Chart to mark Maximum (#DC2626) and Minimum (#16A34A)
   const RenderCustomDot = (props: any) => {
@@ -248,10 +290,88 @@ export default function Analise24Meses() {
           </p>
         </div>
 
-        {/* Coverage range badge */}
-        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-700 shadow-sm">
-          <Calendar className="w-3.5 h-3.5 text-teal-700" />
-          <span>Cobertura: {coverageText}</span>
+        {/* Actions: Filtro Empreendimento + Badge Cobertura + Botão Exportar PDF */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="w-56">
+            <Select value={selectedEmpreendimento} onValueChange={setSelectedEmpreendimento}>
+              <SelectTrigger className="h-9 text-xs bg-white border-gray-200 shadow-sm">
+                <Building2 className="w-3.5 h-3.5 mr-1.5 text-gray-500 shrink-0" />
+                <SelectValue placeholder="Selecione empreendimento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos" className="text-xs">
+                  Todos os Empreendimentos
+                </SelectItem>
+                {empreendimentos.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id} className="text-xs">
+                    {emp.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-700 shadow-sm">
+            <Calendar className="w-3.5 h-3.5 text-teal-700" />
+            <span>Cobertura: {coverageText}</span>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={async () => {
+              try {
+                setExportandoPdf(true)
+                const nomeEmp =
+                  selectedEmpreendimento === 'todos'
+                    ? 'Todos os Empreendimentos'
+                    : empreendimentos.find((e) => e.id === selectedEmpreendimento)?.nome ||
+                      'Empreendimento Selecionado'
+
+                await gerarRelatorioAnalise24MesesPDF({
+                  nomeEmpreendimento: nomeEmp,
+                  periodoCobertura: coverageText,
+                  utilidadeSelecionada: activeTab,
+                  mediaMensal,
+                  totalPeriodo,
+                  maxPoint,
+                  minPoint,
+                  monthPoints,
+                  comparativoData,
+                  tableRows,
+                })
+
+                toast({
+                  title: 'Relatório PDF gerado!',
+                  description:
+                    'O download do relatório de Análise de 24 Meses foi iniciado com sucesso.',
+                })
+              } catch (err: any) {
+                console.error('Erro ao gerar PDF de 24 meses:', err)
+                toast({
+                  title: 'Erro ao gerar PDF',
+                  description: err.message || 'Falha ao construir o documento PDF da análise.',
+                  variant: 'destructive',
+                })
+              } finally {
+                setExportandoPdf(false)
+              }
+            }}
+            disabled={exportandoPdf || loading || monthPoints.length === 0}
+            className="h-9 text-xs font-semibold bg-white border-gray-200 hover:bg-gray-50 text-gray-700 shadow-sm flex items-center gap-1.5"
+          >
+            {exportandoPdf ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-700" />
+                <span>Gerando PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5 text-teal-700" />
+                <span>Exportar PDF</span>
+              </>
+            )}
+          </Button>
         </div>
       </div>
 

@@ -7,6 +7,11 @@
  */
 
 import { formatNumberBR, formatTCO2e } from '@/lib/cnpj'
+import {
+  getDekazenLogoDataUrl,
+  desenharCabecalhoPdfPadrao,
+  desenharRodapePdfPadrao,
+} from '@/services/pdfBranding'
 
 const JSPDF_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 const JSPDF_AUTOTABLE_CDN_URL =
@@ -336,6 +341,7 @@ function renderComparativoCanvas(
  */
 export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<void> {
   const jsPDF = await loadJsPdf()
+  const logoDataUrl = await getDekazenLogoDataUrl()
 
   // Criar documento formato A4 vertical
   const doc = new jsPDF({
@@ -360,90 +366,36 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
 
   let currentY = margin
 
-  // Função auxiliar para desenhar cabeçalho corporativo padronizado
+  // Função auxiliar para desenhar cabeçalho corporativo padronizado com monograma Dekazen
   const desenharCabecalho = (numeroPagina: number) => {
-    // Top bar institucional teal escuro
-    doc.setFillColor(15, 118, 110) // #0F766E
-    doc.rect(margin, currentY, contentWidth, 24, 'F')
-
-    // Título principal
-    doc.setTextColor(255, 255, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(13)
-    doc.text('GESTOR DE UTILIDADES — RELATÓRIO DE EMISSÕES DE GEE', margin + 6, currentY + 9)
-
-    // Subtítulo técnico
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8.5)
-    doc.text(
-      'Inventário Corporativo segundo Diretrizes do Programa Brasileiro GHG Protocol (Escopos 1, 2 e 3)',
-      margin + 6,
-      currentY + 16,
-    )
-
-    // Metadata bar logo abaixo
-    currentY += 28
-    doc.setFillColor(248, 250, 252) // #F8FAFC
-    doc.setDrawColor(226, 232, 240) // #E2E8F0
-    doc.roundedRect(margin, currentY, contentWidth, 14, 1.5, 1.5, 'FD')
-
-    doc.setFontSize(8)
-    doc.setTextColor(71, 85, 105)
-
-    doc.setFont('helvetica', 'bold')
-    doc.text('Empreendimento:', margin + 4, currentY + 5.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(15, 23, 42)
-    const empTruncado =
-      data.nomeEmpreendimento.length > 40
-        ? data.nomeEmpreendimento.slice(0, 38) + '...'
-        : data.nomeEmpreendimento
-    doc.text(empTruncado, margin + 30, currentY + 5.5)
-
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(71, 85, 105)
-    doc.text('Período:', margin + 4, currentY + 10.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(15, 23, 42)
-    doc.text(data.periodoCobertura, margin + 30, currentY + 10.5)
-
-    const rightColX = margin + contentWidth - 48
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(71, 85, 105)
-    doc.text('Emissão:', rightColX, currentY + 5.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(15, 23, 42)
-    doc.text(dataGeracaoStr, rightColX + 16, currentY + 5.5)
-
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(71, 85, 105)
-    doc.text('Página:', rightColX, currentY + 10.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(15, 23, 42)
-    doc.text(`${numeroPagina}`, rightColX + 16, currentY + 10.5)
-
-    currentY += 18
+    currentY = desenharCabecalhoPdfPadrao({
+      doc,
+      currentY: margin,
+      margin,
+      contentWidth,
+      pageWidth,
+      pageHeight,
+      numeroPagina,
+      tituloPrincipal: 'GESTOR DE UTILIDADES — RELATÓRIO DE EMISSÕES DE GEE',
+      subtitulo:
+        'Inventário Corporativo segundo Diretrizes do Programa Brasileiro GHG Protocol (Escopos 1, 2 e 3)',
+      nomeEmpreendimento: data.nomeEmpreendimento,
+      periodoCobertura: data.periodoCobertura,
+      dataGeracaoStr,
+      logoDataUrl,
+    })
   }
 
   // Função auxiliar para desenhar rodapé institucional
   const desenharRodape = (numeroPagina: number, totalPaginas?: number) => {
-    const rodapeY = pageHeight - 12
-    doc.setDrawColor(226, 232, 240)
-    doc.line(margin, rodapeY - 2, pageWidth - margin, rodapeY - 2)
-
-    doc.setFontSize(7)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(148, 163, 184)
-    doc.text(
-      'Metodologia: GHG Protocol / MCTI-SIRENE (Energia Elétrica) / IPCC 2006 (Gás Natural) / PB GHG Protocol (Água e Esgoto)',
+    desenharRodapePdfPadrao(
+      doc,
+      numeroPagina,
+      totalPaginas,
       margin,
-      rodapeY + 2,
-    )
-    doc.text(
-      `Página ${numeroPagina}${totalPaginas ? ` de ${totalPaginas}` : ''}`,
-      pageWidth - margin,
-      rodapeY + 2,
-      { align: 'right' },
+      pageWidth,
+      pageHeight,
+      'Dekazen • Metodologia: GHG Protocol / MCTI-SIRENE (Energia) / IPCC 2006 (Gás) / PB GHG Protocol (Água/Esgoto)',
     )
   }
 
