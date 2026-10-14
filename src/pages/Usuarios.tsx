@@ -228,7 +228,13 @@ export default function Usuarios() {
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       // Role filter
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false
+      if (roleFilter !== 'all') {
+        const uRole = (u.role || '').toLowerCase()
+        const matchAdmin =
+          roleFilter === 'admin' && (uRole === 'admin' || uRole === 'administrator')
+        const matchUser = roleFilter === 'user' && uRole !== 'admin' && uRole !== 'administrator'
+        if (!matchAdmin && !matchUser) return false
+      }
 
       // Status filter
       if (statusFilter !== 'all') {
@@ -275,8 +281,9 @@ export default function Usuarios() {
     }
   }
 
-  const renderRoleBadge = (role?: UserRole) => {
-    if (role === 'admin') {
+  const renderRoleBadge = (role?: string) => {
+    const normalized = (role || '').trim().toLowerCase()
+    if (normalized === 'admin' || normalized === 'administrator') {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-800 border border-purple-200">
           <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
@@ -354,7 +361,12 @@ export default function Usuarios() {
               Administradores
             </span>
             <p className="text-xl font-bold text-gray-900 leading-tight">
-              {users.filter((u) => u.role === 'admin').length}
+              {
+                users.filter((u) => {
+                  const r = (u.role || '').toLowerCase()
+                  return r === 'admin' || r === 'administrator'
+                }).length
+              }
             </p>
           </div>
         </Card>
@@ -496,9 +508,14 @@ export default function Usuarios() {
                             <DropdownMenuItem
                               className="cursor-pointer text-xs"
                               onClick={() => {
+                                const normRole: UserRole =
+                                  (u.role || '').toLowerCase() === 'admin' ||
+                                  (u.role || '').toLowerCase() === 'administrator'
+                                    ? 'admin'
+                                    : 'user'
                                 setEditingUser(u)
                                 setEditName(u.name || '')
-                                setEditRole(u.role || 'user')
+                                setEditRole(normRole)
                                 setEditModalOpen(true)
                               }}
                             >

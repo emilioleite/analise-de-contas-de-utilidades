@@ -26,18 +26,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Initial check
+    let isMounted = true
+
+    // Initial sync from local auth store snapshot
     setUser(pb.authStore.record)
     setToken(pb.authStore.token)
-    setIsLoading(false)
 
-    // Listen to changes
+    // Listen to reactive authStore changes (login, logout, token refresh)
     const unsubscribe = pb.authStore.onChange((newToken, newRecord) => {
-      setToken(newToken)
-      setUser(newRecord)
+      if (isMounted) {
+        setToken(newToken)
+        setUser(newRecord)
+      }
     })
 
+    // Re-hydrate session from backend on mount:
+    // Ensures role, status and permissions are strictly up-to-date even if the local
+    // storage snapshot was saved before schema updates or role assignment.
+    const rehydrateSession = async () => {
+      if (!pb.authStore.isValid || !pb.authStore.token) {
+        if (isMounted) setIsLoading(false)
+        return
+      }
+
+      try {
+        // First try authRefresh to validate the token and get the refreshed record
+        const authData = await pb.collection('users').authRefresh()
+        if (isMounted && authData?.record) {
+          setUser(authData.record)
+          setToken(authData.token)
+        }
+      } catch (refreshErr) {
+        // If authRefresh failed (e.g. token expired), verify if we can still fetch the user record or clear
+        try {
+          if (pb.authStore.record?.id) {
+            const fresh = await pb.collection('users').getOne(pb.authStore.record.id)
+            if (isMounted) {
+              // Update authStore with fresh data while preserving valid token
+              pb.authStore.save(pb.authStore.token, fresh)
+              setUser(fresh)
+            }
+          }
+        } catch {
+          // Token is truly invalid or revoked; clear stale credentials
+          if (isMounted && !pb.authStore.isValid) {
+            pb.authStore.clear()
+            setUser(null)
+            setToken(null)
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    rehydrateSession()
+
     return () => {
+      isMounted = false
       unsubscribe()
     }
   }, [])
@@ -50,9 +98,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      if (pb.authStore.isValid && pb.authStore.record) {
-        const fresh = await pb.collection('users').getOne(pb.authStore.record.id)
-        setUser(fresh)
+      if (pb.authStore.isValid && pb.authStore.token) {
+        try {
+          const authData = await pb.collection('users').authRefresh()
+          if (authData?.record) {
+            setUser(authData.record)
+            setToken(authData.token)
+            return
+          }
+        } catch (_) {
+          // Fallback to getOne if authRefresh is not permitted
+        }
+
+        if (pb.authStore.record?.id) {
+          const fresh = await pb.collection('users').getOne(pb.authStore.record.id)
+          pb.authStore.save(pb.authStore.token, fresh)
+          setUser(fresh)
+        }
       } else {
         setUser(pb.authStore.record)
       }
@@ -65,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateProfileName = async (name: string) => {
     if (!user) throw new Error('Usuário não logado')
     const updated = await pb.collection('users').update(user.id, { name })
+    pb.authStore.save(pb.authStore.token, updated)
     setUser(updated)
   }
 
@@ -85,7 +148,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout()
   }
 
-  const userRole: UserRole = (user?.role as UserRole) || 'user'
+  // Case-insensitive & normalized role check: 'admin' or 'administrator'
+  const rawRole = (user?.role || '').toString().trim().toLowerCase()
+  const userRole: UserRole = rawRole === 'admin' || rawRole === 'administrator' ? 'admin' : 'user'
   const userStatus: UserStatus = (user?.status as UserStatus) || 'active'
   const isAdmin = userRole === 'admin'
 
