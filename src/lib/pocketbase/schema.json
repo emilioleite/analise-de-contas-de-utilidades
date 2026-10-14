@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-10-14T13:10:04.432Z",
+  "generatedAt": "2026-10-14T16:38:10.897Z",
   "collections": [
     {
       "name": "users",
       "type": "auth",
       "apiRules": {
-        "list": "id = @request.auth.id",
-        "view": "id = @request.auth.id",
-        "create": "",
-        "update": "id = @request.auth.id",
-        "delete": "id = @request.auth.id"
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "update": "@request.auth.role = 'admin' || (@request.auth.id = id && @request.body.role:changed = false && @request.body.status:changed = false)",
+        "delete": "@request.auth.role = 'admin'"
       },
       "fields": [
         {
@@ -37,6 +37,20 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "role",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["admin", "user"]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["active", "inactive", "pending"]
         }
       ],
       "indexes": [
@@ -50,9 +64,9 @@
       "apiRules": {
         "list": "@request.auth.id != ''",
         "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "create": "@request.auth.role = 'admin'",
+        "update": "@request.auth.role = 'admin'",
+        "delete": "@request.auth.role = 'admin'"
       },
       "fields": [
         {
@@ -115,7 +129,7 @@
         "view": "@request.auth.id != ''",
         "create": "@request.auth.id != ''",
         "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "delete": "@request.auth.role = 'admin'"
       },
       "fields": [
         {

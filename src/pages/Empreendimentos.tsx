@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
+import { useAuth } from '@/context/AuthContext'
 import { EmpreendimentoRecord, TipoEmpreendimento } from '@/types/entities'
 import { formatCNPJ, isValidCNPJ, cleanCNPJ } from '@/lib/cnpj'
 import {
@@ -45,6 +46,7 @@ import { useToast } from '@/hooks/use-toast'
 
 export default function Empreendimentos() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const {
     empreendimentos,
     faturas,
@@ -202,13 +204,15 @@ export default function Empreendimentos() {
           </p>
         </div>
 
-        <Button
-          onClick={openCreateModal}
-          className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-9 shadow-sm"
-        >
-          <Plus className="w-3.5 h-3.5 mr-1.5" />
-          Novo Empreendimento
-        </Button>
+        {isAdmin && (
+          <Button
+            onClick={openCreateModal}
+            className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-9 shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Novo Empreendimento
+          </Button>
+        )}
       </div>
 
       {/* Grid of Enterprise Cards */}
@@ -261,24 +265,28 @@ export default function Empreendimentos() {
                         <ExternalLink className="w-3.5 h-3.5 mr-2 text-teal-700" />
                         Ver Faturas
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="cursor-pointer text-xs"
-                        onClick={() => openEditModal(emp)}
-                      >
-                        <Edit2 className="w-3.5 h-3.5 mr-2 text-gray-600" />
-                        Editar
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
-                        onClick={() => {
-                          setEmpToDelete(emp)
-                          setDeleteConfirmOpen(true)
-                        }}
-                      >
-                        <Trash2 className="w-3.5 h-3.5 mr-2" />
-                        Excluir
-                      </DropdownMenuItem>
+                      {isAdmin && (
+                        <>
+                          <DropdownMenuItem
+                            className="cursor-pointer text-xs"
+                            onClick={() => openEditModal(emp)}
+                          >
+                            <Edit2 className="w-3.5 h-3.5 mr-2 text-gray-600" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
+                            onClick={() => {
+                              setEmpToDelete(emp)
+                              setDeleteConfirmOpen(true)
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

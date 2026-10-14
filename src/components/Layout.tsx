@@ -18,7 +18,10 @@ import {
   RefreshCw,
   Settings,
   Leaf,
+  Users,
+  UserCheck,
 } from 'lucide-react'
+import { AccountModal } from '@/components/AccountModal'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,20 +33,22 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 
-const navItems = [
-  { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Empreendimentos', path: '/empreendimentos', icon: Building2 },
-  { name: 'Faturas', path: '/faturas', icon: FileText },
-  { name: 'Análise 24 Meses', path: '/analise-24-meses', icon: TrendingUp },
-  { name: 'Emissões de GEE', path: '/emissoes', icon: Leaf },
-]
-
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
   const { syncing, refreshData } = useData()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  const [accountModalOpen, setAccountModalOpen] = useState(false)
+
+  const navItems = [
+    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { name: 'Empreendimentos', path: '/empreendimentos', icon: Building2 },
+    { name: 'Faturas', path: '/faturas', icon: FileText },
+    { name: 'Análise 24 Meses', path: '/analise-24-meses', icon: TrendingUp },
+    { name: 'Emissões de GEE', path: '/emissoes', icon: Leaf },
+    ...(isAdmin ? [{ name: 'Usuários', path: '/usuarios', icon: Users }] : []),
+  ]
 
   // Current page title mapping
   const getPageTitle = () => {
@@ -53,6 +58,7 @@ export default function Layout() {
     if (p.startsWith('/faturas')) return 'Faturas de Utilidades'
     if (p.startsWith('/analise-24-meses')) return 'Análise de Consumo — 24 Meses'
     if (p.startsWith('/emissoes')) return 'Emissões de GEE (GHG Protocol)'
+    if (p.startsWith('/usuarios')) return 'Gestão de Usuários'
     return 'Gestor de Utilidades'
   }
 
@@ -182,6 +188,22 @@ export default function Layout() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="cursor-pointer text-xs"
+                onClick={() => setAccountModalOpen(true)}
+              >
+                <Settings className="w-3.5 h-3.5 mr-2 text-teal-700" />
+                Minha conta / Perfil
+              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem
+                  className="cursor-pointer text-xs"
+                  onClick={() => navigate('/usuarios')}
+                >
+                  <Users className="w-3.5 h-3.5 mr-2 text-purple-600" />
+                  Gerenciar usuários
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                className="cursor-pointer text-xs"
                 onClick={() => {
                   refreshData()
                 }}
@@ -189,6 +211,7 @@ export default function Layout() {
                 <RefreshCw className="w-3.5 h-3.5 mr-2" />
                 Atualizar dados
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="cursor-pointer text-xs text-red-600 focus:text-red-700 focus:bg-red-50"
                 onClick={handleLogout}
@@ -247,6 +270,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Account Settings Modal */}
+      <AccountModal open={accountModalOpen} onOpenChange={setAccountModalOpen} />
     </div>
   )
 }

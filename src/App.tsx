@@ -14,6 +14,7 @@ import Empreendimentos from './pages/Empreendimentos'
 import Faturas from './pages/Faturas'
 import Analise24Meses from './pages/Analise24Meses'
 import Emissoes from './pages/Emissoes'
+import Usuarios from './pages/Usuarios'
 import Login from './pages/Login'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/faturas" element={<Faturas />} />
               <Route path="/analise-24-meses" element={<Analise24Meses />} />
               <Route path="/emissoes" element={<Emissoes />} />
+              <Route path="/usuarios" element={<Usuarios />} />
             </Route>
 
             {/* Fallback 404 */}

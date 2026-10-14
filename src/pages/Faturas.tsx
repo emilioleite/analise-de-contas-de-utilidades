@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
+import { useAuth } from '@/context/AuthContext'
 import { FaturaRecord, TipoUtilidade } from '@/types/entities'
 import {
   formatCurrencyBRL,
@@ -57,6 +58,7 @@ export default function Faturas() {
   const [searchParams] = useSearchParams()
   const enterpriseQuery = searchParams.get('enterprise') || 'Todos'
 
+  const { isAdmin } = useAuth()
   const { faturas, empreendimentos, addFatura, updateFatura, deleteFatura, loading } = useData()
   const { toast } = useToast()
 
@@ -1253,17 +1255,19 @@ export default function Faturas() {
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFaturaToDelete(fat)
-                                setDeleteConfirmOpen(true)
-                              }}
-                              className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                              title="Excluir fatura"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFaturaToDelete(fat)
+                                  setDeleteConfirmOpen(true)
+                                }}
+                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                title="Excluir fatura"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1351,17 +1355,19 @@ export default function Faturas() {
                       <Edit2 className="w-3.5 h-3.5 mr-1" />
                       Editar
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setFaturaToDelete(fat)
-                        setDeleteConfirmOpen(true)
-                      }}
-                      className="text-xs h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setFaturaToDelete(fat)
+                          setDeleteConfirmOpen(true)
+                        }}
+                        className="text-xs h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </Card>
               )

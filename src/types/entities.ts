@@ -34,6 +34,21 @@ export interface DadosAgua {
 
 export type DadosEspecificos = DadosEnergiaEletrica | DadosGas | DadosAgua
 
+export type UserRole = 'admin' | 'user'
+export type UserStatus = 'active' | 'inactive' | 'pending'
+
+export interface UserRecord {
+  id: string
+  email: string
+  name?: string
+  avatar?: string
+  role?: UserRole
+  status?: UserStatus
+  verified?: boolean
+  created?: string
+  updated?: string
+}
+
 export interface EmpreendimentoRecord {
   id: string
   nome: string
