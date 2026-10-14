@@ -18,8 +18,11 @@ import {
   ShieldCheck,
   BarChart3,
   Sparkles,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -40,9 +43,12 @@ import {
   Legend,
 } from 'recharts'
 import FatoresEmissaoTab from '@/components/emissoes/FatoresEmissaoTab'
+import { gerarRelatorioEmissoesPDF } from '@/services/relatorioEmissoesPdf'
+import { useToast } from '@/hooks/use-toast'
 
 export default function Emissoes() {
   const { faturas, empreendimentos, calculosEmissoes, loading } = useData()
+  const { toast } = useToast()
 
   // Filtros
   const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
@@ -50,6 +56,7 @@ export default function Emissoes() {
   const [filtroEscopo, setFiltroEscopo] = useState<'Todos' | 'Escopo 1' | 'Escopo 2' | 'Escopo 3'>(
     'Todos',
   )
+  const [exportandoPdf, setExportandoPdf] = useState<boolean>(false)
 
   // Cálculos filtrados por empreendimento
   const calculosFiltrados = useMemo(() => {
@@ -336,7 +343,7 @@ export default function Emissoes() {
           </p>
         </div>
 
-        {/* Action / Coverage badge & Empreendimento select */}
+        {/* Action / Coverage badge & Empreendimento select & Exportar PDF */}
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="w-56">
             <Select value={selectedEmpreendimento} onValueChange={setSelectedEmpreendimento}>
@@ -361,6 +368,73 @@ export default function Emissoes() {
             <Calendar className="w-3.5 h-3.5 text-teal-700" />
             <span>Cobertura: {analise24Meses.coverageText}</span>
           </div>
+
+          <Button
+            onClick={async () => {
+              try {
+                setExportandoPdf(true)
+                const nomeEmp =
+                  selectedEmpreendimento === 'todos'
+                    ? 'Todos os Empreendimentos'
+                    : empreendimentos.find((e) => e.id === selectedEmpreendimento)?.nome ||
+                      'Empreendimento Selecionado'
+
+                await gerarRelatorioEmissoesPDF({
+                  nomeEmpreendimento: nomeEmp,
+                  periodoCobertura: analise24Meses.coverageText,
+                  total24Meses: analise24Meses.total24Meses,
+                  totalEscopo1: analise24Meses.totalEscopo1,
+                  totalEscopo2: analise24Meses.totalEscopo2,
+                  totalEscopo3: analise24Meses.totalEscopo3,
+                  mediaMensal: analise24Meses.mediaMensal,
+                  maxPoint: analise24Meses.maxPoint
+                    ? {
+                        label: analise24Meses.maxPoint.label,
+                        totalTCO2e: analise24Meses.maxPoint.totalTCO2e,
+                      }
+                    : null,
+                  minPoint: analise24Meses.minPoint
+                    ? {
+                        label: analise24Meses.minPoint.label,
+                        totalTCO2e: analise24Meses.minPoint.totalTCO2e,
+                      }
+                    : null,
+                  slots: analise24Meses.slots,
+                  comparativoData: analise24Meses.comparativoData,
+                  breakdownEmpreendimentos: analise24Meses.breakdownEmpreendimentos,
+                })
+
+                toast({
+                  title: 'Relatório PDF gerado!',
+                  description:
+                    'O download do relatório de Emissões de GEE foi iniciado com sucesso.',
+                })
+              } catch (err: any) {
+                console.error('Erro ao gerar PDF de emissões:', err)
+                toast({
+                  title: 'Erro ao gerar PDF',
+                  description: err.message || 'Ocorreu uma falha ao construir o relatório em PDF.',
+                  variant: 'destructive',
+                })
+              } finally {
+                setExportandoPdf(false)
+              }
+            }}
+            disabled={exportandoPdf || loading || analise24Meses.slots.length === 0}
+            className="h-9 px-3.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1.5"
+          >
+            {exportandoPdf ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Gerando PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                <span>Exportar PDF</span>
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
