@@ -669,7 +669,7 @@ routerAdd('GET', '/atualiza-fatores-sin', (e) => {
   }
 })
 
-// Rota autenticada POST /backend/v1/emissoes/atualizar-fatores-sin
+// Rota autenticada POST /backend/v1/emissoes/atualizar-fatores-sin (restrita a administradores)
 routerAdd(
   'POST',
   '/backend/v1/emissoes/atualizar-fatores-sin',
@@ -678,6 +678,15 @@ routerAdd(
     console.log(
       `${logPrefix} Executando verificação dos fatores oficiais do SIN sob demanda (auth)...`,
     )
+
+    const authRecord = e.auth
+    const role = authRecord ? authRecord.getString('role') : ''
+    if (role !== 'admin') {
+      return e.json(403, {
+        sucesso: false,
+        erro: 'Apenas administradores podem atualizar os fatores de emissão.',
+      })
+    }
 
     try {
       const colecao = e.app.findCollectionByNameOrId('fatores_emissao')

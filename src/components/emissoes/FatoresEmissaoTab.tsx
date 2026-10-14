@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
 import { useData } from '@/context/DataContext'
 import { FatorEmissaoRecord } from '@/types/entities'
 import { emissoesService } from '@/services/emissoes'
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react'
 
 export const FatoresEmissaoTab: React.FC = () => {
+  const { isAdmin } = useAuth()
   const { fatores, updateFator, upsertFator, restaurarPadraoFatores, refreshData } = useData()
   const { toast } = useToast()
 
@@ -81,6 +83,15 @@ export const FatoresEmissaoTab: React.FC = () => {
   }
 
   const handleSalvarFator = async (fator?: FatorEmissaoRecord, fallbackChave?: string) => {
+    if (!isAdmin) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Apenas administradores podem alterar os fatores de emissão.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     const chave = fator?.chave || fallbackChave
     if (!chave) return
 
@@ -125,6 +136,15 @@ export const FatoresEmissaoTab: React.FC = () => {
   }
 
   const handleRestaurarPadroes = async () => {
+    if (!isAdmin) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Apenas administradores podem restaurar os fatores padrão.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     if (
       !window.confirm(
         'Deseja restaurar todos os fatores de emissão para os valores padrão do GHG Protocol e MCTI?',
@@ -155,6 +175,14 @@ export const FatoresEmissaoTab: React.FC = () => {
 
   const handleAdicionarMesSin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAdmin) {
+      toast({
+        title: 'Acesso restrito',
+        description: 'Apenas administradores podem cadastrar fatores de emissão.',
+        variant: 'destructive',
+      })
+      return
+    }
     const anoNum = parseInt(novoAno, 10)
     const mesNum = parseInt(novoMes, 10)
     const valNum = parseFloat(novoValor.replace(',', '.'))
@@ -215,53 +243,65 @@ export const FatoresEmissaoTab: React.FC = () => {
                 qualquer valor, o recálculo dos 24 meses é instantâneo.
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    setSincronizando(true)
-                    const res = await emissoesService.sincronizarFatoresSin()
-                    await refreshData()
-                    toast({
-                      title: 'Verificação concluída',
-                      description:
-                        res.aviso ||
-                        `Atualização concluída: ${res.registrosInseridos || 0} novos, ${res.registrosAtualizados || 0} atualizados.`,
-                    })
-                  } catch (err: any) {
-                    toast({
-                      title: 'Aviso da rotina',
-                      description:
-                        err.message ||
-                        'A verificação com o MCTI/SIRENE foi executada e os fatores vigentes foram mantidos.',
-                    })
-                  } finally {
-                    setSincronizando(false)
-                  }
-                }}
-                disabled={sincronizando}
-                className="text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border-teal-300"
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 mr-1.5 ${sincronizando ? 'animate-spin' : ''}`}
-                />
-                Verificar MCTI Agora
-              </Button>
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      setSincronizando(true)
+                      const res = await emissoesService.sincronizarFatoresSin()
+                      await refreshData()
+                      toast({
+                        title: 'Verificação concluída',
+                        description:
+                          res.aviso ||
+                          `Atualização concluída: ${res.registrosInseridos || 0} novos, ${res.registrosAtualizados || 0} atualizados.`,
+                      })
+                    } catch (err: any) {
+                      toast({
+                        title: 'Aviso da rotina',
+                        description:
+                          err.message ||
+                          'A verificação com o MCTI/SIRENE foi executada e os fatores vigentes foram mantidos.',
+                      })
+                    } finally {
+                      setSincronizando(false)
+                    }
+                  }}
+                  disabled={sincronizando}
+                  className="text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border-teal-300"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 mr-1.5 ${sincronizando ? 'animate-spin' : ''}`}
+                  />
+                  Verificar MCTI Agora
+                </Button>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRestaurarPadroes}
-                disabled={restaurando}
-                className="text-xs font-semibold text-gray-700 hover:bg-gray-100 border-gray-300"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 mr-1.5 ${restaurando ? 'animate-spin' : ''}`} />
-                Restaurar Padrão
-              </Button>
-            </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRestaurarPadroes}
+                  disabled={restaurando}
+                  className="text-xs font-semibold text-gray-700 hover:bg-gray-100 border-gray-300"
+                >
+                  <RotateCcw
+                    className={`w-3.5 h-3.5 mr-1.5 ${restaurando ? 'animate-spin' : ''}`}
+                  />
+                  Restaurar Padrão
+                </Button>
+              </div>
+            )}
           </div>
+
+          {/* Aviso discreto para usuários comuns (somente leitura) */}
+          {!isAdmin && (
+            <div className="mt-3 p-2.5 bg-amber-50/80 border border-amber-200 rounded-md flex items-center gap-2 text-xs text-amber-900">
+              <Info className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Apenas administradores podem alterar os fatores de emissão.</span>
+            </div>
+          )}
 
           {/* Banner de Automação Trimestral */}
           <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -323,21 +363,25 @@ export const FatoresEmissaoTab: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Input
                   type="text"
-                  className="font-mono text-sm bg-white"
+                  className={`font-mono text-sm ${!isAdmin ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}`}
                   value={getValorAtual(fatorGas, 2.15)}
+                  disabled={!isAdmin}
+                  readOnly={!isAdmin}
                   onChange={(e) =>
                     handleInputChange(fatorGas?.chave || 'gas_natural', e.target.value)
                   }
                 />
-                <Button
-                  size="sm"
-                  className="bg-teal-700 hover:bg-teal-800 text-white shrink-0"
-                  onClick={() => handleSalvarFator(fatorGas, 'gas_natural')}
-                  disabled={salvandoChave === (fatorGas?.chave || 'gas_natural')}
-                >
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  Salvar
-                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    className="bg-teal-700 hover:bg-teal-800 text-white shrink-0"
+                    onClick={() => handleSalvarFator(fatorGas, 'gas_natural')}
+                    disabled={salvandoChave === (fatorGas?.chave || 'gas_natural')}
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    Salvar
+                  </Button>
+                )}
               </div>
               <p className="text-[11px] text-gray-500">
                 Padrão recomendado: <strong>2,15 kgCO₂e/m³</strong>. Consumo considerado: corrigido
@@ -377,21 +421,25 @@ export const FatoresEmissaoTab: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Input
                   type="text"
-                  className="font-mono text-sm bg-white"
+                  className={`font-mono text-sm ${!isAdmin ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}`}
                   value={getValorAtual(fatorFallback, 0.05)}
+                  disabled={!isAdmin}
+                  readOnly={!isAdmin}
                   onChange={(e) =>
                     handleInputChange(fatorFallback?.chave || 'energia_fallback', e.target.value)
                   }
                 />
-                <Button
-                  size="sm"
-                  className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
-                  onClick={() => handleSalvarFator(fatorFallback, 'energia_fallback')}
-                  disabled={salvandoChave === (fatorFallback?.chave || 'energia_fallback')}
-                >
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  Salvar
-                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+                    onClick={() => handleSalvarFator(fatorFallback, 'energia_fallback')}
+                    disabled={salvandoChave === (fatorFallback?.chave || 'energia_fallback')}
+                  >
+                    <Save className="w-3.5 h-3.5 mr-1" />
+                    Salvar
+                  </Button>
+                )}
               </div>
               <p className="text-[11px] text-amber-700 font-medium">
                 Padrão recomendado: <strong>0,0500 tCO₂/MWh</strong> (50 kgCO₂/MWh). Usado somente
@@ -432,8 +480,10 @@ export const FatoresEmissaoTab: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Input
                     type="text"
-                    className="font-mono text-xs bg-white h-8"
+                    className={`font-mono text-xs h-8 ${!isAdmin ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}`}
                     value={getValorAtual(fatorAguaAbast, 0.208)}
+                    disabled={!isAdmin}
+                    readOnly={!isAdmin}
                     onChange={(e) =>
                       handleInputChange(
                         fatorAguaAbast?.chave || 'agua_abastecimento',
@@ -441,15 +491,17 @@ export const FatoresEmissaoTab: React.FC = () => {
                       )
                     }
                   />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs shrink-0"
-                    onClick={() => handleSalvarFator(fatorAguaAbast, 'agua_abastecimento')}
-                    disabled={salvandoChave === (fatorAguaAbast?.chave || 'agua_abastecimento')}
-                  >
-                    Salvar
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs shrink-0"
+                      onClick={() => handleSalvarFator(fatorAguaAbast, 'agua_abastecimento')}
+                      disabled={salvandoChave === (fatorAguaAbast?.chave || 'agua_abastecimento')}
+                    >
+                      Salvar
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -460,21 +512,25 @@ export const FatoresEmissaoTab: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Input
                     type="text"
-                    className="font-mono text-xs bg-white h-8"
+                    className={`font-mono text-xs h-8 ${!isAdmin ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : 'bg-white'}`}
                     value={getValorAtual(fatorAguaEsg, 0.7)}
+                    disabled={!isAdmin}
+                    readOnly={!isAdmin}
                     onChange={(e) =>
                       handleInputChange(fatorAguaEsg?.chave || 'agua_esgoto', e.target.value)
                     }
                   />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs shrink-0"
-                    onClick={() => handleSalvarFator(fatorAguaEsg, 'agua_esgoto')}
-                    disabled={salvandoChave === (fatorAguaEsg?.chave || 'agua_esgoto')}
-                  >
-                    Salvar
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs shrink-0"
+                      onClick={() => handleSalvarFator(fatorAguaEsg, 'agua_esgoto')}
+                      disabled={salvandoChave === (fatorAguaEsg?.chave || 'agua_esgoto')}
+                    >
+                      Salvar
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -514,14 +570,16 @@ export const FatoresEmissaoTab: React.FC = () => {
                 </span>
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => setModalNovoAberto(true)}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold self-start sm:self-auto"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              Adicionar Mês do SIN
-            </Button>
+            {isAdmin && (
+              <Button
+                size="sm"
+                onClick={() => setModalNovoAberto(true)}
+                className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold self-start sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Adicionar Mês do SIN
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -535,7 +593,7 @@ export const FatoresEmissaoTab: React.FC = () => {
                     <th className="py-2.5 px-3">Fator (kg CO₂/MWh)</th>
                     <th className="py-2.5 px-3">Status</th>
                     <th className="py-2.5 px-3">Fonte / Metodologia</th>
-                    <th className="py-2.5 px-3 text-right">Ação</th>
+                    {isAdmin && <th className="py-2.5 px-3 text-right">Ação</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -549,12 +607,18 @@ export const FatoresEmissaoTab: React.FC = () => {
                         <td className="py-2.5 px-3 font-semibold text-gray-900">{mesFormatado}</td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center gap-2">
-                            <Input
-                              type="text"
-                              className="w-24 h-7 text-xs font-mono bg-white"
-                              value={getValorAtual(fator)}
-                              onChange={(e) => handleInputChange(fator.chave, e.target.value)}
-                            />
+                            {isAdmin ? (
+                              <Input
+                                type="text"
+                                className="w-24 h-7 text-xs font-mono bg-white"
+                                value={getValorAtual(fator)}
+                                onChange={(e) => handleInputChange(fator.chave, e.target.value)}
+                              />
+                            ) : (
+                              <span className="font-mono text-gray-800 font-medium">
+                                {fator.valor}
+                              </span>
+                            )}
                             <span className="text-gray-400 text-[10px]">tCO₂/MWh</span>
                           </div>
                         </td>
@@ -578,18 +642,20 @@ export const FatoresEmissaoTab: React.FC = () => {
                         <td className="py-2.5 px-3 text-gray-500 text-[11px] truncate max-w-xs">
                           {fator.fonte || 'MCTI / SIRENE'}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-teal-700 hover:text-teal-800 hover:bg-teal-50"
-                            onClick={() => handleSalvarFator(fator)}
-                            disabled={salvandoChave === fator.chave}
-                          >
-                            <Save className="w-3 h-3 mr-1" />
-                            Atualizar
-                          </Button>
-                        </td>
+                        {isAdmin && (
+                          <td className="py-2.5 px-3 text-right">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-teal-700 hover:text-teal-800 hover:bg-teal-50"
+                              onClick={() => handleSalvarFator(fator)}
+                              disabled={salvandoChave === fator.chave}
+                            >
+                              <Save className="w-3 h-3 mr-1" />
+                              Atualizar
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
