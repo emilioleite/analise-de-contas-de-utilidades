@@ -52,17 +52,21 @@ export const FatoresEmissaoTab: React.FC = () => {
   const [novoIsOficial, setNovoIsOficial] = useState<boolean>(true)
   const [novaFonte, setNovaFonte] = useState<string>('MCTI / SIRENE')
 
-  // Separar fatores por tipo
-  const fatorFallback = fatores.find(
+  // Separar fatores por tipo com verificação segura de array
+  const listaFatores = Array.isArray(fatores) ? fatores : []
+
+  const fatorFallback = listaFatores.find(
     (f) => f.tipo === 'energia_fallback' || f.chave === 'energia_fallback',
   )
-  const fatorGas = fatores.find((f) => f.tipo === 'gas_natural' || f.chave === 'gas_natural')
-  const fatorAguaAbast = fatores.find(
+  const fatorGas = listaFatores.find((f) => f.tipo === 'gas_natural' || f.chave === 'gas_natural')
+  const fatorAguaAbast = listaFatores.find(
     (f) => f.tipo === 'agua_abastecimento' || f.chave === 'agua_abastecimento',
   )
-  const fatorAguaEsg = fatores.find((f) => f.tipo === 'agua_esgoto' || f.chave === 'agua_esgoto')
+  const fatorAguaEsg = listaFatores.find(
+    (f) => f.tipo === 'agua_esgoto' || f.chave === 'agua_esgoto',
+  )
 
-  const fatoresSinMensais = fatores
+  const fatoresSinMensais = listaFatores
     .filter((f) => f.tipo === 'energia_mensal')
     .sort((a, b) => {
       const aVal = (Number(a.ano) || 0) * 100 + (Number(a.mes) || 0)
@@ -72,10 +76,10 @@ export const FatoresEmissaoTab: React.FC = () => {
 
   const getValorAtual = (fator?: FatorEmissaoRecord, fallbackDefault = 0) => {
     if (!fator) return fallbackDefault.toString()
-    if (valoresLocais[fator.chave] !== undefined) {
+    if (fator.chave && valoresLocais[fator.chave] !== undefined) {
       return valoresLocais[fator.chave]
     }
-    return fator.valor.toString()
+    return typeof fator.valor === 'number' ? fator.valor.toString() : fallbackDefault.toString()
   }
 
   const handleInputChange = (chave: string, val: string) => {
@@ -538,8 +542,9 @@ export const FatoresEmissaoTab: React.FC = () => {
                 <span className="font-semibold text-gray-700">Fator Total Composto:</span>
                 <span className="font-bold text-sky-700 font-mono">
                   {(
-                    parseFloat((getValorAtual(fatorAguaAbast, 0.208) || '0').replace(',', '.')) +
-                    parseFloat((getValorAtual(fatorAguaEsg, 0.7) || '0').replace(',', '.'))
+                    (parseFloat((getValorAtual(fatorAguaAbast, 0.208) || '0').replace(',', '.')) ||
+                      0) +
+                    (parseFloat((getValorAtual(fatorAguaEsg, 0.7) || '0').replace(',', '.')) || 0)
                   ).toFixed(3)}{' '}
                   kgCO₂e/m³
                 </span>
@@ -599,8 +604,10 @@ export const FatoresEmissaoTab: React.FC = () => {
                 <tbody className="divide-y divide-gray-100">
                   {fatoresSinMensais.map((fator) => {
                     const isOficial = !!fator.is_oficial
-                    const valorEmKg = (fator.valor * 1000).toFixed(1)
-                    const mesFormatado = `${String(fator.mes).padStart(2, '0')}/${fator.ano}`
+                    const numVal =
+                      typeof fator.valor === 'number' ? fator.valor : Number(fator.valor) || 0
+                    const valorEmKg = (numVal * 1000).toFixed(1)
+                    const mesFormatado = `${String(fator.mes || 1).padStart(2, '0')}/${fator.ano || '-'}`
 
                     return (
                       <tr key={fator.id} className="hover:bg-gray-50/80 transition-colors">

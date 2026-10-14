@@ -254,18 +254,28 @@ export default function Usuarios() {
     })
   }, [users, roleFilter, statusFilter, searchTerm])
 
-  const renderStatusBadge = (status?: UserStatus) => {
+  const renderStatusBadge = (status?: UserStatus, verified?: boolean) => {
     switch (status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+          <span
+            title="Convite enviado por e-mail, aguardando colaborador definir senha e ativar conta"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs"
+          >
             <Clock className="w-3 h-3 text-amber-600" />
             Pendente de ativação
           </span>
         )
       case 'inactive':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+          <span
+            title={
+              verified === false
+                ? 'Conta desativada pelo administrador (não ativada)'
+                : 'Conta desativada pelo administrador. Acesso bloqueado.'
+            }
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200 shadow-2xs"
+          >
             <UserX className="w-3 h-3 text-red-600" />
             Inativo
           </span>
@@ -273,7 +283,10 @@ export default function Usuarios() {
       case 'active':
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span
+            title="Conta verificada e ativa. Acesso liberado ao sistema."
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs"
+          >
             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
             Ativo
           </span>
@@ -339,7 +352,7 @@ export default function Usuarios() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-4 border-[#E5E7EB] bg-white shadow-xs flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-700 shrink-0">
             <UsersIcon className="w-5 h-5" />
@@ -381,6 +394,20 @@ export default function Usuarios() {
             </span>
             <p className="text-xl font-bold text-gray-900 leading-tight">
               {users.filter((u) => u.status === 'pending').length}
+            </p>
+          </div>
+        </Card>
+
+        <Card className="p-4 border-[#E5E7EB] bg-white shadow-xs flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
+            <UserX className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+              Contas Inativas
+            </span>
+            <p className="text-xl font-bold text-gray-900 leading-tight">
+              {users.filter((u) => u.status === 'inactive').length}
             </p>
           </div>
         </Card>
@@ -493,7 +520,7 @@ export default function Usuarios() {
                       </td>
                       <td className="py-3.5 px-4 font-mono text-gray-600">{u.email}</td>
                       <td className="py-3.5 px-4">{renderRoleBadge(u.role)}</td>
-                      <td className="py-3.5 px-4">{renderStatusBadge(u.status)}</td>
+                      <td className="py-3.5 px-4">{renderStatusBadge(u.status, u.verified)}</td>
                       <td className="py-3.5 px-4 text-center">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

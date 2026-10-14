@@ -124,7 +124,12 @@ export default function Emissoes() {
       'nov',
       'dez',
     ]
-    const coverage = `${monthNames[oldestDate.getMonth()]} ${oldestDate.getFullYear()} — ${monthNames[newestDate.getMonth()]} ${newestDate.getFullYear()}`
+    const oldestMonthName = monthNames[oldestDate.getMonth()] || ''
+    const newestMonthName = monthNames[newestDate.getMonth()] || ''
+    const coverage =
+      isNaN(oldestDate.getTime()) || isNaN(newestDate.getTime())
+        ? 'Período não definido'
+        : `${oldestMonthName} ${oldestDate.getFullYear()} — ${newestMonthName} ${newestDate.getFullYear()}`
 
     // Construir 24 slots mensais terminando no newestDate
     const slots: {
@@ -145,11 +150,13 @@ export default function Emissoes() {
       isEnergiaOficial: boolean
     }[] = []
 
+    const baseNewestDate = isNaN(newestDate.getTime()) ? new Date() : newestDate
     for (let i = 23; i >= 0; i--) {
-      const d = new Date(newestDate.getFullYear(), newestDate.getMonth() - i, 1)
+      const d = new Date(baseNewestDate.getFullYear(), baseNewestDate.getMonth() - i, 1)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const label = `${monthNames[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`
-      const shortMonth = monthNames[d.getMonth()]
+      const mName = monthNames[d.getMonth()] || ''
+      const label = `${mName}/${String(d.getFullYear()).slice(-2)}`
+      const shortMonth = mName
       slots.push({
         key,
         label,
@@ -176,27 +183,37 @@ export default function Emissoes() {
 
     // Agregar os cálculos por slot mensal
     calculosFiltrados.forEach((calc) => {
+      if (!calc) return
       const d = new Date(calc.competencia)
+      if (isNaN(d.getTime())) return
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       const found = slots.find((s) => s.key === key)
+      const emissaoVal =
+        typeof calc.emissoesTCO2e === 'number' && !isNaN(calc.emissoesTCO2e)
+          ? calc.emissoesTCO2e
+          : 0
+      const consumoVal =
+        typeof calc.consumoConsiderado === 'number' && !isNaN(calc.consumoConsiderado)
+          ? calc.consumoConsiderado
+          : 0
       if (found) {
-        found.totalTCO2e += calc.emissoesTCO2e
-        sumTotal += calc.emissoesTCO2e
+        found.totalTCO2e += emissaoVal
+        sumTotal += emissaoVal
 
         if (calc.escopo === 'Escopo 1') {
-          found.escopo1 += calc.emissoesTCO2e
-          found.consumoGasM3 += calc.consumoConsiderado
-          sumEscopo1 += calc.emissoesTCO2e
+          found.escopo1 += emissaoVal
+          found.consumoGasM3 += consumoVal
+          sumEscopo1 += emissaoVal
         } else if (calc.escopo === 'Escopo 2') {
-          found.escopo2 += calc.emissoesTCO2e
-          found.consumoEnergiaKwh += calc.consumoConsiderado
-          found.fatorEnergiaAplicado = calc.fatorAplicado
-          found.isEnergiaOficial = calc.isFatorOficial
-          sumEscopo2 += calc.emissoesTCO2e
+          found.escopo2 += emissaoVal
+          found.consumoEnergiaKwh += consumoVal
+          found.fatorEnergiaAplicado = calc.fatorAplicado || 0
+          found.isEnergiaOficial = !!calc.isFatorOficial
+          sumEscopo2 += emissaoVal
         } else if (calc.escopo === 'Escopo 3') {
-          found.escopo3 += calc.emissoesTCO2e
-          found.consumoAguaM3 += calc.consumoConsiderado
-          sumEscopo3 += calc.emissoesTCO2e
+          found.escopo3 += emissaoVal
+          found.consumoAguaM3 += consumoVal
+          sumEscopo3 += emissaoVal
         }
       }
     })
@@ -253,12 +270,17 @@ export default function Emissoes() {
     })
 
     calculosFiltrados.forEach((calc) => {
+      if (!calc) return
       const entry = empMap.get(calc.empreendimentoId)
+      const emissaoVal =
+        typeof calc.emissoesTCO2e === 'number' && !isNaN(calc.emissoesTCO2e)
+          ? calc.emissoesTCO2e
+          : 0
       if (entry) {
-        entry.totalTCO2e += calc.emissoesTCO2e
-        if (calc.escopo === 'Escopo 1') entry.escopo1 += calc.emissoesTCO2e
-        if (calc.escopo === 'Escopo 2') entry.escopo2 += calc.emissoesTCO2e
-        if (calc.escopo === 'Escopo 3') entry.escopo3 += calc.emissoesTCO2e
+        entry.totalTCO2e += emissaoVal
+        if (calc.escopo === 'Escopo 1') entry.escopo1 += emissaoVal
+        if (calc.escopo === 'Escopo 2') entry.escopo2 += emissaoVal
+        if (calc.escopo === 'Escopo 3') entry.escopo3 += emissaoVal
       }
     })
 
@@ -355,9 +377,9 @@ export default function Emissoes() {
                 <SelectItem value="todos" className="text-xs">
                   Todos os Empreendimentos
                 </SelectItem>
-                {empreendimentos.map((emp) => (
+                {(empreendimentos || []).map((emp) => (
                   <SelectItem key={emp.id} value={emp.id} className="text-xs">
-                    {emp.nome}
+                    {emp.nome || 'Sem nome'}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -13,8 +13,8 @@ export default function Login() {
   const location = useLocation()
   const { toast } = useToast()
 
-  const [email, setEmail] = useState('andino@aquecetecnica.com.br')
-  const [password, setPassword] = useState('Skip@Pass')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +62,7 @@ export default function Login() {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               required
               className="pl-9 h-10 border-gray-200 focus:border-teal-600 focus:ring-teal-600"
               placeholder="seu.email@empresa.com.br"
@@ -89,6 +90,7 @@ export default function Login() {
             <Input
               id="password"
               type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
               required
               className="pl-9 pr-9 h-10 border-gray-200 focus:border-teal-600 focus:ring-teal-600"
               placeholder="••••••••"
