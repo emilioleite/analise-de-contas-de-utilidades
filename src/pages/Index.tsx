@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatCurrencyBRL } from '@/lib/cnpj'
+import { formatCurrencyBRL, toSafeNumber } from '@/lib/cnpj'
 import { useCountUp } from '@/hooks/use-count-up'
 import { useToast } from '@/hooks/use-toast'
 import { gerarRelatorioDashboardPDF } from '@/services/relatorioDashboardPdf'
@@ -101,54 +101,42 @@ export default function Index() {
   // Calculations for last 12 months respecting selectedEmpreendimento filter
   const { total12m, energia12m, agua12m, gas12m, donutData, lineData, topConsumos, periodoTexto } =
     useMemo(() => {
-      if (!faturas || faturas.length === 0) {
-        return {
-          total12m: 0,
-          energia12m: 0,
-          agua12m: 0,
-          gas12m: 0,
-          donutData: [],
-          lineData: [],
-          topConsumos: [],
-          periodoTexto: 'Sem dados',
-        }
+      const emptyResult = {
+        total12m: 0,
+        energia12m: 0,
+        agua12m: 0,
+        gas12m: 0,
+        donutData: [],
+        lineData: [],
+        topConsumos: [],
+        periodoTexto: 'Sem dados',
+      }
+
+      if (!Array.isArray(faturas) || faturas.length === 0) {
+        return emptyResult
       }
 
       // Filtrar por empreendimento se selecionado
       const filteredFaturas =
         selectedEmpreendimento === 'todos'
           ? faturas
-          : faturas.filter((f) => f.empreendimento === selectedEmpreendimento)
+          : faturas.filter((f) => f && f.empreendimento === selectedEmpreendimento)
 
       if (filteredFaturas.length === 0) {
         return {
-          total12m: 0,
-          energia12m: 0,
-          agua12m: 0,
-          gas12m: 0,
-          donutData: [],
-          lineData: [],
-          topConsumos: [],
+          ...emptyResult,
           periodoTexto: 'Sem faturas no filtro',
         }
       }
 
-      // Determine the 12-month period based on newest invoice or current date
-      const sorted = [...filteredFaturas].sort(
-        (a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime(),
-      )
-      const newestDate = new Date(sorted[0].competencia)
-      const cutoffDate = new Date(newestDate)
-      cutoffDate.setMonth(cutoffDate.getMonth() - 11)
-      cutoffDate.setDate(1)
-      cutoffDate.setHours(0, 0, 0, 0)
+      // Filtrar faturas com data de competência válida
+      const validFaturas = filteredFaturas.filter((fat) => {
+        if (!fat || !fat.competencia) return false
+        const d = new Date(fat.competencia)
+        return !isNaN(d.getTime())
+      })
 
-      let total = 0
-      let energia = 0
-      let agua = 0
-      let gas = 0
-
-      // Month map for 12 months
+      // Se não houver faturas com competência válida, fallback para data atual
       const monthNames = [
         'jan',
         'fev',
@@ -163,6 +151,27 @@ export default function Index() {
         'nov',
         'dez',
       ]
+
+      let newestDate: Date
+      if (validFaturas.length > 0) {
+        const sorted = [...validFaturas].sort(
+          (a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime(),
+        )
+        newestDate = new Date(sorted[0].competencia)
+      } else {
+        newestDate = new Date()
+      }
+
+      const cutoffDate = new Date(newestDate)
+      cutoffDate.setMonth(cutoffDate.getMonth() - 11)
+      cutoffDate.setDate(1)
+      cutoffDate.setHours(0, 0, 0, 0)
+
+      let total = 0
+      let energia = 0
+      let agua = 0
+      let gas = 0
+
       const monthlyMap: Record<
         string,
         {
@@ -178,8 +187,9 @@ export default function Index() {
 
       for (let i = 11; i >= 0; i--) {
         const d = new Date(newestDate.getFullYear(), newestDate.getMonth() - i, 1)
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-        const label = `${monthNames[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`
+        const safeMonthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : 0
+        const key = `${d.getFullYear()}-${String(safeMonthIdx + 1).padStart(2, '0')}`
+        const label = `${monthNames[safeMonthIdx] || 'mês'}/${String(d.getFullYear()).slice(-2)}`
         monthlyMap[key] = {
           monthKey: key,
           label,
@@ -191,9 +201,12 @@ export default function Index() {
         }
       }
 
-      faturas.forEach((fat) => {
+      // Preencher com faturas válidas
+      validFaturas.forEach((fat) => {
         const fDate = new Date(fat.competencia)
-        const val = Number(fat.valor_total) || 0
+        if (isNaN(fDate.getTime())) return
+
+        const val = toSafeNumber(fat.valor_total, 0)
         const key = `${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`
 
         if (fDate >= cutoffDate) {
@@ -212,56 +225,71 @@ export default function Index() {
       })
 
       const donut = [
-        { name: 'Energia Elétrica', value: energia, color: '#F59E0B' },
-        { name: 'Água e Esgoto', value: agua, color: '#0EA5E9' },
-        { name: 'Gás', value: gas, color: '#14B8A6' },
+        { name: 'Energia Elétrica', value: toSafeNumber(energia, 0), color: '#F59E0B' },
+        { name: 'Água e Esgoto', value: toSafeNumber(agua, 0), color: '#0EA5E9' },
+        { name: 'Gás', value: toSafeNumber(gas, 0), color: '#14B8A6' },
       ].filter((d) => d.value > 0)
 
       const lines = Object.values(monthlyMap)
 
-      // Top 5 invoices by value across all utilities
+      // Top 5 invoices by value across all utilities (sanitizando expand e valor)
       const top5 = [...filteredFaturas]
-        .sort((a, b) => (Number(b.valor_total) || 0) - (Number(a.valor_total) || 0))
+        .sort((a, b) => toSafeNumber(b.valor_total, 0) - toSafeNumber(a.valor_total, 0))
         .slice(0, 5)
-        .map((fat) => ({
-          id: fat.id,
-          nome: fat.expand?.empreendimento?.nome || 'Empreendimento',
-          tipo: fat.tipo_utilidade,
-          competencia: fat.competencia,
-          valor: Number(fat.valor_total) || 0,
-        }))
+        .map((fat) => {
+          const empNome =
+            fat.expand?.empreendimento?.nome ||
+            empreendimentos.find((e) => e.id === fat.empreendimento)?.nome ||
+            'Empreendimento'
 
-      const periodoStr = `${monthNames[cutoffDate.getMonth()]} ${cutoffDate.getFullYear()} — ${monthNames[newestDate.getMonth()]} ${newestDate.getFullYear()}`
+          return {
+            id: fat.id || String(Math.random()),
+            nome: empNome,
+            tipo: fat.tipo_utilidade || 'Utilidade',
+            competencia: fat.competencia || '',
+            valor: toSafeNumber(fat.valor_total, 0),
+          }
+        })
+
+      const cutoffMonth = Number.isFinite(cutoffDate.getMonth()) ? cutoffDate.getMonth() : 0
+      const newestMonth = Number.isFinite(newestDate.getMonth()) ? newestDate.getMonth() : 0
+      const periodoStr = `${monthNames[cutoffMonth] || ''} ${cutoffDate.getFullYear()} — ${monthNames[newestMonth] || ''} ${newestDate.getFullYear()}`
 
       return {
-        total12m: total,
-        energia12m: energia,
-        agua12m: agua,
-        gas12m: gas,
+        total12m: toSafeNumber(total, 0),
+        energia12m: toSafeNumber(energia, 0),
+        agua12m: toSafeNumber(agua, 0),
+        gas12m: toSafeNumber(gas, 0),
         donutData: donut,
         lineData: lines,
         topConsumos: top5,
         periodoTexto: periodoStr,
       }
-    }, [faturas, selectedEmpreendimento])
+    }, [faturas, empreendimentos, selectedEmpreendimento])
 
-  // Custom Dark Tooltip for charts
+  // Custom Dark Tooltip for charts (blindado contra valores nulos/indefinidos)
   const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
+    if (active && Array.isArray(payload) && payload.length) {
       return (
         <div className="bg-[#111827] text-white p-3 rounded-lg shadow-xl text-xs space-y-1.5 border border-gray-800 z-50">
-          <p className="font-semibold text-gray-200 border-b border-gray-700 pb-1">{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <div key={`item-${index}`} className="flex items-center justify-between gap-4">
-              <span className="flex items-center gap-1.5 text-gray-300">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                {entry.name}:
-              </span>
-              <span className="font-bold tabular-nums text-white">
-                {formatCurrencyBRL(entry.value)}
-              </span>
-            </div>
-          ))}
+          <p className="font-semibold text-gray-200 border-b border-gray-700 pb-1">
+            {label || 'Período'}
+          </p>
+          {payload.map((entry: any, index: number) => {
+            if (!entry) return null
+            const name = entry.name || 'Valor'
+            const color = entry.color || '#14B8A6'
+            const val = toSafeNumber(entry.value, 0)
+            return (
+              <div key={`item-${index}`} className="flex items-center justify-between gap-4">
+                <span className="flex items-center gap-1.5 text-gray-300">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                  {name}:
+                </span>
+                <span className="font-bold tabular-nums text-white">{formatCurrencyBRL(val)}</span>
+              </div>
+            )
+          })}
         </div>
       )
     }
@@ -482,15 +510,15 @@ export default function Index() {
                 </Pie>
                 <RechartsTooltip
                   content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
+                    if (active && Array.isArray(payload) && payload.length && payload[0]) {
                       const data = payload[0]
-                      const pct =
-                        total12m > 0 ? ((Number(data.value) / total12m) * 100).toFixed(1) : '0'
+                      const safeVal = toSafeNumber(data.value, 0)
+                      const pct = total12m > 0 ? ((safeVal / total12m) * 100).toFixed(1) : '0'
                       return (
                         <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1">
-                          <p className="font-semibold">{data.name}</p>
+                          <p className="font-semibold">{data.name || 'Utilidade'}</p>
                           <p className="text-gray-300 tabular-nums">
-                            {formatCurrencyBRL(Number(data.value))} ({pct}%)
+                            {formatCurrencyBRL(safeVal)} ({pct}%)
                           </p>
                         </div>
                       )
@@ -653,16 +681,19 @@ export default function Index() {
               />
               <RechartsTooltip
                 content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
+                  if (active && Array.isArray(payload) && payload.length && payload[0]?.payload) {
                     const row = payload[0].payload
+                    const safeValor = toSafeNumber(row?.valor, 0)
+                    const nome = row?.nome || 'Empreendimento'
+                    const tipo = row?.tipo || 'Utilidade'
                     return (
                       <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1">
-                        <p className="font-bold">{row.nome}</p>
+                        <p className="font-bold">{nome}</p>
                         <p className="text-gray-300">
-                          Utilidade: <span className="text-white font-medium">{row.tipo}</span>
+                          Utilidade: <span className="text-white font-medium">{tipo}</span>
                         </p>
                         <p className="text-teal-400 font-bold tabular-nums">
-                          {formatCurrencyBRL(row.valor)}
+                          {formatCurrencyBRL(safeValor)}
                         </p>
                       </div>
                     )

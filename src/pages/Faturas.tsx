@@ -9,6 +9,7 @@ import {
   formatDateBR,
   formatCNPJ,
   cleanCNPJ,
+  toSafeNumber,
 } from '@/lib/cnpj'
 import { faturasService } from '@/services/faturas'
 import {
@@ -793,8 +794,8 @@ export default function Faturas() {
     if (selectedTipo === 'Energia Elétrica') {
       const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
+        medicao_anterior: toSafeNumber(medicaoAnterior, 0) || undefined,
+        medicao_atual: toSafeNumber(medicaoAtual, 0) || undefined,
         classificacao_consumo: classificacaoConsumo || undefined,
         consumo_medido: Number(consumo) || undefined,
         consumo_ponta: isB ? undefined : Number(consumoPonta) || undefined,
@@ -1014,6 +1015,8 @@ export default function Faturas() {
   const filteredFaturas = useMemo(() => {
     return faturas
       .filter((fat) => {
+        if (!fat) return false
+
         // Filter by Enterprise
         if (empFilter !== 'Todos' && fat.empreendimento !== empFilter) {
           return false
@@ -1047,17 +1050,18 @@ export default function Faturas() {
         return true
       })
       .sort((a, b) => {
-        if (sortBy === 'recente') {
-          return new Date(b.competencia).getTime() - new Date(a.competencia).getTime()
-        }
-        if (sortBy === 'antiga') {
-          return new Date(a.competencia).getTime() - new Date(b.competencia).getTime()
+        if (sortBy === 'recente' || sortBy === 'antiga') {
+          const aDate = new Date(a.competencia || '')
+          const bDate = new Date(b.competencia || '')
+          const aTime = isNaN(aDate.getTime()) ? 0 : aDate.getTime()
+          const bTime = isNaN(bDate.getTime()) ? 0 : bDate.getTime()
+          return sortBy === 'recente' ? bTime - aTime : aTime - bTime
         }
         if (sortBy === 'maior-valor') {
-          return Number(b.valor_total) - Number(a.valor_total)
+          return toSafeNumber(b.valor_total, 0) - toSafeNumber(a.valor_total, 0)
         }
         if (sortBy === 'menor-valor') {
-          return Number(a.valor_total) - Number(b.valor_total)
+          return toSafeNumber(a.valor_total, 0) - toSafeNumber(b.valor_total, 0)
         }
         return 0
       })

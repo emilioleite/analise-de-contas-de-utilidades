@@ -51,29 +51,49 @@ export function isValidCNPJ(cnpj: string): boolean {
   return true
 }
 
+export function toSafeNumber(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined || value === '') return fallback
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 export function formatCurrencyBRL(value: number | undefined | null): string {
-  if (typeof value !== 'number' || isNaN(value)) return 'R$ 0,00'
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(value)
+  const safe = toSafeNumber(value, 0)
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(safe)
+  } catch {
+    return 'R$ 0,00'
+  }
 }
 
 export function formatNumberBR(value: number | undefined | null, decimals = 0): string {
-  if (typeof value !== 'number' || isNaN(value)) return '0'
-  return new Intl.NumberFormat('pt-BR', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value)
+  const safe = toSafeNumber(value, 0)
+  const safeDecimals = Math.max(0, Math.min(20, Math.floor(toSafeNumber(decimals, 0))))
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      minimumFractionDigits: safeDecimals,
+      maximumFractionDigits: safeDecimals,
+    }).format(safe)
+  } catch {
+    return '0'
+  }
 }
 
 export function formatTCO2e(value: number | undefined | null, decimals = 3): string {
-  if (typeof value !== 'number' || isNaN(value)) return '0,000 tCO₂e'
-  const formatted = new Intl.NumberFormat('pt-BR', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value)
-  return `${formatted} tCO₂e`
+  const safe = toSafeNumber(value, 0)
+  const safeDecimals = Math.max(0, Math.min(20, Math.floor(toSafeNumber(decimals, 3))))
+  try {
+    const formatted = new Intl.NumberFormat('pt-BR', {
+      minimumFractionDigits: safeDecimals,
+      maximumFractionDigits: safeDecimals,
+    }).format(safe)
+    return `${formatted} tCO₂e`
+  } catch {
+    return '0,000 tCO₂e'
+  }
 }
 
 export function formatCompetencia(dateStr: string | undefined): string {

@@ -7,6 +7,7 @@ import { AuthProvider } from '@/context/AuthContext'
 import { DataProvider } from '@/context/DataContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import Layout from '@/components/Layout'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 // Pages
 import Index from './pages/Index'
@@ -23,43 +24,45 @@ import ConfirmEmailChange from './pages/ConfirmEmailChange'
 import NotFound from './pages/NotFound'
 
 const App = () => (
-  <BrowserRouter>
-    <AuthProvider>
-      <DataProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <Routes>
-            {/* Public Authentication Pages */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
+  <ErrorBoundary>
+    <BrowserRouter>
+      <AuthProvider>
+        <DataProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <Routes>
+              {/* Public Authentication Pages */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
 
-            {/* Protected Routes wrapped in Global Layout */}
-            <Route
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/" element={<Index />} />
-              <Route path="/empreendimentos" element={<Empreendimentos />} />
-              <Route path="/faturas" element={<Faturas />} />
-              <Route path="/analise-24-meses" element={<Analise24Meses />} />
-              <Route path="/emissoes" element={<Emissoes />} />
-              <Route path="/usuarios" element={<Usuarios />} />
-            </Route>
+              {/* Protected Routes wrapped in Global Layout */}
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Index />} />
+                <Route path="/empreendimentos" element={<Empreendimentos />} />
+                <Route path="/faturas" element={<Faturas />} />
+                <Route path="/analise-24-meses" element={<Analise24Meses />} />
+                <Route path="/emissoes" element={<Emissoes />} />
+                <Route path="/usuarios" element={<Usuarios />} />
+              </Route>
 
-            {/* Fallback 404 */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </TooltipProvider>
-      </DataProvider>
-    </AuthProvider>
-  </BrowserRouter>
+              {/* Fallback 404 */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </TooltipProvider>
+        </DataProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  </ErrorBoundary>
 )
 
 export default App

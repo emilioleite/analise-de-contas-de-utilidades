@@ -43,39 +43,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Re-hydrate session from backend on mount:
     // Ensures role, status and permissions are strictly up-to-date even if the local
     // storage snapshot was saved before schema updates or role assignment.
+    // Includes a safety timeout (8s) so the UI is never permanently blocked on network hangs.
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        setIsLoading(false)
+      }
+    }, 8000)
+
     const rehydrateSession = async () => {
       if (!pb.authStore.isValid || !pb.authStore.token) {
         if (isMounted) setIsLoading(false)
+        clearTimeout(safetyTimeout)
         return
       }
 
       try {
         // First try authRefresh to validate the token and get the refreshed record
-        const authData = await pb.collection('users').authRefresh()
+        const authData = await pb
+          .collection('users')
+          .authRefresh()
+          .catch(() => null)
         if (isMounted && authData?.record) {
           setUser(authData.record)
           setToken(authData.token)
-        }
-      } catch (refreshErr) {
-        // If authRefresh failed (e.g. token expired), verify if we can still fetch the user record or clear
-        try {
-          if (pb.authStore.record?.id) {
-            const fresh = await pb.collection('users').getOne(pb.authStore.record.id)
-            if (isMounted) {
-              // Update authStore with fresh data while preserving valid token
-              pb.authStore.save(pb.authStore.token, fresh)
-              setUser(fresh)
-            }
-          }
-        } catch {
-          // Token is truly invalid or revoked; clear stale credentials
-          if (isMounted && !pb.authStore.isValid) {
+        } else if (pb.authStore.record?.id) {
+          // If authRefresh did not return a record, fallback to getOne
+          const fresh = await pb
+            .collection('users')
+            .getOne(pb.authStore.record.id)
+            .catch(() => null)
+          if (isMounted && fresh) {
+            pb.authStore.save(pb.authStore.token, fresh)
+            setUser(fresh)
+          } else if (isMounted && !pb.authStore.isValid) {
             pb.authStore.clear()
             setUser(null)
             setToken(null)
           }
         }
+      } catch (err) {
+        console.warn('Erro durante reidratação de sessão:', err)
+        if (isMounted && !pb.authStore.isValid) {
+          pb.authStore.clear()
+          setUser(null)
+          setToken(null)
+        }
       } finally {
+        clearTimeout(safetyTimeout)
         if (isMounted) {
           setIsLoading(false)
         }
@@ -86,6 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false
+      clearTimeout(safetyTimeout)
       unsubscribe()
     }
   }, [])

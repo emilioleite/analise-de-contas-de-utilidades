@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { useData } from '@/context/DataContext'
 import { TipoUtilidade } from '@/types/entities'
-import { formatCurrencyBRL, formatNumberBR } from '@/lib/cnpj'
+import { formatCurrencyBRL, formatNumberBR, toSafeNumber } from '@/lib/cnpj'
 import { getFaturaConsumoReal, getUnidadePorUtilidade, getRotuloTarifa } from '@/lib/consumoTarifa'
 import {
   TrendingUp,
@@ -141,11 +141,17 @@ export default function Analise24Meses() {
         : empFiltered.filter((f) => f.tipo_utilidade === activeTab)
 
     // Determine available date range based on empFiltered
-    const sorted = [...empFiltered].sort(
+    const validDateFaturas = empFiltered.filter((f) => {
+      if (!f || !f.competencia) return false
+      const d = new Date(f.competencia)
+      return !isNaN(d.getTime())
+    })
+    const sorted = [...validDateFaturas].sort(
       (a, b) => new Date(a.competencia).getTime() - new Date(b.competencia).getTime(),
     )
-    const oldestDate = new Date(sorted[0].competencia)
-    const newestDate = new Date(sorted[sorted.length - 1].competencia)
+    const oldestDate = validDateFaturas.length > 0 ? new Date(sorted[0].competencia) : new Date()
+    const newestDate =
+      validDateFaturas.length > 0 ? new Date(sorted[sorted.length - 1].competencia) : new Date()
 
     const monthNames = [
       'jan',
@@ -161,7 +167,11 @@ export default function Analise24Meses() {
       'nov',
       'dez',
     ]
-    const coverage = `${monthNames[oldestDate.getMonth()]} ${oldestDate.getFullYear()} — ${monthNames[newestDate.getMonth()]} ${newestDate.getFullYear()}`
+    const coverage = `${
+      monthNames[Number.isFinite(oldestDate.getMonth()) ? oldestDate.getMonth() : 0] || ''
+    } ${oldestDate.getFullYear()} — ${
+      monthNames[Number.isFinite(newestDate.getMonth()) ? newestDate.getMonth() : 0] || ''
+    } ${newestDate.getFullYear()}`
 
     // Build exactly 24 monthly slots leading up to newestDate
     const slots: {
@@ -176,9 +186,10 @@ export default function Analise24Meses() {
 
     for (let i = 23; i >= 0; i--) {
       const d = new Date(newestDate.getFullYear(), newestDate.getMonth() - i, 1)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const label = `${monthNames[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`
-      const shortMonth = monthNames[d.getMonth()]
+      const safeMonthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : 0
+      const key = `${d.getFullYear()}-${String(safeMonthIdx + 1).padStart(2, '0')}`
+      const label = `${monthNames[safeMonthIdx] || 'mês'}/${String(d.getFullYear()).slice(-2)}`
+      const shortMonth = monthNames[safeMonthIdx] || 'mês'
       slots.push({
         key,
         label,
@@ -192,13 +203,15 @@ export default function Analise24Meses() {
 
     // Populate values using real extracted consumption
     relevantFaturas.forEach((fat) => {
+      if (!fat || !fat.competencia) return
       const d = new Date(fat.competencia)
+      if (isNaN(d.getTime())) return
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       const found = slots.find((s) => s.key === key)
       if (found) {
-        found.valor += Number(fat.valor_total) || 0
+        found.valor += toSafeNumber(fat.valor_total, 0)
         const real = getFaturaConsumoReal(fat)
-        found.consumo += real.consumo
+        found.consumo += toSafeNumber(real?.consumo, 0)
       }
     })
 
@@ -268,9 +281,9 @@ export default function Analise24Meses() {
       return {
         mes: item.shortMonth,
         ano1Label: item.label,
-        ano1Valor: Math.round(item.valor * 100) / 100,
+        ano1Valor: Math.round(toSafeNumber(item.valor, 0) * 100) / 100,
         ano2Label: matchAno2 ? matchAno2.label : '',
-        ano2Valor: matchAno2 ? Math.round(matchAno2.valor * 100) / 100 : 0,
+        ano2Valor: matchAno2 ? Math.round(toSafeNumber(matchAno2.valor, 0) * 100) / 100 : 0,
       }
     })
 
@@ -280,9 +293,9 @@ export default function Analise24Meses() {
       return {
         mes: item.shortMonth,
         ano1Label: item.label,
-        ano1Consumo: Math.round(item.consumo * 100) / 100,
+        ano1Consumo: Math.round(toSafeNumber(item.consumo, 0) * 100) / 100,
         ano2Label: matchAno2 ? matchAno2.label : '',
-        ano2Consumo: matchAno2 ? Math.round(matchAno2.consumo * 100) / 100 : 0,
+        ano2Consumo: matchAno2 ? Math.round(toSafeNumber(matchAno2.consumo, 0) * 100) / 100 : 0,
       }
     })
 
@@ -323,25 +336,28 @@ export default function Analise24Meses() {
     if (activeTab === 'Água e Esgoto') color = '#0EA5E9'
     if (activeTab === 'Gás') color = '#14B8A6'
 
+    const safeSumValor = toSafeNumber(sumValor, 0)
+    const safeSumConsumo = toSafeNumber(sumConsumo, 0)
+
     return {
       coverageText: coverage,
       monthPoints: slots,
       // Financeiro
-      maxPoint: maxFinanceiro?.valor > 0 ? maxFinanceiro : null,
-      minPoint: minFinanceiro?.valor > 0 ? minFinanceiro : null,
-      mediaMensal: avgValor,
-      totalPeriodo: sumValor,
+      maxPoint: toSafeNumber(maxFinanceiro?.valor, 0) > 0 ? maxFinanceiro : null,
+      minPoint: toSafeNumber(minFinanceiro?.valor, 0) > 0 ? minFinanceiro : null,
+      mediaMensal: toSafeNumber(avgValor, 0),
+      totalPeriodo: safeSumValor,
       comparativoData: comparativo,
       // Consumo
-      maxConsumoPoint: maxConsumo?.consumo > 0 ? maxConsumo : null,
-      minConsumoPoint: minConsumo?.consumo > 0 ? minConsumo : null,
-      mediaConsumoMensal: avgConsumo,
-      totalConsumoPeriodo: sumConsumo,
+      maxConsumoPoint: toSafeNumber(maxConsumo?.consumo, 0) > 0 ? maxConsumo : null,
+      minConsumoPoint: toSafeNumber(minConsumo?.consumo, 0) > 0 ? minConsumo : null,
+      mediaConsumoMensal: toSafeNumber(avgConsumo, 0),
+      totalConsumoPeriodo: safeSumConsumo,
       comparativoConsumoData: comparativoConsumo,
       // Tarifa
-      maxTarifaPoint: maxTarifa?.tarifa > 0 ? maxTarifa : null,
-      minTarifaPoint: minTarifa?.tarifa > 0 ? minTarifa : null,
-      mediaTarifaPeriodo: mediaTarifa,
+      maxTarifaPoint: toSafeNumber(maxTarifa?.tarifa, 0) > 0 ? maxTarifa : null,
+      minTarifaPoint: toSafeNumber(minTarifa?.tarifa, 0) > 0 ? minTarifa : null,
+      mediaTarifaPeriodo: toSafeNumber(mediaTarifa, 0),
       // Tabela
       tableRows: tableData,
       accentColor: color,
@@ -353,8 +369,8 @@ export default function Analise24Meses() {
     const { cx, cy, payload } = props
     if (!payload) return null
 
-    const isMax = payload.key === maxPoint?.key && payload.valor > 0
-    const isMin = payload.key === minPoint?.key && payload.valor > 0
+    const isMax = payload.key === maxPoint?.key && toSafeNumber(payload.valor, 0) > 0
+    const isMin = payload.key === minPoint?.key && toSafeNumber(payload.valor, 0) > 0
 
     if (isMax) {
       return (
@@ -400,8 +416,8 @@ export default function Analise24Meses() {
     const { cx, cy, payload } = props
     if (!payload) return null
 
-    const isMax = payload.key === maxConsumoPoint?.key && payload.consumo > 0
-    const isMin = payload.key === minConsumoPoint?.key && payload.consumo > 0
+    const isMax = payload.key === maxConsumoPoint?.key && toSafeNumber(payload.consumo, 0) > 0
+    const isMin = payload.key === minConsumoPoint?.key && toSafeNumber(payload.consumo, 0) > 0
 
     if (isMax) {
       return (
@@ -447,8 +463,8 @@ export default function Analise24Meses() {
     const { cx, cy, payload } = props
     if (!payload) return null
 
-    const isMax = payload.key === maxTarifaPoint?.key && payload.tarifa > 0
-    const isMin = payload.key === minTarifaPoint?.key && payload.tarifa > 0
+    const isMax = payload.key === maxTarifaPoint?.key && toSafeNumber(payload.tarifa, 0) > 0
+    const isMin = payload.key === minTarifaPoint?.key && toSafeNumber(payload.tarifa, 0) > 0
 
     if (isMax) {
       return (

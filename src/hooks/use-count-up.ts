@@ -1,29 +1,37 @@
 import { useEffect, useState } from 'react'
 
 export function useCountUp(target: number, durationMs = 600): number {
-  const [value, setValue] = useState(0)
+  const safeTarget = Number.isFinite(target) ? target : 0
+  const safeDuration = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 600
+  const [value, setValue] = useState(safeTarget)
 
   useEffect(() => {
+    if (!Number.isFinite(safeTarget)) {
+      setValue(0)
+      return
+    }
+
     let startTimestamp: number | null = null
     const startValue = 0
 
     const step = (timestamp: number) => {
       if (!startTimestamp) startTimestamp = timestamp
-      const progress = Math.min((timestamp - startTimestamp) / durationMs, 1)
+      const progress = Math.min((timestamp - startTimestamp) / safeDuration, 1)
       // Ease out cubic
       const ease = 1 - Math.pow(1 - progress, 3)
-      setValue(startValue + (target - startValue) * ease)
+      const current = startValue + (safeTarget - startValue) * ease
+      setValue(Number.isFinite(current) ? current : safeTarget)
 
       if (progress < 1) {
         window.requestAnimationFrame(step)
       } else {
-        setValue(target)
+        setValue(safeTarget)
       }
     }
 
     const frameId = window.requestAnimationFrame(step)
     return () => window.cancelAnimationFrame(frameId)
-  }, [target, durationMs])
+  }, [safeTarget, safeDuration])
 
-  return value
+  return Number.isFinite(value) ? value : 0
 }
