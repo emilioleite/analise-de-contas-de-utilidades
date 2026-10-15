@@ -48,7 +48,19 @@ export function AccountModal({ open, onOpenChange }: AccountModalProps) {
     }
   }, [user?.name])
 
-  const initials = (user?.name || user?.email || 'GU').slice(0, 2).toUpperCase()
+  const initials = (() => {
+    if (user?.name && user.name.trim()) {
+      const parts = user.name.trim().split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      }
+      return parts[0].slice(0, 2).toUpperCase()
+    }
+    if (user?.email && user.email.trim()) {
+      return user.email.trim().slice(0, 2).toUpperCase()
+    }
+    return 'CO'
+  })()
 
   const handleSaveName = async (e: React.FormEvent) => {
     e.preventDefault()

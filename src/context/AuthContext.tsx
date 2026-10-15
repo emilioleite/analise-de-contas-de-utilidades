@@ -11,6 +11,7 @@ interface AuthContextType {
   isAdmin: boolean
   userRole: UserRole
   userStatus: UserStatus
+  login: (email: string, password: string) => Promise<RecordModel>
   logout: () => void
   refreshUser: () => Promise<void>
   updateProfileName: (name: string) => Promise<void>
@@ -21,38 +22,40 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
-  const [token, setToken] = useState<string | null>(pb.authStore.token)
+  const [user, setUser] = useState<RecordModel | null>(null)
+  const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     let isMounted = true
 
-    // Initial sync from local auth store snapshot
-    setUser(pb.authStore.record)
-    setToken(pb.authStore.token)
-
     // Listen to reactive authStore changes (login, logout, token refresh)
     const unsubscribe = pb.authStore.onChange((newToken, newRecord) => {
       if (isMounted) {
-        setToken(newToken)
-        setUser(newRecord)
+        setToken(newToken || null)
+        setUser(newRecord || null)
       }
     })
 
     // Re-hydrate session from backend on mount:
     // Ensures role, status and permissions are strictly up-to-date even if the local
     // storage snapshot was saved before schema updates or role assignment.
-    // Includes a safety timeout (8s) so the UI is never permanently blocked on network hangs.
+    // Prevents rendering stale cached admin data when switching accounts.
     const safetyTimeout = setTimeout(() => {
       if (isMounted) {
         setIsLoading(false)
       }
-    }, 8000)
+    }, 6000)
 
     const rehydrateSession = async () => {
       if (!pb.authStore.isValid || !pb.authStore.token) {
-        if (isMounted) setIsLoading(false)
+        // Clear any orphaned or invalid auth data
+        pb.authStore.clear()
+        if (isMounted) {
+          setUser(null)
+          setToken(null)
+          setIsLoading(false)
+        }
         clearTimeout(safetyTimeout)
         return
       }
@@ -63,11 +66,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .collection('users')
           .authRefresh()
           .catch(() => null)
+
         if (isMounted && authData?.record) {
+          // Explicitly save the fresh record to PocketBase authStore
+          pb.authStore.save(authData.token, authData.record)
           setUser(authData.record)
           setToken(authData.token)
         } else if (pb.authStore.record?.id) {
-          // If authRefresh did not return a record, fallback to getOne
+          // If authRefresh did not return a record but token might still be usable, fallback to getOne
           const fresh = await pb
             .collection('users')
             .getOne(pb.authStore.record.id)
@@ -75,15 +81,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (isMounted && fresh) {
             pb.authStore.save(pb.authStore.token, fresh)
             setUser(fresh)
-          } else if (isMounted && !pb.authStore.isValid) {
+            setToken(pb.authStore.token)
+          } else if (isMounted) {
             pb.authStore.clear()
             setUser(null)
             setToken(null)
           }
+        } else if (isMounted) {
+          pb.authStore.clear()
+          setUser(null)
+          setToken(null)
         }
       } catch (err) {
         console.warn('Erro durante reidratação de sessão:', err)
-        if (isMounted && !pb.authStore.isValid) {
+        if (isMounted) {
           pb.authStore.clear()
           setUser(null)
           setToken(null)
@@ -104,6 +115,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribe()
     }
   }, [])
+
+  const login = async (email: string, password: string): Promise<RecordModel> => {
+    // 1. Purge any leftover or stale auth state prior to issuing the new auth request
+    pb.authStore.clear()
+    setUser(null)
+    setToken(null)
+
+    // 2. Perform authentication with credentials
+    const authData = await pb.collection('users').authWithPassword(email.trim(), password)
+
+    // 3. Atomically save and apply fresh session data
+    pb.authStore.save(authData.token, authData.record)
+    setUser(authData.record)
+    setToken(authData.token)
+    setIsLoading(false)
+
+    return authData.record
+  }
 
   const logout = () => {
     pb.authStore.clear()
@@ -179,6 +208,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         userRole,
         userStatus,
+        login,
         logout,
         refreshUser,
         updateProfileName,

@@ -89,14 +89,14 @@ function AnimatedKPICard({
 }
 
 export default function Index() {
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
   const { faturas, empreendimentos, loading } = useData()
   const { toast } = useToast()
 
   const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
   const [exportandoPdf, setExportandoPdf] = useState(false)
 
-  const userName = user?.name ? user.name.split(' ')[0] : 'Gestor'
+  const userName = user?.name ? user.name.trim().split(/\s+/)[0] : 'Colaborador'
 
   // Calculations for last 12 months respecting selectedEmpreendimento filter
   const { total12m, energia12m, agua12m, gas12m, donutData, lineData, topConsumos, periodoTexto } =
@@ -301,7 +301,7 @@ export default function Index() {
       <div className="space-y-6">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
-            Olá, {userName}
+            Olá, {isLoading ? '...' : userName}
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
             Bem-vindo à plataforma de gestão de utilidades da corporação.
@@ -338,7 +338,7 @@ export default function Index() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
-              Olá, {userName}
+              Olá, {isLoading ? '...' : userName}
             </h2>
             <Badge
               variant="outline"

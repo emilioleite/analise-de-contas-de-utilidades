@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { CenteredCardLayout } from '@/components/CenteredCardLayout'
-import pb from '@/lib/pocketbase/client'
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +12,7 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const { toast } = useToast()
+  const { login } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,15 +28,20 @@ export default function Login() {
     setLoading(true)
 
     try {
-      await pb.collection('users').authWithPassword(email, password)
+      const authUser = await login(email, password)
+      const firstName = authUser?.name ? authUser.name.split(' ')[0] : 'Colaborador'
       toast({
         title: 'Login efetuado com sucesso',
-        description: 'Bem-vindo ao Gestor de Utilidades.',
+        description: `Bem-vindo(a), ${firstName}.`,
       })
       navigate(from, { replace: true })
     } catch (err: any) {
       console.error('Falha no login:', err)
-      setError('E-mail ou senha incorretos. Verifique suas credenciais.')
+      const errorMessage =
+        err?.response?.message ||
+        err?.message ||
+        'E-mail ou senha incorretos. Verifique suas credenciais.'
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }

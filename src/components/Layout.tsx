@@ -34,7 +34,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 
 export default function Layout() {
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, isLoading } = useAuth()
   const { syncing, refreshData } = useData()
   const location = useLocation()
   const navigate = useNavigate()
@@ -67,8 +67,22 @@ export default function Layout() {
     navigate('/login')
   }
 
-  const userName = user?.name || user?.email || 'Membro Corporativo'
-  const userInitials = (user?.name || user?.email || 'GU').slice(0, 2).toUpperCase()
+  const computeInitials = (name?: string, email?: string): string => {
+    if (name && name.trim()) {
+      const parts = name.trim().split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      }
+      return parts[0].slice(0, 2).toUpperCase()
+    }
+    if (email && email.trim()) {
+      return email.trim().slice(0, 2).toUpperCase()
+    }
+    return 'CO'
+  }
+
+  const userName = user?.name || user?.email || 'Colaborador'
+  const userInitials = computeInitials(user?.name, user?.email)
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] flex flex-col md:flex-row text-[#111827]">
@@ -162,19 +176,23 @@ export default function Layout() {
         {/* Bottom User Card */}
         <div className="p-3 border-t border-[#E5E7EB]">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild disabled={isLoading || !user}>
               <button
                 type="button"
-                className="w-full flex items-center gap-3 p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-left"
+                className="w-full flex items-center gap-3 p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-left disabled:opacity-50"
               >
                 <Avatar className="w-8 h-8 rounded-full border border-gray-200 shrink-0">
                   <AvatarFallback className="bg-teal-700 text-white font-medium text-xs">
-                    {userInitials}
+                    {isLoading ? '...' : userInitials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="hidden lg:flex flex-col truncate flex-1">
-                  <span className="text-xs font-semibold text-gray-900 truncate">{userName}</span>
-                  <span className="text-[10px] text-gray-400 truncate">{user?.email}</span>
+                  <span className="text-xs font-semibold text-gray-900 truncate">
+                    {isLoading ? 'Carregando perfil...' : userName}
+                  </span>
+                  <span className="text-[10px] text-gray-400 truncate">
+                    {isLoading ? '...' : user?.email}
+                  </span>
                 </div>
               </button>
             </DropdownMenuTrigger>
