@@ -50,6 +50,7 @@ routerAdd(
 
     const body = e.requestInfo().body || {}
     const requestedUtility = body.tipo_utilidade || ''
+    const forceModel = body.force_model || '' // 'fast' ou 'reasoning'
 
     let pageImages = []
     if (body.images) {
@@ -345,11 +346,17 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             { role: 'system', content: systemPrompt },
             { role: 'user', content: textUserContent },
           ]
+          const primaryModel = forceModel === 'reasoning' ? 'reasoning' : 'fast'
+          const fallbackModel = primaryModel === 'fast' ? 'reasoning' : 'fast'
+
           try {
-            aiTextResponse = callAiChat('fast', textMessages)
-          } catch (fastErr) {
-            console.log('[fatura_extract] Modelo fast falhou no texto, tentando reasoning...')
-            aiTextResponse = callAiChat('reasoning', textMessages)
+            console.log(`[fatura_extract] Chamando texto com modelo ${primaryModel}...`)
+            aiTextResponse = callAiChat(primaryModel, textMessages)
+          } catch (primaryErr) {
+            console.log(
+              `[fatura_extract] Modelo ${primaryModel} falhou no texto, tentando ${fallbackModel}...`,
+            )
+            aiTextResponse = callAiChat(fallbackModel, textMessages)
           }
 
           if (
@@ -454,7 +461,8 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             }
 
             let aiVisionResponse = null
-            const modelsToTry = ['fast', 'reasoning']
+            const modelsToTry =
+              forceModel === 'reasoning' ? ['reasoning', 'fast'] : ['fast', 'reasoning']
 
             for (const modelAlias of modelsToTry) {
               try {
@@ -824,6 +832,18 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
         }
 
+        // Sanitização estrita do CNPJ do cliente no backend: só manter se tiver 14 dígitos após limpeza
+        if (parsed.cnpj_cliente) {
+          const cleanCliDigits = String(parsed.cnpj_cliente).replace(/\D/g, '')
+          if (cleanCliDigits.length !== 14) {
+            console.log(
+              '[fatura_extract] CNPJ do cliente truncado ou inválido descartado:',
+              parsed.cnpj_cliente,
+            )
+            parsed.cnpj_cliente = null
+          }
+        }
+
         const fornecedorCnpjCandidate =
           parsed.cnpj_fornecedor ||
           parsed.cnpjFornecedor ||
@@ -858,12 +878,20 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           const isKnownDist = knownDistributors.some((d) => cleanGen.startsWith(d))
           if (isKnownDist) {
             if (!parsed.cnpj_fornecedor) parsed.cnpj_fornecedor = genericCnpj
-          } else {
+          } else if (cleanGen.length === 14) {
             if (!parsed.cnpj_cliente) {
               parsed.cnpj_cliente = genericCnpj
             } else if (!parsed.cnpj_fornecedor) {
               parsed.cnpj_fornecedor = genericCnpj
             }
+          }
+        }
+
+        // Sanitização estrita do CNPJ do fornecedor no backend
+        if (parsed.cnpj_fornecedor) {
+          const cleanFornDigits = String(parsed.cnpj_fornecedor).replace(/\D/g, '')
+          if (cleanFornDigits.length !== 14) {
+            parsed.cnpj_fornecedor = null
           }
         }
 

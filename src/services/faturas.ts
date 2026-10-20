@@ -55,6 +55,8 @@ export const faturasService = {
     file: File,
     tipoUtilidade?: TipoUtilidade,
     onProgress?: (status: string) => void,
+    forceModel?: 'fast' | 'reasoning',
+    disableImages?: boolean,
   ): Promise<{ sucesso: boolean; arquivo_nome: string; dados: any }> {
     const fileName = file.name || ''
     const ext = fileName.toLowerCase().split('.').pop()
@@ -91,19 +93,25 @@ export const faturasService = {
         }
 
         // Renderizar imagens de páginas com limites adequados de dimensão e tamanho para LLMs multimodais
-        renderedImages = await convertPdfToImages(file, {
-          maxPages: 2,
-          scale: 1.6,
-          quality: 0.8,
-          maxWidth: 1400,
-          maxHeight: 1900,
-        })
+        if (!disableImages) {
+          renderedImages = await convertPdfToImages(file, {
+            maxPages: 2,
+            scale: 1.6,
+            quality: 0.8,
+            maxWidth: 1400,
+            maxHeight: 1900,
+          })
+        }
       } catch (pdfErr) {
         console.warn('Conversão PDF para imagem não pôde ser concluída no cliente:', pdfErr)
       }
     }
 
-    if (onProgress) onProgress('Extraindo dados com IA e Visão Computacional...')
+    if (disableImages) {
+      renderedImages = []
+    }
+
+    if (onProgress) onProgress('Extraindo dados com IA...')
 
     const formData = new FormData()
     formData.append('arquivo', file)
@@ -115,6 +123,9 @@ export const faturasService = {
     }
     if (renderedImages.length > 0) {
       formData.append('images', JSON.stringify(renderedImages))
+    }
+    if (forceModel) {
+      formData.append('force_model', forceModel)
     }
 
     // Call custom hook route /backend/v1/faturas/extract with auth token and timeout controller

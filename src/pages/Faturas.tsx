@@ -9,6 +9,7 @@ import {
   formatDateBR,
   formatCNPJ,
   cleanCNPJ,
+  isValidCNPJ,
   toSafeNumber,
 } from '@/lib/cnpj'
 import { faturasService } from '@/services/faturas'
@@ -127,11 +128,15 @@ export default function Faturas() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
+  // Track if enterprise was automatically suggested by extracted CNPJ
+  const [empAutoSuggested, setEmpAutoSuggested] = useState(false)
+
   // Reset upload modal form
   const resetUploadForm = () => {
     setStep(1)
     setUploadedFile(null)
-    setSelectedEmpId(empreendimentos[0]?.id || '')
+    setSelectedEmpId('') // NÃO pré-selecionar nenhum empreendimento (limpar seleção de sessão anterior)
+    setEmpAutoSuggested(false)
     setSelectedTipo('Energia Elétrica')
     setExtracting(false)
     setCompetenciaInput('')
@@ -175,15 +180,6 @@ export default function Faturas() {
 
   // Run AI extraction
   const handleProceedToExtract = async () => {
-    if (!selectedEmpId) {
-      toast({
-        title: 'Selecione um empreendimento',
-        description: 'É necessário associar a fatura a um empreendimento.',
-        variant: 'destructive',
-      })
-      return
-    }
-
     setStep(3)
     setExtracting(true)
     setExtractingStatus('Preparando documento...')
@@ -193,11 +189,107 @@ export default function Faturas() {
 
     try {
       if (uploadedFile) {
-        const res = await faturasService.extractFromDocument(uploadedFile, selectedTipo, (status) =>
-          setExtractingStatus(status),
-        )
-        // Desembrulhar res.dados caso venha aninhado (ex: { dados: { ... } } ou { data: { ... } })
-        let d: any = res.dados || {}
+        // Fluxo com retry automático alternando parâmetros/modelos (até 3 tentativas)
+        let lastRes: any = null
+        let d: any = {}
+        const maxAttempts = 3
+
+        const checkEssentialData = (rawD: any) => {
+          if (!rawD || typeof rawD !== 'object') return false
+          const obj = { ...(rawD.dados || {}), ...(rawD.data || {}), ...rawD }
+
+          const hasPos = (v: any) => {
+            if (v === undefined || v === null || v === '' || v === 'null') return false
+            if (typeof v === 'number') return v > 0
+            let s = String(v)
+              .replace(/^R\$\s*/i, '')
+              .trim()
+            if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
+            if (s.includes(',') && s.includes('.')) {
+              s = s.replace(/\./g, '').replace(',', '.')
+            } else if (s.includes(',')) {
+              s = s.replace(',', '.')
+            }
+            const n = Number(s.replace(/[^0-9.]/g, ''))
+            return !isNaN(n) && n > 0
+          }
+
+          const hasVal =
+            hasPos(obj.valor_total) ||
+            hasPos(obj.fatura_total) ||
+            hasPos(obj.total) ||
+            hasPos(obj.valorTotal) ||
+            hasPos(obj.faturaTotal)
+
+          const hasCons =
+            hasPos(obj.consumo) ||
+            hasPos(obj.consumo_total) ||
+            hasPos(obj.consumoTotal) ||
+            hasPos(obj.consumo_medido) ||
+            hasPos(obj.consumoMedido) ||
+            hasPos(obj.consumo_ponta) ||
+            hasPos(obj.consumo_fora_ponta) ||
+            hasPos(obj.kwh) ||
+            hasPos(obj.kwh_total) ||
+            hasPos(obj.volume) ||
+            hasPos(obj.consumo_corrigido) ||
+            hasPos(obj.consumoCorrigido) ||
+            hasPos(obj.medicao_anterior) ||
+            hasPos(obj.medicao_atual)
+
+          return hasVal || hasCons
+        }
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const attemptPrefix = attempt > 1 ? `Tentativa ${attempt} de ${maxAttempts}: ` : ''
+          const forceModel = attempt === 1 ? undefined : attempt === 2 ? 'reasoning' : 'fast'
+          const disableImages = attempt === 3
+
+          try {
+            setExtractingStatus(
+              `${attemptPrefix}Lendo fatura com IA (${attempt === 1 ? 'modo padrão' : attempt === 2 ? 'modo reasoning aprofundado' : 'modo alternativo'})...`,
+            )
+
+            const res = await faturasService.extractFromDocument(
+              uploadedFile,
+              selectedTipo,
+              (status) => setExtractingStatus(`${attemptPrefix}${status}`),
+              forceModel,
+              disableImages,
+            )
+
+            lastRes = res
+            let candidateData: any = res.dados || {}
+            if (candidateData.dados && typeof candidateData.dados === 'object') {
+              candidateData = { ...candidateData.dados, ...candidateData }
+            } else if (candidateData.data && typeof candidateData.data === 'object') {
+              candidateData = { ...candidateData.data, ...candidateData }
+            }
+
+            if (checkEssentialData(candidateData)) {
+              d = candidateData
+              break
+            } else {
+              d = candidateData
+              console.warn(
+                `[Faturas] Tentativa ${attempt} retornou sem campos essenciais completos.`,
+              )
+              if (attempt < maxAttempts) {
+                setExtractingStatus(
+                  `Tentativa ${attempt + 1} de ${maxAttempts}: alternando modelo de leitura...`,
+                )
+                await new Promise((r) => setTimeout(r, 600))
+              }
+            }
+          } catch (attemptErr) {
+            console.warn(`[Faturas] Erro na tentativa ${attempt}:`, attemptErr)
+            if (attempt === maxAttempts) {
+              throw attemptErr
+            }
+            setExtractingStatus(`Tentativa ${attempt + 1} de ${maxAttempts}: alternando modelo...`)
+            await new Promise((r) => setTimeout(r, 600))
+          }
+        }
         if (d.dados && typeof d.dados === 'object') {
           d = { ...d.dados, ...d }
         } else if (d.data && typeof d.data === 'object') {
@@ -389,14 +481,21 @@ export default function Faturas() {
             ? String(rawCnpjCli).trim()
             : undefined
         if (cnpjCli) {
-          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), e corresponder ao empreendimento selecionado ou padrão
+          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), completar conhecido da Enel
           if (cnpjCli.includes('*')) {
             const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
             if (rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
               cnpjCli = '04.151.776/0001-63'
             }
           }
-          setCnpjCliente(formatCNPJ(cnpjCli))
+          // Sanitização: só persistir se tiver formato válido (14 dígitos)
+          const digitsCli = cleanCNPJ(cnpjCli)
+          if (digitsCli.length === 14) {
+            setCnpjCliente(formatCNPJ(cnpjCli))
+          } else {
+            // Truncado ou inválido (ex: "03.16") não deve ser salvo como valor de comparação
+            setCnpjCliente('')
+          }
         }
 
         const rawCnpjForn = getField(
@@ -417,7 +516,7 @@ export default function Faturas() {
           (uploadedFile?.name || '').toLowerCase().includes('enel') ||
           detectedTipo === 'Energia Elétrica'
         if (
-          (!cnpjForn || cnpjForn.length < 5) &&
+          (!cnpjForn || cleanCNPJ(cnpjForn).length < 14) &&
           isEnelDoc &&
           (uploadedFile?.name || '').toLowerCase().includes('enel')
         ) {
@@ -442,12 +541,35 @@ export default function Faturas() {
             ]
             if (knownDistributors.some((d) => cleanGen.startsWith(d))) {
               cnpjForn = String(rawGenCnpj).trim()
-            } else {
+            } else if (cleanGen.length === 14) {
               setCnpjCliente(formatCNPJ(String(rawGenCnpj).trim()))
+              cnpjCli = String(rawGenCnpj).trim()
             }
           }
         }
-        if (cnpjForn) setCnpjFornecedor(formatCNPJ(cnpjForn))
+        if (cnpjForn) {
+          const digitsForn = cleanCNPJ(cnpjForn)
+          if (digitsForn.length === 14) {
+            setCnpjFornecedor(formatCNPJ(cnpjForn))
+          } else {
+            setCnpjFornecedor('')
+          }
+        }
+
+        // Sugestão automática do empreendimento por matching exato de CNPJ
+        const cleanExtractedCli = cnpjCli ? cleanCNPJ(cnpjCli) : ''
+        if (cleanExtractedCli && cleanExtractedCli.length === 14) {
+          const matchingEmp = empreendimentos.find((e) => cleanCNPJ(e.cnpj) === cleanExtractedCli)
+          if (matchingEmp) {
+            setSelectedEmpId(matchingEmp.id)
+            setEmpAutoSuggested(true)
+          } else {
+            // Nenhum empreendimento corresponde ao CNPJ extraído
+            setEmpAutoSuggested(false)
+          }
+        } else {
+          setEmpAutoSuggested(false)
+        }
 
         const rawVenc = getField('vencimento', 'data_vencimento', 'dataVencimento')
         let venc: string | undefined = undefined
@@ -754,18 +876,31 @@ export default function Faturas() {
     return empreendimentos.find((e) => e.id === selectedEmpId)
   }, [empreendimentos, selectedEmpId])
 
-  // A conferência deve comparar o CNPJ do CLIENTE/CONSUMIDOR com o CNPJ do empreendimento.
-  // Se o CNPJ do cliente não foi identificado/está vazio, NÃO deve gerar falso alerta de divergência.
+  // A conferência só deve rodar quando existir um CNPJ do cliente completo e válido (14 dígitos).
+  // Sem CNPJ válido ou se estiver truncado/parcial, NÃO gerar alerta de divergência.
+  const hasValidClienteCnpj = useMemo(() => {
+    return isValidCNPJ(cnpjCliente)
+  }, [cnpjCliente])
+
   const cnpjMismatch = useMemo(() => {
-    if (!selectedEnterprise || !cnpjCliente) return false
+    if (!selectedEnterprise || !hasValidClienteCnpj) return false
     const empCnpjDigits = cleanCNPJ(selectedEnterprise.cnpj)
     const clienteCnpjDigits = cleanCNPJ(cnpjCliente)
-    if (!clienteCnpjDigits) return false
+    if (!clienteCnpjDigits || clienteCnpjDigits.length !== 14) return false
     return empCnpjDigits !== clienteCnpjDigits
-  }, [selectedEnterprise, cnpjCliente])
+  }, [selectedEnterprise, cnpjCliente, hasValidClienteCnpj])
 
   // Save new invoice from Step 3
   const handleSaveInvoice = async () => {
+    if (!selectedEmpId) {
+      toast({
+        title: 'Selecione um empreendimento',
+        description: 'É necessário associar a fatura a um empreendimento antes de salvar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     if (!valorTotal) {
       toast({
         title: 'Valor total obrigatório',
@@ -836,8 +971,8 @@ export default function Faturas() {
         consumo: Number(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
-        cnpj_cliente: cnpjCliente ? formatCNPJ(cnpjCliente) : undefined,
-        cnpj_fornecedor: cnpjFornecedor ? formatCNPJ(cnpjFornecedor) : undefined,
+        cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
+        cnpj_fornecedor: isValidCNPJ(cnpjFornecedor) ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: !cnpjMismatch,
         arquivo_nome: uploadedFile?.name || null,
         vencimento: vencimento || undefined,
@@ -917,8 +1052,9 @@ export default function Faturas() {
     }
 
     const empObj = empreendimentos.find((e) => e.id === selectedEmpId)
+    const clienteCnpjValido = isValidCNPJ(cnpjCliente)
     const isMatched =
-      empObj && cnpjCliente ? cleanCNPJ(empObj.cnpj) === cleanCNPJ(cnpjCliente) : true
+      empObj && clienteCnpjValido ? cleanCNPJ(empObj.cnpj) === cleanCNPJ(cnpjCliente) : true
 
     let dadosEsp: any = {}
     if (selectedTipo === 'Energia Elétrica') {
@@ -966,8 +1102,8 @@ export default function Faturas() {
         consumo: Number(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
-        cnpj_cliente: cnpjCliente ? formatCNPJ(cnpjCliente) : undefined,
-        cnpj_fornecedor: cnpjFornecedor ? formatCNPJ(cnpjFornecedor) : undefined,
+        cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
+        cnpj_fornecedor: isValidCNPJ(cnpjFornecedor) ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: isMatched,
         vencimento: vencimento || undefined,
         dados_especificos: JSON.stringify(dadosEsp),
@@ -1472,7 +1608,12 @@ export default function Faturas() {
                 <Button
                   type="button"
                   disabled={!uploadedFile}
-                  onClick={() => setStep(2)}
+                  onClick={() => {
+                    // Limpar seleção de empreendimento anterior antes de avançar para a extração
+                    setSelectedEmpId('')
+                    setEmpAutoSuggested(false)
+                    setStep(2)
+                  }}
                   className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium"
                 >
                   Continuar
@@ -1481,31 +1622,51 @@ export default function Faturas() {
               </DialogFooter>
             </div>
           )}
-
           {/* STEP 2: EMPREENDIMENTO & TIPO DE UTILIDADE */}
           {step === 2 && (
             <div className="space-y-5 py-2">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-gray-700">
-                  Selecionar Empreendimento *
-                </Label>
-                <Select value={selectedEmpId} onValueChange={(val) => setSelectedEmpId(val)}>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-gray-700">
+                    Vincular Empreendimento (Opcional nesta etapa)
+                  </Label>
+                  {empAutoSuggested && (
+                    <span className="text-[11px] text-emerald-700 font-medium">
+                      Sugerido por CNPJ
+                    </span>
+                  )}
+                </div>
+                <Select
+                  value={selectedEmpId}
+                  onValueChange={(val) => {
+                    setSelectedEmpId(val)
+                    setEmpAutoSuggested(false)
+                  }}
+                >
                   <SelectTrigger className="h-10 text-xs sm:text-sm">
-                    <SelectValue placeholder="Selecione o empreendimento titular" />
+                    <SelectValue placeholder="Deixe em branco para sugerir automaticamente pelo CNPJ da fatura" />
                   </SelectTrigger>
                   <SelectContent>
                     {empreendimentos.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>
-                        {emp.nome} ({emp.cnpj})
+                        {emp.nome} ({formatCNPJ(emp.cnpj)})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-gray-400">
-                  O CNPJ da fatura será confrontado com o CNPJ deste empreendimento.
+                <p className="text-[11px] text-gray-500">
+                  {selectedEmpId ? (
+                    <span>
+                      Empreendimento selecionado. Será confrontado com o CNPJ extraído da fatura.
+                    </span>
+                  ) : (
+                    <span className="text-teal-700 font-medium">
+                      Deixando sem seleção, a IA identificará o CNPJ do cliente e sugerirá o
+                      empreendimento correspondente na próxima etapa.
+                    </span>
+                  )}
                 </p>
               </div>
-
               {/* Utility Segmented Control */}
               <div className="space-y-2">
                 <Label className="text-xs font-semibold text-gray-700">Tipo de Utilidade *</Label>
@@ -1593,8 +1754,58 @@ export default function Faturas() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* CNPJ Mismatch Alert Banner */}
-                  {cnpjMismatch && !cnpjMismatchIgnored && (
+                  {/* Banner de Status da Associação de Empreendimento */}
+                  {empAutoSuggested && selectedEnterprise ? (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <p className="font-semibold">
+                            Empreendimento sugerido automaticamente pelo CNPJ do cliente (
+                            {selectedEnterprise.nome})
+                          </p>
+                          <p className="text-[11px] text-emerald-700">
+                            CNPJ correspondente:{' '}
+                            <strong>{formatCNPJ(selectedEnterprise.cnpj)}</strong>
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setStep(2)}
+                        className="h-7 text-[11px] border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"
+                      >
+                        Alterar
+                      </Button>
+                    </div>
+                  ) : !selectedEmpId ? (
+                    <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2 animate-in fade-in">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">
+                            Nenhum empreendimento corresponde ao CNPJ extraído da fatura (
+                            {cnpjCliente || 'CNPJ não identificado'})
+                          </p>
+                          <p className="text-[11px] text-amber-700 mt-0.5">
+                            Por favor, vincule manualmente um empreendimento para salvar a fatura.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="pt-1 pl-6">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => setStep(2)}
+                          className="h-7 text-[11px] bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                          Vincular Empreendimento Manualmente
+                        </Button>
+                      </div>
+                    </div>
+                  ) : cnpjMismatch && !cnpjMismatchIgnored ? (
                     <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2 animate-in fade-in">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -1604,9 +1815,10 @@ export default function Faturas() {
                             empreendimento selecionado. Deseja continuar?
                           </p>
                           <p className="text-[11px] text-amber-700 mt-0.5">
-                            CNPJ do Empreendimento: <strong>{selectedEnterprise?.cnpj}</strong> |
-                            CNPJ do Cliente na fatura:{' '}
-                            <strong>{cnpjCliente || 'Não identificado'}</strong>
+                            CNPJ do Empreendimento ({selectedEnterprise?.nome}):{' '}
+                            <strong>{formatCNPJ(selectedEnterprise?.cnpj || '')}</strong> | CNPJ do
+                            Cliente na fatura:{' '}
+                            <strong>{formatCNPJ(cnpjCliente) || 'Não identificado'}</strong>
                           </p>
                         </div>
                       </div>
@@ -1630,7 +1842,42 @@ export default function Faturas() {
                         </Button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
+
+                  {/* Enterprise Selection and Status Bar in Step 3 */}
+                  <div className="p-3 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-700">Empreendimento Vinculado:</span>
+                      {selectedEnterprise ? (
+                        <span className="font-bold text-gray-900">
+                          {selectedEnterprise.nome} ({formatCNPJ(selectedEnterprise.cnpj)})
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 font-medium italic">
+                          Nenhum selecionado (obrigatório)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {empAutoSuggested && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-300"
+                        >
+                          Sugerido por CNPJ
+                        </Badge>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setStep(2)}
+                        className="h-7 text-xs text-teal-700 hover:text-teal-800 hover:bg-teal-50"
+                      >
+                        Trocar Empreendimento
+                      </Button>
+                    </div>
+                  </div>
 
                   {/* General Fields Grid */}
                   <div className="p-3 rounded-xl bg-gray-50/70 border border-gray-200 space-y-3">
