@@ -219,7 +219,10 @@ export default function Faturas() {
             hasPos(obj.fatura_total) ||
             hasPos(obj.total) ||
             hasPos(obj.valorTotal) ||
-            hasPos(obj.faturaTotal)
+            hasPos(obj.faturaTotal) ||
+            hasPos(obj.valor_fornecimento) ||
+            hasPos(obj.valorFornecimento) ||
+            hasPos(obj.fornecimento_gas)
 
           const hasCons =
             hasPos(obj.consumo) ||
@@ -235,7 +238,8 @@ export default function Faturas() {
             hasPos(obj.consumo_corrigido) ||
             hasPos(obj.consumoCorrigido) ||
             hasPos(obj.medicao_anterior) ||
-            hasPos(obj.medicao_atual)
+            hasPos(obj.medicao_atual) ||
+            hasPos(obj.tarifa)
 
           return hasVal || hasCons
         }
@@ -418,6 +422,9 @@ export default function Faturas() {
           'total',
           'valorTotal',
           'faturaTotal',
+          'valor_fornecimento',
+          'valorFornecimento',
+          'fornecimento_gas',
         )
         const vTotal = parsePositiveNumber(rawVTotal)
         if (vTotal !== undefined) setValorTotal(vTotal)

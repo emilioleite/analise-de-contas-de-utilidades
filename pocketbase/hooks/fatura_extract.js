@@ -190,11 +190,13 @@ Campos gerais obrigatórios:
 - cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80", Comgás: "61.856.571/0006-21").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor/hidrômetro (ex: 65891.700 ou 65891.7)
-- medicao_atual: leitura atual do medidor/hidrômetro (ex: 66743.300 ou 66743.3)
-- consumo_medido: consumo medido em m³ ou kWh (ex: 20438.4)
-- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás
+- medicao_anterior: leitura anterior do medidor/hidrômetro (ex: 151.723 ou 65891.7). ATENÇÃO: em faturas de Gás (Comgás), extraia com o ponto decimal do medidor (ex: 151.723 e NÃO em branco!).
+- medicao_atual: leitura atual do medidor/hidrômetro (ex: 151.986 ou 66743.3). ATENÇÃO: em faturas de Gás (Comgás), extraia com o ponto decimal do medidor (ex: 151.986 e NÃO em branco!).
+- consumo_medido: consumo medido em m³ ou kWh (ex: 263 para diferença de medições de gás, ou 20438.4)
+- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (ex: 256.779 com separador decimal!)
 - tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
+- valor_fornecimento: valor monetário do fornecimento de gás (ex: 1525.75)
+- valor_a_pagar: total a pagar impresso (ex: 0.00 se houver devolução)
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
 - REGRA CRÍTICA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
@@ -245,6 +247,30 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
       * Extraia: 'medicao_anterior': 65891.7, 'medicao_atual': 66743.3, 'consumo_medido': 20438.4, 'consumo': 20438.4.
   * PÁGINA 2:
     - Informações adicionais de canais de atendimento, indicadores e dados complementares.
+
+Para Gás Canalizado (Comgás, Naturgy, etc.):
+- REGRA CRÍTICA DO VALOR TOTAL DA FATURA (DEVOLUÇÃO / DÉBITO AUTOMÁTICO):
+  * Faturas de gás podem mostrar "Valor Total a Pagar (R$) 0,00" ou "Total R$ 0,00" quando houve compensação, devolução de fornecimento ("Devolução de Fornecimento R$ 1.525,75-") ou débito automático previamente liquidado.
+  * O objetivo do sistema é o registro financeiro refletir o custo real de fornecimento do mês, e NUNCA um zero enganoso.
+  * Se o "Valor a Pagar" / "Total a Pagar" for 0,00 (ou R$ 0,00), mas houver uma linha de "Fornecimento de Gás Natural" com valor positivo (ex: R$ 1.525,75): preencha 'valor_total' e 'fatura_total' com o valor do fornecimento (ex: 1525.75) e informe 'valor_a_pagar': 0.0 e 'valor_fornecimento': 1525.75.
+  * Se o valor a pagar for positivo normal (sem devolução que zere o total), preencha 'valor_total' e 'fatura_total' com o valor total a pagar.
+
+- REGRA CRÍTICA DO CONSUMO E SEPARADOR DECIMAL (VERIFICAÇÃO CONSUMO × TARIFA ≈ FORNECIMENTO):
+  * Em faturas da Comgás, o consumo vem impresso com 3 casas decimais (ex: "256,779" ou "256.779" m³, NUNCA 256.779 m³ inteiros como duzentos e cinquenta e seis mil!).
+  * ATENÇÃO AO SEPARADOR: Se a tarifa aplicada for R$ 5,941891 e o fornecimento de gás natural for R$ 1.525,75, o consumo é EXATAMENTE 256.779 m³ (pois 256.779 × 5.941891 ≈ 1.525,75).
+  * NUNCA extraia 256779 (duzentos e cinquenta e seis mil). Sempre use a vírgula/ponto decimal correto verificando a coerência: consumo × tarifa ≈ valor do fornecimento.
+  * Preencha: 'consumo': 256.779, 'consumo_corrigido': 256.779, 'tarifa': 5.941891.
+
+- REGRA CRÍTICA DAS MEDIÇÕES ANTERIOR E ATUAL (MEDIDOR / HIDRÔMETRO DE GÁS):
+  * Na Comgás, os dados do medidor aparecem na tabela "Detalhamento do consumo" ou na linha codificada de medição (ex: "FR25 H20F0000045433R 151.986 151.723 263...").
+  * A Leitura Atual é o número maior recente (ex: 151.986).
+  * A Leitura Anterior é a leitura do mês passado (ex: 151.723).
+  * A diferença entre as leituras é o consumo medido em m³ (ex: 151.986 - 151.723 = 263 m³).
+  * Preencha SEMPRE:
+    'medicao_atual': 151.986,
+    'medicao_anterior': 151.723,
+    'consumo_medido': 263 (ou o consumo apurado no medidor antes dos fatores de correção).
+  * Não deixe 'medicao_anterior' e 'medicao_atual' em branco quando esses números estiverem presentes na fatura.
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
@@ -311,12 +337,21 @@ Retorne APENAS um objeto JSON com essa estrutura:`
         return !isNaN(num) && num > 0
       }
 
+      const hasFornecimento =
+        hasPositive(merged.valor_fornecimento) ||
+        hasPositive(merged.valorFornecimento) ||
+        hasPositive(merged.fornecimento_gas) ||
+        hasPositive(merged['Fornecimento de Gás Natural'])
+
       return (
         hasPositive(merged.valor_total) ||
         hasPositive(merged.valorTotal) ||
         hasPositive(merged.fatura_total) ||
         hasPositive(merged.faturaTotal) ||
+        hasFornecimento ||
         hasPositive(merged.consumo) ||
+        hasPositive(merged.consumo_corrigido) ||
+        hasPositive(merged.consumoCorrigido) ||
         hasPositive(merged.consumo_medido) ||
         hasPositive(merged.consumoMedido) ||
         hasPositive(merged.consumo_ponta) ||
@@ -399,7 +434,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           if (validImages.length > 0) {
-            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura de energia/utilidade página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n- Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh - ex: 20.438,400 -> consumo: 20438.4)\n- ATENÇÃO CRÍTICA AO CONSUMO: Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO (ex: 20438.4) e deve ser retornado no campo 'consumo' e 'consumo_medido'. Não deixe o consumo em branco!\n- Quadro 'DESCRIÇÃO DO FATURAMENTO' / 'ITENS DE FATURA' (IMPORTANTE: Na Enel, extraia as tarifas sob o cabeçalho 'Preço Unit (R$) com tributos' para TUSD e TE - ex: TUSD 0,60978 -> tarifa_tusd_ponta: 0.60978 e TE 0,40912 -> tarifa_te_ponta: 0.40912; a quantidade faturada de kWh também reforça o 'consumo')\n- Quadro de identificação (CNPJ do cliente/destinatário e CNPJ da distribuidora/fornecedor, Classificação do consumo ex 'B-B3 - CONVENCIONAL - COMERCIAL' -> classificacao_consumo: 'B3', Bandeira tarifária).\nExtraia com rigor e retorne o JSON completo preenchido.`
+            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Se for Gás (Comgás/Naturgy):\n  * Valor Total: se 'Valor Total a Pagar' for R$ 0,00 devido à devolução/débito automático, use o valor de 'Fornecimento de Gás Natural' (ex: 1525.75) para que o valor_total não fique zero enganoso!\n  * Consumo: extraia com 3 casas decimais (ex: 256.779 e NÃO 256779) conferindo consumo × tarifa ≈ fornecimento.\n  * Medição anterior e atual: localize no quadro 'Detalhamento do consumo' as leituras anterior e atual do medidor (ex: anterior 151.723, atual 151.986).\n- Se for Energia Elétrica:\n  * Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n  * Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh - ex: 20.438,400 -> consumo: 20438.4)\n  * Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO (ex: 20438.4).\n  * 'DESCRIÇÃO DO FATURAMENTO': extraia as tarifas sob 'Preço Unit (R$) com tributos' para TUSD e TE.\n- Identificação: CNPJ do cliente e CNPJ da distribuidora.\nExtraia com rigor e retorne o JSON completo preenchido.`
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
@@ -925,6 +960,86 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           parsed.tipo_utilidade = 'Gás'
           parsed.unidade_consumo = 'm³'
 
+          // Tratamento especial de valores monetários de gás (devolução/débito automático e fornecimento real)
+          const valorFornecimento = sanitizeNumeric(
+            parsed.valor_fornecimento ||
+              parsed.valorFornecimento ||
+              parsed.fornecimento_gas ||
+              parsed.fornecimentoGas ||
+              parsed['Fornecimento de Gás Natural'] ||
+              parsed['fornecimento_de_gas_natural'],
+          )
+
+          // Se valor_total for 0 (ou estiver zerado/nulo) mas temos valor de fornecimento ou encontramos devolução
+          if (
+            (!parsed.valor_total || Number(parsed.valor_total) === 0) &&
+            valorFornecimento &&
+            valorFornecimento > 0
+          ) {
+            parsed.valor_total = valorFornecimento
+            parsed.fatura_total = valorFornecimento
+          }
+
+          // Se a IA ainda assim não trouxe valor_total positivo, mas trouxe tarifa e consumo, calcular o fornecimento
+          if (
+            (!parsed.valor_total || Number(parsed.valor_total) === 0) &&
+            parsed.tarifa &&
+            Number(parsed.tarifa) > 0 &&
+            (parsed.consumo || parsed.consumo_corrigido)
+          ) {
+            const cTemp = Number(parsed.consumo_corrigido || parsed.consumo)
+            // Se cTemp for plausível (< 100000 m³), calcular
+            const calcTotal = Number((cTemp * Number(parsed.tarifa)).toFixed(2))
+            if (calcTotal > 0) {
+              parsed.valor_total = calcTotal
+              parsed.fatura_total = calcTotal
+            }
+          }
+
+          // Correção de escala de 1000x no consumo com verificação consumo × tarifa ≈ valor_fornecimento/valor_total
+          function adjustGasConsumptionScale(c) {
+            if (!c || isNaN(c) || c <= 0) return c
+            const targetVal = Number(valorFornecimento || parsed.valor_total || 0)
+            const tarVal = Number(parsed.tarifa || 0)
+
+            // Se temos tarifa e/ou valor alvo para conferência
+            if (tarVal > 0 && targetVal > 0) {
+              // Testar se c / 1000 faz consumo * tarifa bater com o valor
+              const diffCurrent = Math.abs(c * tarVal - targetVal)
+              const diffDivided = Math.abs((c / 1000) * tarVal - targetVal)
+              if (diffDivided < diffCurrent && diffDivided / targetVal < 0.05) {
+                return Number((c / 1000).toFixed(3))
+              }
+            } else if (tarVal > 0) {
+              // Se temos apenas a tarifa e o consumo atual dá um valor exorbitante (> R$ 100.000) mas dividido dá um valor razoável
+              if (c > 10000 && c * tarVal > 50000) {
+                const cDiv = c / 1000
+                if (cDiv * tarVal < 50000) {
+                  return Number(cDiv.toFixed(3))
+                }
+              }
+            } else if (targetVal > 0) {
+              // Se o consumo atual é 1000x maior que targetVal (tarifa média de gás costuma ser 4 a 10 R$/m³)
+              const implicitTarifaCurrent = targetVal / c
+              const implicitTarifaDivided = targetVal / (c / 1000)
+              if (
+                implicitTarifaCurrent < 0.1 &&
+                implicitTarifaDivided >= 1.0 &&
+                implicitTarifaDivided <= 20.0
+              ) {
+                return Number((c / 1000).toFixed(3))
+              }
+            }
+            return c
+          }
+
+          if (parsed.consumo) {
+            parsed.consumo = adjustGasConsumptionScale(Number(parsed.consumo))
+          }
+          if (parsed.consumo_corrigido) {
+            parsed.consumo_corrigido = adjustGasConsumptionScale(Number(parsed.consumo_corrigido))
+          }
+
           if (
             parsed.consumo_corrigido !== undefined &&
             (parsed.consumo === undefined || Number(parsed.consumo) === 0)
@@ -944,6 +1059,58 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             parsed.consumo_corrigido = parsed.consumo
           }
 
+          // Se a IA não pegou medição_atual e medição_anterior, tentar extrair diretamente do texto da fatura
+          // Se medição_atual e medição_anterior foram extraídas como inteiros (ex: 151986 e 151723), converter para formato com ponto (151.986)
+          if (
+            parsed.medicao_atual &&
+            Number(parsed.medicao_atual) > 10000 &&
+            !String(parsed.medicao_atual).includes('.')
+          ) {
+            parsed.medicao_atual = Number((Number(parsed.medicao_atual) / 1000).toFixed(3))
+          }
+          if (
+            parsed.medicao_anterior &&
+            Number(parsed.medicao_anterior) > 10000 &&
+            !String(parsed.medicao_anterior).includes('.')
+          ) {
+            parsed.medicao_anterior = Number((Number(parsed.medicao_anterior) / 1000).toFixed(3))
+          }
+
+          // Se a IA não pegou medição_atual e medição_anterior, tentar extrair diretamente do texto da fatura
+          if (
+            (!parsed.medicao_anterior || !parsed.medicao_atual) &&
+            textContent &&
+            typeof textContent === 'string'
+          ) {
+            // Padrão típico Comgás na linha de medição:
+            // "FR25 H20F0000045433R 151.986 151.723 263" ou "151.986 151.723 263"
+            const medMatch = textContent.match(/(\d{2,3}\.\d{3})\s+(\d{2,3}\.\d{3})\s+(\d+)/)
+            if (medMatch) {
+              const val1 = Number(medMatch[1])
+              const val2 = Number(medMatch[2])
+              const valDiff = Number(medMatch[3])
+              if (!isNaN(val1) && !isNaN(val2)) {
+                const maior = Math.max(val1, val2)
+                const menor = Math.min(val1, val2)
+                if (!parsed.medicao_atual) parsed.medicao_atual = maior
+                if (!parsed.medicao_anterior) parsed.medicao_anterior = menor
+                if (!parsed.consumo_medido && valDiff > 0) parsed.consumo_medido = valDiff
+              }
+            } else {
+              // Tentativa alternativa com pontos ou vírgulas
+              const altMatch = textContent.match(/(\d{3}[.,]\d{3})[^\d]+(\d{3}[.,]\d{3})/)
+              if (altMatch) {
+                const vA = parseFloat(altMatch[1].replace(',', '.'))
+                const vB = parseFloat(altMatch[2].replace(',', '.'))
+                if (!isNaN(vA) && !isNaN(vB)) {
+                  if (!parsed.medicao_atual) parsed.medicao_atual = Math.max(vA, vB)
+                  if (!parsed.medicao_anterior) parsed.medicao_anterior = Math.min(vA, vB)
+                }
+              }
+            }
+          }
+
+          // Se medicao_atual e medicao_anterior existirem e consumo_medido não existir
           if (
             (parsed.consumo_medido === undefined || Number(parsed.consumo_medido) === 0) &&
             parsed.medicao_atual !== undefined &&
@@ -961,6 +1128,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             }
           }
 
+          // Se tarifa não veio preenchida ou veio 0
           if (
             (!parsed.tarifa || Number(parsed.tarifa) === 0) &&
             parsed.valor_total > 0 &&
