@@ -11,6 +11,8 @@ import {
   cleanCNPJ,
   isValidCNPJ,
   toSafeNumber,
+  formatNumberValue,
+  parseNumberValue,
 } from '@/lib/cnpj'
 import { faturasService } from '@/services/faturas'
 import {
@@ -389,6 +391,33 @@ export default function Faturas() {
           return n
         }
 
+        // Helper para medições cumulativas de medidor (especialmente Gás Comgás onde ponto é milhar, ex: "146.303" -> 146303)
+        const parseCumulativeMeterReading = (val: any) => {
+          if (val === undefined || val === null || val === '') return undefined
+          if (typeof val === 'number') {
+            if (val <= 0 || isNaN(val)) return undefined
+            const strVal = String(val)
+            const parts = strVal.split('.')
+            if (parts.length === 2 && parts[1].length === 3 && val < 1000 && val > 10) {
+              return Math.round(val * 1000)
+            }
+            return Math.round(val)
+          }
+          let s = String(val)
+            .trim()
+            .replace(/^R\$\s*/i, '')
+          if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
+          if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
+          if (/^\d{1,3}\.\d{3}$/.test(s)) {
+            const intVal = Number(s.replace(/\./g, ''))
+            return !isNaN(intVal) && intVal > 0 ? intVal : undefined
+          }
+          const cleaned = s.replace(/\D/g, '')
+          const n = Number(cleaned)
+          if (isNaN(n) || n <= 0) return undefined
+          return n
+        }
+
         // Competência
         const compFmt = getField(
           'competencia_formatada',
@@ -427,7 +456,7 @@ export default function Faturas() {
           'fornecimento_gas',
         )
         const vTotal = parsePositiveNumber(rawVTotal)
-        if (vTotal !== undefined) setValorTotal(vTotal)
+        if (vTotal !== undefined) setValorTotal(formatNumberValue(vTotal, 2))
 
         const rawCConsumo = getField(
           'consumo',
@@ -449,7 +478,7 @@ export default function Faturas() {
           'consumoCorrigido',
         )
         const cConsumo = parsePositiveNumber(rawCConsumo)
-        if (cConsumo !== undefined) setConsumo(cConsumo)
+        if (cConsumo !== undefined) setConsumo(formatNumberValue(cConsumo, 3))
 
         const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
         if (uConsumo && uConsumo !== 'null' && uConsumo !== '') {
@@ -600,15 +629,29 @@ export default function Faturas() {
         }
 
         // Medições (comum a Energia, Gás e Água)
-        const medAnt = parsePositiveNumber(
-          getField('medicao_anterior', 'medicaoAnterior', 'leitura_anterior', 'leituraAnterior'),
+        const rawMedAnt = getField(
+          'medicao_anterior',
+          'medicaoAnterior',
+          'leitura_anterior',
+          'leituraAnterior',
         )
-        if (medAnt !== undefined) setMedicaoAnterior(medAnt)
+        const rawMedAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
 
-        const medAtu = parsePositiveNumber(
-          getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual'),
-        )
-        if (medAtu !== undefined) setMedicaoAtual(medAtu)
+        const medAnt =
+          detectedTipo === 'Gás'
+            ? parseCumulativeMeterReading(rawMedAnt)
+            : parsePositiveNumber(rawMedAnt)
+        if (medAnt !== undefined) {
+          setMedicaoAnterior(formatNumberValue(medAnt, 0))
+        }
+
+        const medAtu =
+          detectedTipo === 'Gás'
+            ? parseCumulativeMeterReading(rawMedAtu)
+            : parsePositiveNumber(rawMedAtu)
+        if (medAtu !== undefined) {
+          setMedicaoAtual(formatNumberValue(medAtu, 0))
+        }
 
         // Campos específicos de Energia Elétrica
         const rawClassCons = getField(
@@ -784,34 +827,52 @@ export default function Faturas() {
         }
 
         // Campos específicos de GÁS e Água
-        const cMedido = parsePositiveNumber(
+        let cMedido = parsePositiveNumber(
           getField('consumo_medido', 'consumoMedido', 'consumo_apurado', 'volume_medido'),
         )
         const cCorrigido = parsePositiveNumber(
           getField('consumo_corrigido', 'consumoCorrigido', 'consumo_faturado_corrigido'),
         )
         let tar = parsePositiveNumber(
-          getField('tarifa', 'tarifa_unitaria', 'valor_unitario', 'tarifaUnitaria'),
+          getField(
+            'tarifa',
+            'tarifa_unitaria',
+            'tarifa_aplicada_com_icms',
+            'tarifa_com_icms',
+            'valor_unitario',
+            'tarifaUnitaria',
+          ),
         )
 
+        // Se for GÁS:
+        // Consumo Medido é preferencialmente Medição Atual - Medição Anterior (inteiro)
+        if (detectedTipo === 'Gás') {
+          if (medAtu !== undefined && medAnt !== undefined && medAtu >= medAnt) {
+            cMedido = medAtu - medAnt
+          } else if (cMedido !== undefined && cMedido < 10 && cCorrigido && cCorrigido > 100) {
+            // Se veio como "3.41" ou 3.410 por engano de milhar
+            cMedido = Math.round(cMedido * 1000)
+          }
+        }
+
         if (cMedido !== undefined) {
-          setConsumoMedido(cMedido)
+          setConsumoMedido(formatNumberValue(cMedido, detectedTipo === 'Gás' ? 0 : 3))
         } else if (cCorrigido !== undefined) {
-          setConsumoMedido(cCorrigido)
+          setConsumoMedido(formatNumberValue(cCorrigido, 3))
         } else if (cConsumo !== undefined) {
-          setConsumoMedido(cConsumo)
+          setConsumoMedido(formatNumberValue(cConsumo, 3))
         }
 
         if (cCorrigido !== undefined) {
-          setConsumoCorrigido(cCorrigido)
-        } else if (cMedido !== undefined) {
-          setConsumoCorrigido(cMedido)
+          setConsumoCorrigido(formatNumberValue(cCorrigido, 3))
+        } else if (cMedido !== undefined && detectedTipo !== 'Gás') {
+          setConsumoCorrigido(formatNumberValue(cMedido, 3))
         } else if (cConsumo !== undefined) {
-          setConsumoCorrigido(cConsumo)
+          setConsumoCorrigido(formatNumberValue(cConsumo, 3))
         }
 
         if (tar !== undefined) {
-          setTarifa(tar)
+          setTarifa(formatNumberValue(tar, 6))
         } else if (
           detectedTipo !== 'Energia Elétrica' &&
           vTotal &&
@@ -936,35 +997,35 @@ export default function Faturas() {
     if (selectedTipo === 'Energia Elétrica') {
       const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
-        medicao_anterior: toSafeNumber(medicaoAnterior, 0) || undefined,
-        medicao_atual: toSafeNumber(medicaoAtual, 0) || undefined,
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
         classificacao_consumo: classificacaoConsumo || undefined,
-        consumo_medido: Number(consumo) || undefined,
-        consumo_ponta: isB ? undefined : Number(consumoPonta) || undefined,
-        tarifa_tusd_ponta: Number(tarifaTusdPonta) || undefined,
-        tarifa_te_ponta: Number(tarifaTePonta) || undefined,
-        consumo_fora_ponta: isB ? undefined : Number(consumoForaPonta) || undefined,
-        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
-        tarifa_te_f_ponta: Number(tarifaTeFPonta || tarifaTePonta) || undefined,
+        consumo_medido: parseNumberValue(consumo) || undefined,
+        consumo_ponta: isB ? undefined : parseNumberValue(consumoPonta) || undefined,
+        tarifa_tusd_ponta: parseNumberValue(tarifaTusdPonta) || undefined,
+        tarifa_te_ponta: parseNumberValue(tarifaTePonta) || undefined,
+        consumo_fora_ponta: isB ? undefined : parseNumberValue(consumoForaPonta) || undefined,
+        tarifa_tusd_f_ponta: parseNumberValue(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
+        tarifa_te_f_ponta: parseNumberValue(tarifaTeFPonta || tarifaTePonta) || undefined,
         adicional_bandeira: adicionalBandeira || undefined,
-        fatura_total: Number(valorTotal),
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else if (selectedTipo === 'Gás') {
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
-        consumo_medido: Number(consumoMedido || consumo) || undefined,
-        consumo_corrigido: Number(consumoCorrigido) || undefined,
-        tarifa: Number(tarifa) || undefined,
-        fatura_total: Number(valorTotal),
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        consumo_corrigido: parseNumberValue(consumoCorrigido) || undefined,
+        tarifa: parseNumberValue(tarifa) || undefined,
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else {
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
-        consumo_medido: Number(consumoMedido || consumo) || undefined,
-        tarifa: Number(tarifa) || undefined,
-        fatura_total: Number(valorTotal),
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        tarifa: parseNumberValue(tarifa) || undefined,
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     }
 
@@ -974,8 +1035,8 @@ export default function Faturas() {
         empreendimento: selectedEmpId,
         tipo_utilidade: selectedTipo,
         competencia: compISO,
-        valor_total: Number(valorTotal),
-        consumo: Number(consumo) || undefined,
+        valor_total: parseNumberValue(valorTotal) || 0,
+        consumo: parseNumberValue(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
         cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
@@ -1005,8 +1066,8 @@ export default function Faturas() {
     setSelectedEmpId(fat.empreendimento)
     setSelectedTipo(fat.tipo_utilidade)
     setCompetenciaInput(formatCompetencia(fat.competencia))
-    setValorTotal(fat.valor_total)
-    setConsumo(fat.consumo || '')
+    setValorTotal(formatNumberValue(fat.valor_total, 2))
+    setConsumo(formatNumberValue(fat.consumo || '', fat.tipo_utilidade === 'Gás' ? 3 : 2))
     setUnidadeConsumo(
       fat.unidade_consumo || (fat.tipo_utilidade === 'Energia Elétrica' ? 'kWh' : 'm³'),
     )
@@ -1027,8 +1088,17 @@ export default function Faturas() {
       d = fat.dados_especificos
     }
 
-    setMedicaoAnterior(d.medicao_anterior ?? '')
-    setMedicaoAtual(d.medicao_atual ?? '')
+    const isGas = fat.tipo_utilidade === 'Gás'
+    setMedicaoAnterior(
+      d.medicao_anterior !== undefined && d.medicao_anterior !== null
+        ? formatNumberValue(d.medicao_anterior, isGas ? 0 : 2)
+        : '',
+    )
+    setMedicaoAtual(
+      d.medicao_atual !== undefined && d.medicao_atual !== null
+        ? formatNumberValue(d.medicao_atual, isGas ? 0 : 2)
+        : '',
+    )
     setClassificacaoConsumo(d.classificacao_consumo ?? 'A4')
     setConsumoPonta(d.consumo_ponta ?? '')
     setTarifaTusdPonta(d.tarifa_tusd_ponta ?? '')
@@ -1038,9 +1108,17 @@ export default function Faturas() {
     setTarifaTeFPonta(d.tarifa_te_f_ponta ?? '')
     setAdicionalBandeira(d.adicional_bandeira ?? 'Bandeira Verde')
 
-    setConsumoMedido(d.consumo_medido ?? '')
-    setConsumoCorrigido(d.consumo_corrigido ?? '')
-    setTarifa(d.tarifa ?? '')
+    setConsumoMedido(
+      d.consumo_medido !== undefined && d.consumo_medido !== null
+        ? formatNumberValue(d.consumo_medido, isGas ? 0 : 3)
+        : '',
+    )
+    setConsumoCorrigido(
+      d.consumo_corrigido !== undefined && d.consumo_corrigido !== null
+        ? formatNumberValue(d.consumo_corrigido, 3)
+        : '',
+    )
+    setTarifa(d.tarifa !== undefined && d.tarifa !== null ? formatNumberValue(d.tarifa, 6) : '')
 
     setEditModalOpen(true)
   }
@@ -1067,35 +1145,35 @@ export default function Faturas() {
     if (selectedTipo === 'Energia Elétrica') {
       const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
         classificacao_consumo: classificacaoConsumo || undefined,
-        consumo_medido: Number(consumo) || undefined,
-        consumo_ponta: isB ? undefined : Number(consumoPonta) || undefined,
-        tarifa_tusd_ponta: Number(tarifaTusdPonta) || undefined,
-        tarifa_te_ponta: Number(tarifaTePonta) || undefined,
-        consumo_fora_ponta: isB ? undefined : Number(consumoForaPonta) || undefined,
-        tarifa_tusd_f_ponta: Number(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
-        tarifa_te_f_ponta: Number(tarifaTeFPonta || tarifaTePonta) || undefined,
+        consumo_medido: parseNumberValue(consumo) || undefined,
+        consumo_ponta: isB ? undefined : parseNumberValue(consumoPonta) || undefined,
+        tarifa_tusd_ponta: parseNumberValue(tarifaTusdPonta) || undefined,
+        tarifa_te_ponta: parseNumberValue(tarifaTePonta) || undefined,
+        consumo_fora_ponta: isB ? undefined : parseNumberValue(consumoForaPonta) || undefined,
+        tarifa_tusd_f_ponta: parseNumberValue(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
+        tarifa_te_f_ponta: parseNumberValue(tarifaTeFPonta || tarifaTePonta) || undefined,
         adicional_bandeira: adicionalBandeira || undefined,
-        fatura_total: Number(valorTotal),
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else if (selectedTipo === 'Gás') {
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
-        consumo_medido: Number(consumoMedido || consumo) || undefined,
-        consumo_corrigido: Number(consumoCorrigido) || undefined,
-        tarifa: Number(tarifa) || undefined,
-        fatura_total: Number(valorTotal),
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        consumo_corrigido: parseNumberValue(consumoCorrigido) || undefined,
+        tarifa: parseNumberValue(tarifa) || undefined,
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else {
       dadosEsp = {
-        medicao_anterior: Number(medicaoAnterior) || undefined,
-        medicao_atual: Number(medicaoAtual) || undefined,
-        consumo_medido: Number(consumoMedido || consumo) || undefined,
-        tarifa: Number(tarifa) || undefined,
-        fatura_total: Number(valorTotal),
+        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
+        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        tarifa: parseNumberValue(tarifa) || undefined,
+        fatura_total: parseNumberValue(valorTotal) || 0,
       }
     }
 
@@ -1105,8 +1183,8 @@ export default function Faturas() {
         empreendimento: selectedEmpId,
         tipo_utilidade: selectedTipo,
         competencia: compISO,
-        valor_total: Number(valorTotal),
-        consumo: Number(consumo) || undefined,
+        valor_total: parseNumberValue(valorTotal) || 0,
+        consumo: parseNumberValue(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
         cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
@@ -1914,9 +1992,7 @@ export default function Faturas() {
                           Valor Total da Fatura (R$) *
                         </Label>
                         <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="Ex: 4363.05"
+                          placeholder="Ex: 23.862,35"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             valorTotal !== ''
                               ? 'text-gray-900 font-bold bg-white border-teal-500/50'
@@ -1932,9 +2008,7 @@ export default function Faturas() {
                           Consumo Principal ({unidadeConsumo})
                         </Label>
                         <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="Ex: 682.168"
+                          placeholder="Ex: 3.230,016"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             consumo !== ''
                               ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -1944,7 +2018,6 @@ export default function Faturas() {
                           onChange={(e) => setConsumo(e.target.value)}
                         />
                       </div>
-
                       <div>
                         <Label className="text-xs font-semibold text-gray-700">
                           Número da Fatura / Nota
@@ -2309,8 +2382,7 @@ export default function Faturas() {
                             Medição Anterior
                           </Label>
                           <Input
-                            type="number"
-                            placeholder="Ex: 431.304"
+                            placeholder="Ex: 146.303"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAnterior !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2323,8 +2395,7 @@ export default function Faturas() {
                         <div>
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
-                            type="number"
-                            placeholder="Ex: 432.014"
+                            placeholder="Ex: 149.713"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAtual !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2339,8 +2410,7 @@ export default function Faturas() {
                             Consumo Medido (m³)
                           </Label>
                           <Input
-                            type="number"
-                            placeholder="Ex: 710"
+                            placeholder="Ex: 3.410"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoMedido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2355,9 +2425,7 @@ export default function Faturas() {
                             Consumo Corrigido (m³)
                           </Label>
                           <Input
-                            type="number"
-                            step="0.001"
-                            placeholder="Ex: 682.168"
+                            placeholder="Ex: 3.230,016"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoCorrigido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2372,9 +2440,7 @@ export default function Faturas() {
                             Tarifa (R$/m³)
                           </Label>
                           <Input
-                            type="number"
-                            step="0.0001"
-                            placeholder="Ex: 6.395871"
+                            placeholder="Ex: 7,387689"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               tarifa !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2613,7 +2679,11 @@ export default function Faturas() {
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase">Consumo</span>
                   <span className="font-bold text-gray-900 tabular-nums">
-                    {selectedFatura.consumo} {selectedFatura.unidade_consumo}
+                    {formatNumberValue(
+                      selectedFatura.consumo,
+                      selectedFatura.tipo_utilidade === 'Gás' ? 3 : 2,
+                    )}{' '}
+                    {selectedFatura.unidade_consumo}
                   </span>
                 </div>
                 <div>
@@ -2657,15 +2727,30 @@ export default function Faturas() {
                       typeof selectedFatura.dados_especificos === 'string'
                         ? JSON.parse(selectedFatura.dados_especificos || '{}')
                         : selectedFatura.dados_especificos,
-                    ).map(([k, v]) => (
-                      <div
-                        key={k}
-                        className="flex justify-between border-b border-teal-100/60 pb-1"
-                      >
-                        <span className="text-gray-600 capitalize">{k.replace(/_/g, ' ')}:</span>
-                        <span className="font-semibold text-gray-900">{String(v)}</span>
-                      </div>
-                    ))}
+                    ).map(([k, v]) => {
+                      let displayVal = String(v)
+                      if (typeof v === 'number') {
+                        if (k.includes('tarifa')) {
+                          displayVal = formatNumberValue(v, 6)
+                        } else if (
+                          k.includes('medicao') ||
+                          (selectedFatura.tipo_utilidade === 'Gás' && k.includes('consumo_medido'))
+                        ) {
+                          displayVal = formatNumberValue(v, 0)
+                        } else {
+                          displayVal = formatNumberValue(v, 3)
+                        }
+                      }
+                      return (
+                        <div
+                          key={k}
+                          className="flex justify-between border-b border-teal-100/60 pb-1"
+                        >
+                          <span className="text-gray-600 capitalize">{k.replace(/_/g, ' ')}:</span>
+                          <span className="font-semibold text-gray-900">{displayVal}</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -2710,8 +2795,7 @@ export default function Faturas() {
               <div>
                 <Label className="text-xs font-semibold text-gray-700">Valor Total (R$)</Label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  placeholder="Ex: 23.862,35"
                   className="h-9 text-xs font-bold"
                   value={valorTotal}
                   onChange={(e) => setValorTotal(e.target.value)}
@@ -2721,8 +2805,7 @@ export default function Faturas() {
               <div>
                 <Label className="text-xs font-semibold text-gray-700">Consumo</Label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  placeholder="Ex: 3.230,016"
                   className="h-9 text-xs"
                   value={consumo}
                   onChange={(e) => setConsumo(e.target.value)}
@@ -2945,7 +3028,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
                     <Input
-                      type="number"
+                      placeholder="Ex: 146.303"
                       className="h-8 text-xs"
                       value={medicaoAnterior}
                       onChange={(e) => setMedicaoAnterior(e.target.value)}
@@ -2954,7 +3037,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Atual</Label>
                     <Input
-                      type="number"
+                      placeholder="Ex: 149.713"
                       className="h-8 text-xs"
                       value={medicaoAtual}
                       onChange={(e) => setMedicaoAtual(e.target.value)}
@@ -2963,7 +3046,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Consumo Medido (m³)</Label>
                     <Input
-                      type="number"
+                      placeholder="Ex: 3.410"
                       className="h-8 text-xs"
                       value={consumoMedido}
                       onChange={(e) => setConsumoMedido(e.target.value)}
@@ -2972,8 +3055,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Consumo Corrigido (m³)</Label>
                     <Input
-                      type="number"
-                      step="0.001"
+                      placeholder="Ex: 3.230,016"
                       className="h-8 text-xs"
                       value={consumoCorrigido}
                       onChange={(e) => setConsumoCorrigido(e.target.value)}
@@ -2982,8 +3064,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Tarifa (R$/m³)</Label>
                     <Input
-                      type="number"
-                      step="0.0001"
+                      placeholder="Ex: 7,387689"
                       className="h-8 text-xs"
                       value={tarifa}
                       onChange={(e) => setTarifa(e.target.value)}

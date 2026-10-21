@@ -82,6 +82,57 @@ export function formatNumberBR(value: number | undefined | null, decimals = 0): 
   }
 }
 
+/**
+ * Formata um valor numérico para input ou visualização com padrão brasileiro (ponto de milhar e vírgula decimal).
+ * Preserva as casas decimais originais do número fornecido (até maxDecimals).
+ */
+export function formatNumberValue(
+  val: number | string | undefined | null,
+  maxDecimals = 6,
+): string {
+  if (val === undefined || val === null || val === '') return ''
+  const s = String(val).trim()
+  if (s === '') return ''
+  // Se já estiver formatado em pt-BR (ex: "23.862,35" ou "146.303" ou "3.230,016")
+  if (/^\d{1,3}(\.\d{3})*(,\d+)?$/.test(s)) {
+    return s
+  }
+  const n = typeof val === 'number' ? val : Number(s.replace(',', '.'))
+  if (isNaN(n)) return s
+  return n.toLocaleString('pt-BR', {
+    maximumFractionDigits: maxDecimals,
+  })
+}
+
+/**
+ * Converte um valor digitado pelo usuário (com ponto de milhar e vírgula decimal, ou notação comum)
+ * para número float/inteiro padrão JavaScript.
+ */
+export function parseNumberValue(val: number | string | undefined | null): number | undefined {
+  if (val === undefined || val === null || val === '') return undefined
+  if (typeof val === 'number') {
+    return isNaN(val) ? undefined : val
+  }
+  let s = String(val)
+    .trim()
+    .replace(/^R\$\s*/i, '')
+  if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
+  if (!s || s === 'null' || s === 'undefined') return undefined
+
+  // Se tem ponto e vírgula (ex: 23.862,35 ou 3.230,016)
+  if (s.includes('.') && s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.')
+  } else if (s.includes(',')) {
+    // Apenas vírgula (ex: 7,387689 ou 23862,35) -> decimal
+    s = s.replace(',', '.')
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    // Apenas ponto e múltiplos blocos de 3 dígitos (ex: 146.303 ou 3.410 ou 1.146.303) -> ponto de milhar
+    s = s.replace(/\./g, '')
+  }
+  const n = Number(s)
+  return isNaN(n) ? undefined : n
+}
+
 export function formatTCO2e(value: number | undefined | null, decimals = 3): string {
   const safe = toSafeNumber(value, 0)
   const safeDecimals = Math.max(0, Math.min(20, Math.floor(toSafeNumber(decimals, 3))))
