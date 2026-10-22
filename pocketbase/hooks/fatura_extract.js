@@ -184,18 +184,18 @@ Campos gerais obrigatórios:
 - fatura_total: número decimal idêntico a valor_total
 - consumo: número decimal do consumo principal apurado/faturado (kWh para energia, m³ para água/gás - ex: 20438.400 ou 20438.4)
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número do documento / nota fiscal (ex: "095039445", "150.238.010", ou número impresso na nota)
-- vencimento: data YYYY-MM-DD (ex: "2026-09-25", "2024-06-21")
-- cnpj_cliente: CNPJ ou CPF do cliente/titular da unidade consumidora (ex: "04.151.776/0001-63" ou "04.***.***/****-63"). ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente! O cliente é a empresa destinatária atendida.
+- numero_fatura: número do documento ou nota fiscal impresso na fatura (ex: "140.162.786" ou "095039445"). NUNCA invente números.
+- vencimento: data YYYY-MM-DD (ex: "2026-03-12", "2026-09-25")
+- cnpj_cliente: CNPJ ou CPF REAL do cliente/titular da unidade consumidora (destinatário/pagador da fatura). ATENÇÃO CRÍTICA: extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente (ex: "03.819.289/0001-63" ou "03819289/0001-63"). NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente, e NUNCA invente um CNPJ que não esteja no documento!
 - cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80", Comgás: "61.856.571/0006-21").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor/hidrômetro como número inteiro cumulativo (ex: 146303 ou 65891.7). ATENÇÃO CRÍTICA em Gás (Comgás): as leituras cumulativas têm ponto como separador de MILHAR (ex: "146.303" significa 146303 inteiros, NUNCA número decimal!).
-- medicao_atual: leitura atual do medidor/hidrômetro como número inteiro cumulativo (ex: 149713 ou 66743.3). ATENÇÃO CRÍTICA em Gás (Comgás): o ponto é separador de MILHAR (ex: "149.713" significa 149713 inteiros, NUNCA número decimal!).
-- consumo_medido: consumo medido em m³ ou kWh (para Gás Comgás, é a diferença inteira Medição Atual − Medição Anterior, ex: 149713 − 146303 = 3410 m³, que aparece como "3.410" na fatura com ponto de milhar -> valor numérico: 3410). NUNCA divida por 1000!
-- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (ex: 3230.016 com vírgula decimal!)
-- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). ATENÇÃO CRÍTICA em Gás (Comgás): use SEMPRE o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" (ex: 7.387689) e NUNCA a tarifa variável do bloco "Dados tarifários" (5.79589). Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
-- valor_fornecimento: valor monetário do fornecimento de gás (ex: 23862.35)
+- medicao_anterior: leitura anterior do medidor/hidrômetro como número inteiro cumulativo. ATENÇÃO CRÍTICA em Gás (Comgás): as leituras cumulativas têm ponto como separador de MILHAR (ex: "75.795" significa 75795 inteiros, NUNCA número decimal!).
+- medicao_atual: leitura atual do medidor/hidrômetro como número inteiro cumulativo. ATENÇÃO CRÍTICA em Gás (Comgás): o ponto é separador de MILHAR (ex: "75.830" significa 75830 inteiros, NUNCA número decimal!).
+- consumo_medido: consumo medido em m³ ou kWh (para Gás Comgás, é a diferença das medições Atual − Anterior, ou o valor da coluna "consumo medido").
+- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (do quadro "Consumo e tarifas").
+- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). ATENÇÃO CRÍTICA em Gás (Comgás): use SEMPRE o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" e NUNCA a tarifa variável do bloco "Dados tarifários". Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
+- valor_fornecimento: valor monetário do fornecimento de gás
 - valor_a_pagar: total a pagar impresso (ex: 0.00 se houver devolução)
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
@@ -256,16 +256,16 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
   * Se o valor a pagar for positivo normal (sem devolução que zere o total), preencha 'valor_total' e 'fatura_total' com o valor total a pagar.
 
 - REGRA CRÍTICA DO CONSUMO CORRIGIDO, TARIFA E COERÊNCIA (GÁS COMGÁS):
-  * O bloco "Consumo e tarifas" traz o "Consumo Corrigido/Faturado" (ex: "3230.016" ou "3.230,016" m³) onde a vírgula é decimal -> 'consumo_corrigido': 3230.016 e 'consumo': 3230.016.
-  * TARIFA DE GÁS: extraia SEMPRE da linha "Tarifa Aplicada com ICMS" (ex: "R$7,387689" -> 'tarifa': 7.387689). NUNCA pegue a tarifa da linha "Dados tarifários - Variável (R$)" (ex: 5,7958900), pois a tarifa contratual faturada inclui impostos.
-  * Conferência de coerência: consumo corrigido × tarifa aplicada com ICMS ≈ fornecimento de gás natural (ex: 3230.016 × 7.387689 ≈ 23.862,35 ✓).
+  * O bloco "Consumo e tarifas" traz o "Consumo Corrigido/Faturado" em m³ com casas decimais (extraia exatamente o número real do documento) -> preencha 'consumo_corrigido' e 'consumo'.
+  * TARIFA DE GÁS: extraia SEMPRE da linha "Tarifa Aplicada com ICMS" do documento real. NUNCA pegue a tarifa da linha "Dados tarifários - Variável", pois a tarifa contratual faturada inclui impostos.
+  * Conferência de coerência: consumo corrigido × tarifa aplicada com ICMS ≈ fornecimento de gás natural.
 
 - REGRA CRÍTICA DAS MEDIÇÕES ANTERIOR/ATUAL E CONSUMO MEDIDO (GÁS COMGÁS):
-  * Na linha de medição da Comgás (ex: "FR25 ... 149.713 146.303 3.410 ..."):
-    - Medição Atual: o ponto é separador de milhar! "149.713" -> 149713 inteiros.
-    - Medição Anterior: o ponto é separador de milhar! "146.303" -> 146303 inteiros.
-    - Consumo Medido: é a diferença das leituras (149713 − 146303 = 3410 m³, impresso como "3.410") -> 'consumo_medido': 3410.
-  * NUNCA considere medições de gás como frações decimais (149,713 é absurdo para leitura cumulativa de medidor).
+  * Na linha de medição da Comgás:
+    - Medição Atual: o ponto é separador de milhar! Extraia o valor cumulativo inteiro real do documento.
+    - Medição Anterior: o ponto é separador de milhar! Extraia o valor cumulativo inteiro real do documento.
+    - Consumo Medido: é a diferença das leituras (Atual − Anterior) ou o valor da coluna "consumo medido (m³)".
+  * NUNCA considere leituras de medidor como frações decimais quando o ponto for separador de milhar.
   * NUNCA aplique escala ou divisão ao consumo medido: ele reflete o volume físico registrado no medidor.
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
@@ -430,12 +430,13 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           if (validImages.length > 0) {
-            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura página por página.\nLeia com extrema atenção todos os quadros numéricos:\n- Se for Gás (Comgás/Naturgy):
-  * Valor Total: se 'Valor Total a Pagar' for R$ 0,00 devido à devolução/débito automático, use o valor de 'Fornecimento de Gás Natural' (ex: 23862.35) para que o valor_total não fique zero enganoso! Se houver valor normal a pagar positivo, use o valor total a pagar.
-  * Consumo Corrigido/Faturado: do bloco "Consumo e tarifas", com casas decimais (ex: 3230.016).
-  * Tarifa de Gás: use a linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" (ex: 7.387689), NUNCA a tarifa variável de Dados tarifários!
-  * Medições Anterior e Atual: leituras cumulativas inteiras (ponto é milhar! ex: "146.303" -> 146303, "149.713" -> 149713).
-  * Consumo Medido: diferença inteira das medições (149713 - 146303 = 3410 m³, impresso como "3.410"). NUNCA divida por 1000!\n- Se for Energia Elétrica:\n  * Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n  * Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh - ex: 20.438,400 -> consumo: 20438.4)\n  * Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO (ex: 20438.4).\n  * 'DESCRIÇÃO DO FATURAMENTO': extraia as tarifas sob 'Preço Unit (R$) com tributos' para TUSD e TE.\n- Identificação: CNPJ do cliente e CNPJ da distribuidora.\nExtraia com rigor e retorne o JSON completo preenchido.`
+            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura página por página.\nLeia com extrema atenção todos os quadros numéricos reais deste arquivo específico:\n- Se for Gás (Comgás/Naturgy):
+  * Valor Total: se 'Valor Total a Pagar' for R$ 0,00 devido à devolução/débito automático, use o valor de 'Fornecimento de Gás Natural' para que o valor_total não fique zero enganoso! Se houver valor normal a pagar positivo, use o valor total a pagar real.
+  * Consumo Corrigido/Faturado: do bloco "Consumo e tarifas", com casas decimais reais da fatura.
+  * Tarifa de Gás: use a linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", NUNCA a tarifa variável de Dados tarifários!
+  * Medições Anterior e Atual: leituras cumulativas inteiras (ponto é milhar).
+  * Consumo Medido: diferença inteira das medições (Atual - Anterior) ou coluna "consumo medido".
+- Se for Energia Elétrica:\n  * Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n  * Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh)\n  * Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO.\n  * 'DESCRIÇÃO DO FATURAMENTO': extraia as tarifas sob 'Preço Unit (R$) com tributos' para TUSD e TE.\n- Identificação: CNPJ do cliente (destinatário da fatura) e CNPJ da distribuidora (concessionária).\nExtraia com rigor e retorne o JSON completo preenchido.`
 
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
@@ -861,17 +862,45 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           parsed.cnpj_cliente = sanitizeText(clienteCnpjCandidate)
         }
 
+        // Desmascaramento Enel: SOMENTE para fatura de Energia Elétrica da Enel confirmada
         if (parsed.cnpj_cliente && String(parsed.cnpj_cliente).includes('*')) {
           const rawClient = String(parsed.cnpj_cliente).replace(/[^0-9*]/g, '')
-          if (rawClient.startsWith('04') && rawClient.endsWith('63')) {
+          const isEnelDoc =
+            parsed.tipo_utilidade === 'Energia Elétrica' &&
+            (fileName.toLowerCase().includes('enel') ||
+              rawTipo.includes('enel') ||
+              (parsed.cnpj_fornecedor && String(parsed.cnpj_fornecedor).includes('61.695.227')))
+          if (isEnelDoc && rawClient.startsWith('04') && rawClient.endsWith('63')) {
             parsed.cnpj_cliente = '04.151.776/0001-63'
+          } else {
+            // Em faturas de Gás, Água ou de outras distribuidoras, NUNCA aplicar desmascaramento arbitrário!
+            parsed.cnpj_cliente = null
+          }
+        }
+
+        // Se CNPJ do cliente não foi capturado ou veio nulo, tentar extração no texto do documento
+        if (!parsed.cnpj_cliente && textContent && typeof textContent === 'string') {
+          const cnpjMatch = textContent.match(/CPF\/CNPJ:\s*([0-9.*\/ -]{11,20})/i)
+          if (cnpjMatch) {
+            const rawClean = cnpjMatch[1].replace(/[^0-9]/g, '')
+            if (rawClean.length === 14) {
+              parsed.cnpj_cliente = rawClean.replace(
+                /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+                '$1.$2.$3/$4-$5',
+              )
+            }
           }
         }
 
         // Sanitização estrita do CNPJ do cliente no backend: só manter se tiver 14 dígitos após limpeza
         if (parsed.cnpj_cliente) {
           const cleanCliDigits = String(parsed.cnpj_cliente).replace(/\D/g, '')
-          if (cleanCliDigits.length !== 14) {
+          if (cleanCliDigits.length === 14) {
+            parsed.cnpj_cliente = cleanCliDigits.replace(
+              /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+              '$1.$2.$3/$4-$5',
+            )
+          } else {
             console.log(
               '[fatura_extract] CNPJ do cliente truncado ou inválido descartado:',
               parsed.cnpj_cliente,
@@ -1000,7 +1029,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           // Regra C: Tarifa de gás - preferir sempre 'Tarifa Aplicada com ICMS' sobre a tarifa variável de Dados Tarifários
           if (textContent && typeof textContent === 'string') {
             const icmsTarMatch = textContent.match(
-              /Tarifa\s+Aplicada\s+(?:com\s+ICMS)?[\s\S]{0,30}?R\$\s*([0-9]+[.,][0-9]+)/i,
+              /Tarifa\s+Aplicada\s+(?:com\s+ICMS)?[\s\S]{0,30}?(?:R\$\s*)?([0-9]+[.,][0-9]+)/i,
             )
             if (icmsTarMatch) {
               const parsedIcmsTar = Number(icmsTarMatch[1].replace(',', '.'))
@@ -1011,6 +1040,16 @@ Retorne APENAS um objeto JSON com essa estrutura:`
                 )
                 parsed.tarifa = parsedIcmsTar
               }
+            }
+          }
+
+          // Se número da fatura não foi identificado na Comgás, buscar no texto "NOTA FISCAL / CONTA DE GÁS [Nº] 140.162.786"
+          if (!parsed.numero_fatura && textContent && typeof textContent === 'string') {
+            const nfMatch = textContent.match(
+              /(?:NOTA\s+FISCAL\s*\/\s*CONTA\s+DE\s+G[AÁ]S|Conta\s+de\s+G[aá]s\s*N[ºo°]?)\s*[:.]?\s*N?[ºo°]?\s*([0-9]{2,3}[.,][0-9]{3}[.,][0-9]{3}|[0-9]{7,10})/i,
+            )
+            if (nfMatch) {
+              parsed.numero_fatura = nfMatch[1].trim()
             }
           }
 

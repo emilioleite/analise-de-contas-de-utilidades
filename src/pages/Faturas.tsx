@@ -141,6 +141,7 @@ export default function Faturas() {
     setEmpAutoSuggested(false)
     setSelectedTipo('Energia Elétrica')
     setExtracting(false)
+    setExtractingStatus('')
     setCompetenciaInput('')
     setValorTotal('')
     setConsumo('')
@@ -177,6 +178,28 @@ export default function Faturas() {
       })
       return
     }
+    // Sempre resetar campos de extração anterior ao selecionar um novo arquivo para upload
+    setSelectedEmpId('')
+    setEmpAutoSuggested(false)
+    setCompetenciaInput('')
+    setValorTotal('')
+    setConsumo('')
+    setNumeroFatura('')
+    setCnpjCliente('')
+    setCnpjFornecedor('')
+    setVencimento('')
+    setMedicaoAnterior('')
+    setMedicaoAtual('')
+    setConsumoMedido('')
+    setConsumoCorrigido('')
+    setTarifa('')
+    setConsumoPonta('')
+    setConsumoForaPonta('')
+    setTarifaTusdPonta('')
+    setTarifaTePonta('')
+    setTarifaTusdFPonta('')
+    setTarifaTeFPonta('')
+    setCnpjMismatchIgnored(false)
     setUploadedFile(file)
   }
 
@@ -185,6 +208,27 @@ export default function Faturas() {
     setStep(3)
     setExtracting(true)
     setExtractingStatus('Preparando documento...')
+
+    // Limpar estados de extração anterior antes de iniciar nova extração
+    setCompetenciaInput('')
+    setValorTotal('')
+    setConsumo('')
+    setNumeroFatura('')
+    setCnpjCliente('')
+    setCnpjFornecedor('')
+    setVencimento('')
+    setMedicaoAnterior('')
+    setMedicaoAtual('')
+    setConsumoMedido('')
+    setConsumoCorrigido('')
+    setTarifa('')
+    setConsumoPonta('')
+    setConsumoForaPonta('')
+    setTarifaTusdPonta('')
+    setTarifaTePonta('')
+    setTarifaTusdFPonta('')
+    setTarifaTeFPonta('')
+    setCnpjMismatchIgnored(false)
 
     // Pre-set unit based on utility
     setUnidadeConsumo(selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
@@ -501,39 +545,6 @@ export default function Faturas() {
             : undefined
         if (numFat) setNumeroFatura(numFat)
 
-        const rawCnpjCli = getField(
-          'cnpj_cliente',
-          'cnpjCliente',
-          'cnpj_consumidor',
-          'cnpjConsumidor',
-          'cnpj_titular',
-          'cnpjTitular',
-          'cnpj_unidade',
-          'cnpjUnidade',
-          'cnpj_destinatario',
-        )
-        let cnpjCli =
-          rawCnpjCli && rawCnpjCli !== 'null' && rawCnpjCli !== '0'
-            ? String(rawCnpjCli).trim()
-            : undefined
-        if (cnpjCli) {
-          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), completar conhecido da Enel
-          if (cnpjCli.includes('*')) {
-            const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
-            if (rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
-              cnpjCli = '04.151.776/0001-63'
-            }
-          }
-          // Sanitização: só persistir se tiver formato válido (14 dígitos)
-          const digitsCli = cleanCNPJ(cnpjCli)
-          if (digitsCli.length === 14) {
-            setCnpjCliente(formatCNPJ(cnpjCli))
-          } else {
-            // Truncado ou inválido (ex: "03.16") não deve ser salvo como valor de comparação
-            setCnpjCliente('')
-          }
-        }
-
         const rawCnpjForn = getField(
           'cnpj_fornecedor',
           'cnpjFornecedor',
@@ -557,6 +568,51 @@ export default function Faturas() {
           (uploadedFile?.name || '').toLowerCase().includes('enel')
         ) {
           cnpjForn = '61.695.227/0001-93'
+        }
+
+        const rawCnpjCli = getField(
+          'cnpj_cliente',
+          'cnpjCliente',
+          'cnpj_consumidor',
+          'cnpjConsumidor',
+          'cnpj_titular',
+          'cnpjTitular',
+          'cnpj_unidade',
+          'cnpjUnidade',
+          'cnpj_destinatario',
+        )
+        let cnpjCli =
+          rawCnpjCli && rawCnpjCli !== 'null' && rawCnpjCli !== '0'
+            ? String(rawCnpjCli).trim()
+            : undefined
+        if (cnpjCli) {
+          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), completar SOMENTE para Enel (Energia Elétrica)
+          if (cnpjCli.includes('*')) {
+            const isEnelDocClient =
+              detectedTipo === 'Energia Elétrica' &&
+              ((uploadedFile?.name || '').toLowerCase().includes('enel') ||
+                (cnpjForn && cleanCNPJ(cnpjForn).startsWith('61695227')))
+            const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
+            if (isEnelDocClient && rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
+              cnpjCli = '04.151.776/0001-63'
+            } else {
+              // Em faturas de Gás, Água ou não-Enel, descartar CNPJ mascarado para não sugerir empreendimento incorreto
+              cnpjCli = undefined
+            }
+          }
+          // Sanitização: só persistir se tiver formato válido (14 dígitos exatos)
+          if (cnpjCli) {
+            const digitsCli = cleanCNPJ(cnpjCli)
+            if (digitsCli.length === 14 && isValidCNPJ(digitsCli)) {
+              setCnpjCliente(formatCNPJ(cnpjCli))
+            } else {
+              // Truncado ou inválido (ex: "03.16") não deve ser salvo como valor de comparação
+              setCnpjCliente('')
+              cnpjCli = undefined
+            }
+          } else {
+            setCnpjCliente('')
+          }
         }
 
         // Fallback para campo genérico "cnpj" se cnpj_fornecedor ou cnpj_cliente não vieram
@@ -592,18 +648,26 @@ export default function Faturas() {
           }
         }
 
-        // Sugestão automática do empreendimento por matching exato de CNPJ
+        // Sugestão automática do empreendimento por matching exato de CNPJ (14 dígitos válidos)
         const cleanExtractedCli = cnpjCli ? cleanCNPJ(cnpjCli) : ''
-        if (cleanExtractedCli && cleanExtractedCli.length === 14) {
-          const matchingEmp = empreendimentos.find((e) => cleanCNPJ(e.cnpj) === cleanExtractedCli)
-          if (matchingEmp) {
-            setSelectedEmpId(matchingEmp.id)
+        if (
+          cleanExtractedCli &&
+          cleanExtractedCli.length === 14 &&
+          isValidCNPJ(cleanExtractedCli)
+        ) {
+          const matchingEmps = empreendimentos.filter(
+            (e) => cleanCNPJ(e.cnpj) === cleanExtractedCli,
+          )
+          if (matchingEmps.length === 1) {
+            setSelectedEmpId(matchingEmps[0].id)
             setEmpAutoSuggested(true)
           } else {
-            // Nenhum empreendimento corresponde ao CNPJ extraído
+            // Se não houver correspondência ou se houver mais de uma, NÃO sugerir automaticamente
+            setSelectedEmpId('')
             setEmpAutoSuggested(false)
           }
         } else {
+          setSelectedEmpId('')
           setEmpAutoSuggested(false)
         }
 
