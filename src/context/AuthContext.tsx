@@ -14,6 +14,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<RecordModel>
   logout: () => void
   refreshUser: () => Promise<void>
+  ensureValidSession: () => Promise<boolean>
   updateProfileName: (name: string) => Promise<void>
   requestPasswordReset: (email?: string) => Promise<{ error: any }>
   deactivateAccount: () => Promise<void>
@@ -60,44 +61,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return
       }
 
+      // Pre-populate sync state immediately from local valid authStore so UI renders without flash
+      if (isMounted) {
+        setUser(pb.authStore.record)
+        setToken(pb.authStore.token)
+      }
+
       try {
         // First try authRefresh to validate the token and get the refreshed record
-        const authData = await pb
-          .collection('users')
-          .authRefresh()
-          .catch(() => null)
+        const authData = await pb.collection('users').authRefresh()
 
         if (isMounted && authData?.record) {
-          // Explicitly save the fresh record to PocketBase authStore
           pb.authStore.save(authData.token, authData.record)
           setUser(authData.record)
           setToken(authData.token)
-        } else if (pb.authStore.record?.id) {
-          // If authRefresh did not return a record but token might still be usable, fallback to getOne
-          const fresh = await pb
-            .collection('users')
-            .getOne(pb.authStore.record.id)
-            .catch(() => null)
-          if (isMounted && fresh) {
-            pb.authStore.save(pb.authStore.token, fresh)
-            setUser(fresh)
-            setToken(pb.authStore.token)
-          } else if (isMounted) {
-            pb.authStore.clear()
+        }
+      } catch (err: any) {
+        const status = err?.status || err?.response?.status
+        if (status === 401 || status === 403) {
+          // Real token expiration or invalid credentials: purge
+          console.warn('Sessão expirada no backend (401/403):', err)
+          pb.authStore.clear()
+          if (isMounted) {
             setUser(null)
             setToken(null)
           }
-        } else if (isMounted) {
-          pb.authStore.clear()
-          setUser(null)
-          setToken(null)
-        }
-      } catch (err) {
-        console.warn('Erro durante reidratação de sessão:', err)
-        if (isMounted) {
-          pb.authStore.clear()
-          setUser(null)
-          setToken(null)
+        } else {
+          // Network fluctuation or offline: preserve local token if valid
+          console.warn('Falha transitória ao atualizar sessão, mantendo token local:', err)
+          if (isMounted && pb.authStore.record && pb.authStore.isValid) {
+            setUser(pb.authStore.record)
+            setToken(pb.authStore.token)
+          }
         }
       } finally {
         clearTimeout(safetyTimeout)
@@ -168,6 +163,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(pb.authStore.token)
   }
 
+  const ensureValidSession = async (): Promise<boolean> => {
+    if (!pb.authStore.isValid || !pb.authStore.token) {
+      return false
+    }
+    try {
+      const authData = await pb.collection('users').authRefresh()
+      if (authData?.record) {
+        pb.authStore.save(authData.token, authData.record)
+        setUser(authData.record)
+        setToken(authData.token)
+        return true
+      }
+      return pb.authStore.isValid
+    } catch (err: any) {
+      const status = err?.status || err?.response?.status
+      if (status === 401 || status === 403) {
+        pb.authStore.clear()
+        setUser(null)
+        setToken(null)
+        return false
+      }
+      // If it's a network glitch, authStore is still locally valid
+      return pb.authStore.isValid
+    }
+  }
+
   const updateProfileName = async (name: string) => {
     if (!user) throw new Error('Usuário não logado')
     const updated = await pb.collection('users').update(user.id, { name })
@@ -211,6 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         refreshUser,
+        ensureValidSession,
         updateProfileName,
         requestPasswordReset,
         deactivateAccount,

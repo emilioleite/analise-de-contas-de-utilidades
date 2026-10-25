@@ -62,7 +62,7 @@ export default function Faturas() {
   const [searchParams] = useSearchParams()
   const enterpriseQuery = searchParams.get('enterprise') || 'Todos'
 
-  const { isAdmin } = useAuth()
+  const { isAdmin, ensureValidSession } = useAuth()
   const { faturas, empreendimentos, addFatura, updateFatura, deleteFatura, loading } = useData()
   const { toast } = useToast()
 
@@ -100,6 +100,7 @@ export default function Faturas() {
   // Form values (for step 3 review and edit modal)
   const [competenciaInput, setCompetenciaInput] = useState<string>('') // MM/AAAA or YYYY-MM
   const [valorTotal, setValorTotal] = useState<number | string>('')
+  const [lastCreatedFatura, setLastCreatedFatura] = useState<FaturaRecord | null>(null)
   const [consumo, setConsumo] = useState<number | string>('')
   const [unidadeConsumo, setUnidadeConsumo] = useState<string>('kWh')
   const [numeroFatura, setNumeroFatura] = useState<string>('')
@@ -164,6 +165,7 @@ export default function Faturas() {
     setConsumoCorrigido('')
     setTarifa('')
     setCnpjMismatchIgnored(false)
+    setLastCreatedFatura(null)
   }
 
   // Handle selected file drop or pick
@@ -200,6 +202,7 @@ export default function Faturas() {
     setTarifaTusdFPonta('')
     setTarifaTeFPonta('')
     setCnpjMismatchIgnored(false)
+    setLastCreatedFatura(null)
     setUploadedFile(file)
   }
 
@@ -229,6 +232,7 @@ export default function Faturas() {
     setTarifaTusdFPonta('')
     setTarifaTeFPonta('')
     setCnpjMismatchIgnored(false)
+    setLastCreatedFatura(null)
 
     // Pre-set unit based on utility
     setUnidadeConsumo(selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
@@ -1099,30 +1103,41 @@ export default function Faturas() {
 
     setSubmittingFatura(true)
     try {
-      await addFatura({
+      // Revalida a sessão com o backend antes do submit para evitar 401 por token desatualizado
+      await ensureValidSession().catch(() => null)
+
+      const parsedValorTotal = parseNumberValue(valorTotal) ?? 0
+
+      const created = await addFatura({
         empreendimento: selectedEmpId,
         tipo_utilidade: selectedTipo,
         competencia: compISO,
-        valor_total: parseNumberValue(valorTotal) || 0,
+        valor_total: parsedValorTotal,
         consumo: parseNumberValue(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
         cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
         cnpj_fornecedor: isValidCNPJ(cnpjFornecedor) ? formatCNPJ(cnpjFornecedor) : undefined,
-        cnpj_validado: !cnpjMismatch,
+        cnpj_validado: isValidated,
         arquivo_nome: uploadedFile?.name || null,
         vencimento: vencimento || undefined,
         dados_especificos: JSON.stringify(dadosEsp),
       })
 
+      if (created) {
+        setLastCreatedFatura(created)
+      }
       setStep(4) // Move to success step
     } catch (err: any) {
       console.error(err)
+      const status = err?.status || err?.response?.status
+      const msg = err?.message || 'Ocorreu um erro ao gravar os dados.'
       toast({
-        title: 'Erro ao cadastrar fatura',
-        description: err.message || 'Ocorreu um erro ao gravar os dados.',
+        title: status === 401 ? 'Sessão expirada' : 'Erro ao cadastrar fatura',
+        description: msg,
         variant: 'destructive',
       })
+      // Mantém no modal sem deslogar indevidamente
     } finally {
       setSubmittingFatura(false)
     }
@@ -2667,16 +2682,26 @@ export default function Faturas() {
               <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs max-w-sm mx-auto space-y-1 text-left">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Utilidade:</span>
-                  <span className="font-semibold">{selectedTipo}</span>
+                  <span className="font-semibold">
+                    {lastCreatedFatura?.tipo_utilidade || selectedTipo}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Competência:</span>
-                  <span className="font-semibold">{competenciaInput}</span>
+                  <span className="font-semibold">
+                    {lastCreatedFatura?.competencia
+                      ? formatCompetencia(lastCreatedFatura.competencia)
+                      : competenciaInput}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Valor Total:</span>
                   <span className="font-bold text-teal-800 tabular-nums">
-                    {formatCurrencyBRL(Number(valorTotal))}
+                    {formatCurrencyBRL(
+                      lastCreatedFatura !== null
+                        ? toSafeNumber(lastCreatedFatura.valor_total, 0)
+                        : (parseNumberValue(valorTotal) ?? 0),
+                    )}
                   </span>
                 </div>
               </div>
