@@ -93,7 +93,9 @@ export const faturasService = {
         }
 
         // Renderizar imagens de páginas com limites adequados de dimensão e tamanho para LLMs multimodais
-        if (!disableImages) {
+        // Se disableImages for false (ou se o PDF não tiver texto selecionável, onde imagens são vitais), renderizar imagens
+        const hasNoText = !clientExtractedText
+        if (!disableImages || hasNoText) {
           renderedImages = await convertPdfToImages(file, {
             maxPages: 2,
             scale: 1.6,

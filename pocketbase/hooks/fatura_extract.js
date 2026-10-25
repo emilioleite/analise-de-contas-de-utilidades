@@ -170,33 +170,34 @@ routerAdd(
     }
 
     const systemPrompt = `Você é um extrator especialista de faturas de utilidades brasileiras (Energia Elétrica, Gás, Água e Esgoto).
-Analise o documento e extraia todos os campos com precisão absoluta.
-Responda APENAS com um objeto JSON válido, sem texto explicativo, sem blocos de código além do JSON.`
+Analise as imagens e documentos da fatura e extraia TODOS os campos visíveis com máxima fidelidade aos dados impressos.
+Responda OBRIGATORIAMENTE com um objeto JSON válido, contendo as chaves especificadas preenchidas com os valores reais da fatura.
+NUNCA responda com campos nulos ou objeto vazio quando as informações estiverem impressas na fatura.`
 
     const instructions = `Extraia todos os dados da fatura anexada (arquivo "${fileName}").
 Tipo de utilidade sugerido: "${requestedUtility || 'Detectar da fatura'}".
 
 Campos gerais obrigatórios:
 - tipo_utilidade: "Energia Elétrica" | "Gás" | "Água e Esgoto"
-- competencia: data YYYY-MM-01 (ex: "2024-05-01" ou "2026-09-01")
-- competencia_formatada: MM/AAAA (ex: "05/2024" ou "09/2026")
-- valor_total: número decimal do total a pagar (ex: 22347.38, 2143.97 ou 4363.05). ATENÇÃO: em faturas onde o valor aparece como "R$22.347,38" ou com asteriscos decorativos de proteção bancária (ex: "R$ ************2.143,97"), extraia o valor numérico ignorando pontos de milhar e símbolos!
+- competencia: data no formato "YYYY-MM-01" correspondente ao Mês de Referência da fatura (ex: mês "fev/2026" vira "2026-02-01").
+- competencia_formatada: "MM/AAAA" correspondente ao Mês de Referência (ex: "fev/2026" vira "02/2026").
+- valor_total: número decimal do valor total a pagar (ex: 211.20, 22347.38). ATENÇÃO: ignore pontos de milhar, asteriscos ou símbolos decorativos!
 - fatura_total: número decimal idêntico a valor_total
-- consumo: número decimal do consumo principal apurado/faturado (kWh para energia, m³ para água/gás - ex: 20438.400 ou 20438.4)
+- consumo: número decimal do consumo faturado principal (kWh para energia, m³ para gás e água). Em Gás (Comgás), extraia do campo "Consumo Corrigido/Faturado" do bloco "Consumo e tarifas" (ex: 33.037).
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número do documento ou nota fiscal impresso na fatura (ex: "140.162.786" ou "095039445"). NUNCA invente números.
-- vencimento: data YYYY-MM-DD (ex: "2026-03-12", "2026-09-25")
-- cnpj_cliente: CNPJ ou CPF REAL do cliente/titular da unidade consumidora (destinatário/pagador da fatura). ATENÇÃO CRÍTICA: extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente (ex: "03.819.289/0001-63" ou "03819289/0001-63"). NUNCA use o CNPJ da distribuidora (Enel, Sabesp, Comgás) como cnpj_cliente, e NUNCA invente um CNPJ que não esteja no documento!
-- cnpj_fornecedor: CNPJ da distribuidora/concessionária (ex Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80", Comgás: "61.856.571/0006-21").
+- numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" (ex: "140.162.786"). NUNCA invente números.
+- vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento (ex: "12.03.2026" vira "2026-03-12").
+- cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). ATENÇÃO CRÍTICA: extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente (ex: no quadro COND. E EDIF., campo "CPF/CNPJ: 03819289/0001-63" vira "03.819.289/0001-63"). NUNCA use o CNPJ da distribuidora como cnpj_cliente, e NUNCA retorne nulo se o CNPJ/CPF estiver impresso!
+- cnpj_fornecedor: CNPJ da distribuidora emissora (ex: Comgás: "61.856.571/0006-21", Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor/hidrômetro como número inteiro cumulativo. ATENÇÃO CRÍTICA em Gás (Comgás): as leituras cumulativas têm ponto como separador de MILHAR (ex: "75.795" significa 75795 inteiros, NUNCA número decimal!).
-- medicao_atual: leitura atual do medidor/hidrômetro como número inteiro cumulativo. ATENÇÃO CRÍTICA em Gás (Comgás): o ponto é separador de MILHAR (ex: "75.830" significa 75830 inteiros, NUNCA número decimal!).
-- consumo_medido: consumo medido em m³ ou kWh (para Gás Comgás, é a diferença das medições Atual − Anterior, ou o valor da coluna "consumo medido").
-- consumo_corrigido: consumo faturado/corrigido por PTZ se houver gás (do quadro "Consumo e tarifas").
-- tarifa: tarifa unitária aplicada (R$/m³ ou R$/kWh). ATENÇÃO CRÍTICA em Gás (Comgás): use SEMPRE o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" e NUNCA a tarifa variável do bloco "Dados tarifários". Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
-- valor_fornecimento: valor monetário do fornecimento de gás
-- valor_a_pagar: total a pagar impresso (ex: 0.00 se houver devolução)
+- medicao_anterior: leitura anterior do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Anterior" (ex: na Comgás "75.795" significa 75795 inteiros, o ponto é separador de milhar!).
+- medicao_atual: leitura atual do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Atual" (ex: na Comgás "75.830" significa 75830 inteiros, o ponto é separador de milhar!).
+- consumo_medido: consumo medido (diferença Atual − Anterior, ou coluna "consumo medido (m³)", ex: 35).
+- consumo_corrigido: consumo faturado/corrigido por PTZ do bloco "Consumo e tarifas" (ex: 33.037).
+- tarifa: tarifa unitária aplicada. ATENÇÃO CRÍTICA em Gás (Comgás): use SEMPRE o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" (ex: 6.392832), NUNCA a tarifa da linha "Dados tarifários"! Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
+- valor_fornecimento: valor monetário do fornecimento de gás (ex: linha "Fornecimento de Gás Natural", ex: 211.20)
+- valor_a_pagar: total a pagar impresso (ex: 211.20, ou 0.00 se houver devolução total)
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
 - REGRA CRÍTICA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
@@ -430,14 +431,46 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           if (validImages.length > 0) {
-            const visionUserText = `${instructions}\n\nExamine atentamente as imagens desta fatura página por página.\nLeia com extrema atenção todos os quadros numéricos reais deste arquivo específico:\n- Se for Gás (Comgás/Naturgy):
-  * Valor Total: se 'Valor Total a Pagar' for R$ 0,00 devido à devolução/débito automático, use o valor de 'Fornecimento de Gás Natural' para que o valor_total não fique zero enganoso! Se houver valor normal a pagar positivo, use o valor total a pagar real.
-  * Consumo Corrigido/Faturado: do bloco "Consumo e tarifas", com casas decimais reais da fatura.
-  * Tarifa de Gás: use a linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", NUNCA a tarifa variável de Dados tarifários!
-  * Medições Anterior e Atual: leituras cumulativas inteiras (ponto é milhar).
-  * Consumo Medido: diferença inteira das medições (Atual - Anterior) ou coluna "consumo medido".
-- Se for Energia Elétrica:\n  * Quadro 'TOTAL A PAGAR' / 'VALOR TOTAL'\n  * Quadro 'DADOS DE MEDIÇÃO' (Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh)\n  * Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO.\n  * 'DESCRIÇÃO DO FATURAMENTO': extraia as tarifas sob 'Preço Unit (R$) com tributos' para TUSD e TE.\n- Identificação: CNPJ do cliente (destinatário da fatura) e CNPJ da distribuidora (concessionária).\nExtraia com rigor e retorne o JSON completo preenchido.`
+            const visionUserText = `${instructions}
 
+INSTRUÇÕES DETALHADAS DE LEITURA VISUAL:
+Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão os quadros fiscais e de faturamento:
+
+1. Se for fatura Comgás (Gás):
+  - No topo superior direito (quadro do cliente):
+    * Nome do cliente e endereço (ex: "COND. E EDIF. 21ST CENTURY FLAT", "AL LORENA 473").
+    * "CPF/CNPJ: 03819289/0001-63" -> 'cnpj_cliente': "03.819.289/0001-63" (extraia com pontuação ou dígitos limpos, NUNCA deixe null!).
+    * "Código do usuário" / "CÓDIGO USUÁRIO".
+  - No topo superior esquerdo/central:
+    * "Companhia de Gás de São Paulo - CNPJ 61.856.571/0006-21" -> 'cnpj_fornecedor': "61.856.571/0006-21".
+    * "NOTA FISCAL / CONTA DE GÁS Nº 140.162.786" -> 'numero_fatura': "140.162.786".
+  - No quadro central superior de datas e totais:
+    * "Vencimento": data ex: "12.03.2026" -> 'vencimento': "2026-03-12".
+    * "Valor a pagar (R$)": ex: "211,20" -> 'valor_total': 211.20 e 'fatura_total': 211.20.
+    * "Mês de referência": ex: "fev/2026" -> 'competencia': "2026-02-01" e 'competencia_formatada': "02/2026".
+  - No quadro "Consumo e tarifas":
+    * "Consumo Corrigido/Faturado (m³)" -> 'consumo_corrigido': 33.037 e 'consumo': 33.037.
+    * "Tarifa Aplicada com ICMS" -> 'tarifa': 6.392832. NUNCA use a tarifa variável do bloco "Dados tarifários".
+    * "Fornecimento de gás natural (R$)" -> 'valor_fornecimento': 211.20.
+  - No quadro "Detalhamento do consumo" (linha do medidor):
+    * "Leitura Anterior": ex: 75.795 -> 'medicao_anterior': 75795 (atenção: ponto é separador de milhar!).
+    * "Leitura Atual": ex: 75.830 -> 'medicao_atual': 75830 (atenção: ponto é separador de milhar!).
+    * "consumo medido (m³)" -> 'consumo_medido': 35 (ou diferença Atual - Anterior).
+  - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente.
+
+2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
+  - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
+  - Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh.
+  - Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO.
+  - "DESCRIÇÃO DO FATURAMENTO": extraia as tarifas sob a coluna "Preço Unit (R$) com tributos" para TUSD e TE.
+  - CNPJ do cliente no quadro de destinatário da fatura e CNPJ da distribuidora.
+
+3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
+  - Medições de hidrômetro (Anterior, Atual, Consumo m³).
+  - Quadro de total a pagar e vencimento.
+  - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
+
+Extraia com rigor e retorne o JSON completo preenchido com todos os valores reais encontrados nas imagens.`
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
               'Tamanho img 1:',
@@ -499,7 +532,11 @@ Retorne APENAS um objeto JSON com essa estrutura:`
 
             let aiVisionResponse = null
             const modelsToTry =
-              forceModel === 'reasoning' ? ['reasoning', 'fast'] : ['fast', 'reasoning']
+              forceModel === 'reasoning'
+                ? ['reasoning', 'fast']
+                : forceModel === 'fast'
+                  ? ['fast', 'reasoning']
+                  : ['reasoning', 'fast']
 
             for (const modelAlias of modelsToTry) {
               try {
@@ -521,9 +558,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
                   console.log(
                     `[fatura_extract] Modelo ${modelAlias} retornou resposta vazia ou sem valores reais.`,
                   )
-                  if (!aiVisionResponse && parsed) {
-                    aiVisionResponse = resp
-                  }
+                  // Se não contém valores reais, NÃO aceitar como resposta de visão bem-sucedida!
                 }
               } catch (modelErr) {
                 console.log(
@@ -553,13 +588,13 @@ Retorne APENAS um objeto JSON com essa estrutura:`
       if (!rawText) {
         if (visionAttempted) {
           throw new BadRequestError(
-            'Não foi possível extrair os dados visuais desta fatura escaneada no momento. Por favor, preencha os dados manualmente no formulário abaixo ou utilize uma fatura com texto selecionável.',
+            'Não foi possível extrair os dados visuais desta fatura escaneada. Por favor, tente novamente ou insira os dados no formulário.',
           )
         }
 
         if (toMarkdownError && toMarkdownError.status === 422) {
           throw new BadRequestError(
-            'O documento é uma imagem ou digitalização escaneada sem camada de texto legível. Por favor, envie uma fatura digital com texto selecionável ou preencha os dados manualmente.',
+            'O documento é uma imagem ou digitalização escaneada sem camada de texto legível. As imagens da página não puderam ser processadas para leitura visual. Por favor, tente novamente ou preencha os dados manualmente.',
           )
         }
         if (!textExtracted && (!pageImages || pageImages.length === 0)) {
@@ -571,7 +606,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           'Não foi possível extrair dados automaticamente desta fatura. Por favor, revise o arquivo ou insira as medições e valores manualmente.',
         )
       }
-
       console.log(
         '[fatura_extract] Resposta bruta da IA (' + aiMethodUsed + '):',
         rawText.slice(0, 300),
@@ -669,6 +703,69 @@ Retorne APENAS um objeto JSON com essa estrutura:`
         parsed.classificacao_consumo = sanitizeText(parsed.classificacao_consumo)
         parsed.adicional_bandeira = sanitizeText(parsed.adicional_bandeira)
 
+        // Se a competência vier em formato por extenso (ex: "fev/2026", "fev/26", "fevereiro/2026")
+        function parseExtensoCompetencia(val) {
+          if (!val || typeof val !== 'string') return null
+          const s = val.trim().toLowerCase()
+          const meses = {
+            jan: '01',
+            janeiro: '01',
+            fev: '02',
+            fevereiro: '02',
+            mar: '03',
+            marco: '03',
+            março: '03',
+            abr: '04',
+            abril: '04',
+            mai: '05',
+            maio: '05',
+            jun: '06',
+            junho: '06',
+            jul: '07',
+            julho: '07',
+            ago: '08',
+            agosto: '08',
+            set: '09',
+            setembro: '09',
+            out: '10',
+            outubro: '10',
+            nov: '11',
+            novembro: '11',
+            dez: '12',
+            dezembro: '12',
+          }
+          const m = s.match(/([a-zçãé]+)\s*[\/\-.]?\s*(\d{2,4})/)
+          if (m) {
+            const mesNome = m[1]
+            let ano = m[2]
+            if (ano.length === 2) ano = '20' + ano
+            const mesNum = meses[mesNome]
+            if (mesNum) {
+              return {
+                competencia: `${ano}-${mesNum}-01`,
+                competencia_formatada: `${mesNum}/${ano}`,
+              }
+            }
+          }
+          return null
+        }
+
+        const extComp =
+          parseExtensoCompetencia(parsed.competencia) ||
+          parseExtensoCompetencia(parsed.competencia_formatada)
+        if (extComp) {
+          parsed.competencia = extComp.competencia
+          parsed.competencia_formatada = extComp.competencia_formatada
+        }
+
+        // Tratar vencimento no formato brasileiro DD.MM.YYYY ou DD/MM/YYYY se a IA retornar texto sem ISO
+        if (parsed.vencimento && typeof parsed.vencimento === 'string') {
+          const strVenc = parsed.vencimento.trim()
+          const mVenc = strVenc.match(/^(\d{2})[./\-](\d{2})[./\-](\d{4})$/)
+          if (mVenc) {
+            parsed.vencimento = `${mVenc[3]}-${mVenc[2]}-${mVenc[1]}`
+          }
+        }
         if (parsed.classificacao_consumo) {
           const mClass = String(parsed.classificacao_consumo).match(/\b(A[1-4]|B[1-4])\b/i)
           if (mClass) {
@@ -878,8 +975,13 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
         }
 
-        // Se CNPJ do cliente não foi capturado ou veio nulo, tentar extração no texto do documento
-        if (!parsed.cnpj_cliente && textContent && typeof textContent === 'string') {
+        // Se CNPJ do cliente não foi capturado ou veio nulo, tentar extração no texto do documento (se houver texto extraído válido)
+        if (
+          !parsed.cnpj_cliente &&
+          textExtracted &&
+          textContent &&
+          typeof textContent === 'string'
+        ) {
           const cnpjMatch = textContent.match(/CPF\/CNPJ:\s*([0-9.*\/ -]{11,20})/i)
           if (cnpjMatch) {
             const rawClean = cnpjMatch[1].replace(/[^0-9]/g, '')
@@ -891,7 +993,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             }
           }
         }
-
         // Sanitização estrita do CNPJ do cliente no backend: só manter se tiver 14 dígitos após limpeza
         if (parsed.cnpj_cliente) {
           const cleanCliDigits = String(parsed.cnpj_cliente).replace(/\D/g, '')
@@ -1027,7 +1128,7 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           }
 
           // Regra C: Tarifa de gás - preferir sempre 'Tarifa Aplicada com ICMS' sobre a tarifa variável de Dados Tarifários
-          if (textContent && typeof textContent === 'string') {
+          if (textExtracted && textContent && typeof textContent === 'string') {
             const icmsTarMatch = textContent.match(
               /Tarifa\s+Aplicada\s+(?:com\s+ICMS)?[\s\S]{0,30}?(?:R\$\s*)?([0-9]+[.,][0-9]+)/i,
             )
@@ -1043,8 +1144,13 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             }
           }
 
-          // Se número da fatura não foi identificado na Comgás, buscar no texto "NOTA FISCAL / CONTA DE GÁS [Nº] 140.162.786"
-          if (!parsed.numero_fatura && textContent && typeof textContent === 'string') {
+          // Se número da fatura não foi identificado na Comgás, buscar no texto "NOTA FISCAL / CONTA DE GÁS [Nº] 140.162.786" (apenas se houver texto válido)
+          if (
+            !parsed.numero_fatura &&
+            textExtracted &&
+            textContent &&
+            typeof textContent === 'string'
+          ) {
             const nfMatch = textContent.match(
               /(?:NOTA\s+FISCAL\s*\/\s*CONTA\s+DE\s+G[AÁ]S|Conta\s+de\s+G[aá]s\s*N[ºo°]?)\s*[:.]?\s*N?[ºo°]?\s*([0-9]{2,3}[.,][0-9]{3}[.,][0-9]{3}|[0-9]{7,10})/i,
             )
@@ -1052,7 +1158,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
               parsed.numero_fatura = nfMatch[1].trim()
             }
           }
-
           // Regra A: Medições Anterior e Atual de gás são inteiros cumulativos (ponto de milhar, nunca decimal!)
           function parseGasCumulativeReading(val) {
             if (val === undefined || val === null || val === '') return null
@@ -1084,9 +1189,10 @@ Retorne APENAS um objeto JSON com essa estrutura:`
             parsed.medicao_atual = parseGasCumulativeReading(parsed.medicao_atual)
           }
 
-          // Se a IA não pegou medição_atual e medição_anterior, tentar extrair diretamente do texto da fatura
+          // Se a IA não pegou medição_atual e medição_anterior, tentar extrair diretamente do texto da fatura (apenas se houver texto extraído válido)
           if (
             (!parsed.medicao_anterior || !parsed.medicao_atual) &&
+            textExtracted &&
             textContent &&
             typeof textContent === 'string'
           ) {
@@ -1109,7 +1215,6 @@ Retorne APENAS um objeto JSON com essa estrutura:`
               }
             }
           }
-
           // Regra B: Consumo Medido de gás: calcular/validar como Medição Atual - Medição Anterior quando ambos presentes
           if (
             parsed.medicao_atual &&

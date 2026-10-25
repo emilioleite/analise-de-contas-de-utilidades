@@ -292,12 +292,15 @@ export default function Faturas() {
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           const attemptPrefix = attempt > 1 ? `Tentativa ${attempt} de ${maxAttempts}: ` : ''
-          const forceModel = attempt === 1 ? undefined : attempt === 2 ? 'reasoning' : 'fast'
+          // Tentativa 1: reasoning (ou padrão backend que prioriza reasoning)
+          // Tentativa 2: fast
+          // Tentativa 3: reasoning sem imagens se houver texto, ou reasoning com imagens
+          const forceModel = attempt === 1 ? 'reasoning' : attempt === 2 ? 'fast' : 'reasoning'
           const disableImages = attempt === 3
 
           try {
             setExtractingStatus(
-              `${attemptPrefix}Lendo fatura com IA (${attempt === 1 ? 'modo padrão' : attempt === 2 ? 'modo reasoning aprofundado' : 'modo alternativo'})...`,
+              `${attemptPrefix}Lendo fatura com IA (${attempt === 1 ? 'leitura visual detalhada' : attempt === 2 ? 'modelo rápido' : 'modo alternativo'})...`,
             )
 
             const res = await faturasService.extractFromDocument(
@@ -320,7 +323,6 @@ export default function Faturas() {
               d = candidateData
               break
             } else {
-              d = candidateData
               console.warn(
                 `[Faturas] Tentativa ${attempt} retornou sem campos essenciais completos.`,
               )
@@ -329,6 +331,8 @@ export default function Faturas() {
                   `Tentativa ${attempt + 1} de ${maxAttempts}: alternando modelo de leitura...`,
                 )
                 await new Promise((r) => setTimeout(r, 600))
+              } else {
+                d = candidateData
               }
             }
           } catch (attemptErr) {
@@ -971,9 +975,9 @@ export default function Faturas() {
           })
         } else {
           toast({
-            title: 'Dados essenciais não detectados',
+            title: 'Extração não identificou os dados',
             description:
-              'A IA não conseguiu identificar os valores financeiros ou de consumo neste comprovante. Por favor, preencha as medições e valores manualmente no formulário.',
+              'Não foi possível extrair automaticamente os valores desta fatura. Você pode tentar extrair novamente ou preencher os campos manualmente.',
             variant: 'destructive',
           })
         }
@@ -1935,15 +1939,24 @@ export default function Faturas() {
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div>
                           <p className="font-bold">
-                            Nenhum empreendimento corresponde ao CNPJ extraído da fatura (
-                            {cnpjCliente || 'CNPJ não identificado'})
+                            {cnpjCliente ? (
+                              <>
+                                Nenhum empreendimento cadastrado corresponde ao CNPJ extraído da
+                                fatura ({cnpjCliente}).
+                              </>
+                            ) : (
+                              <>
+                                Nenhum empreendimento foi vinculado automaticamente (CNPJ do titular
+                                não identificado na leitura).
+                              </>
+                            )}
                           </p>
                           <p className="text-[11px] text-amber-700 mt-0.5">
                             Por favor, vincule manualmente um empreendimento para salvar a fatura.
                           </p>
                         </div>
                       </div>
-                      <div className="pt-1 pl-6">
+                      <div className="pt-1 pl-6 flex items-center gap-2">
                         <Button
                           type="button"
                           size="sm"
@@ -1951,6 +1964,15 @@ export default function Faturas() {
                           className="h-7 text-[11px] bg-amber-600 hover:bg-amber-700 text-white"
                         >
                           Vincular Empreendimento Manualmente
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleProceedToExtract}
+                          className="h-7 text-[11px] border-amber-300 text-amber-900 hover:bg-amber-100"
+                        >
+                          Tentar extrair novamente
                         </Button>
                       </div>
                     </div>
