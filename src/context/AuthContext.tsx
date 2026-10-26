@@ -78,16 +78,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err: any) {
         const status = err?.status || err?.response?.status
-        if (status === 401 || status === 403) {
-          // Real token expiration or invalid credentials: purge
-          console.warn('Sessão expirada no backend (401/403):', err)
+        const msg = err?.message || String(err)
+        // Só purgar se houver confirmação explícita de token inválido/revogado (HTTP 401/403 real com resposta do servidor)
+        // Se for falha de rede/timeout/offline (ex: "Failed to fetch", status 0), NÃO purgar!
+        const isConfirmedAuthRevocation =
+          (status === 401 || status === 403) &&
+          !msg.includes('Failed to fetch') &&
+          !msg.includes('NetworkError')
+
+        if (isConfirmedAuthRevocation) {
+          console.warn('Sessão revogada ou expirada no backend (401/403):', err)
           pb.authStore.clear()
           if (isMounted) {
             setUser(null)
             setToken(null)
           }
         } else {
-          // Network fluctuation or offline: preserve local token if valid
+          // Falha de rede, timeout ou oscilação de conectividade: preserva o token local
           console.warn('Falha transitória ao atualizar sessão, mantendo token local:', err)
           if (isMounted && pb.authStore.record && pb.authStore.isValid) {
             setUser(pb.authStore.record)
@@ -178,13 +185,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return pb.authStore.isValid
     } catch (err: any) {
       const status = err?.status || err?.response?.status
-      if (status === 401 || status === 403) {
+      const msg = err?.message || String(err)
+      const isConfirmedAuthRevocation =
+        (status === 401 || status === 403) &&
+        !msg.includes('Failed to fetch') &&
+        !msg.includes('NetworkError')
+
+      if (isConfirmedAuthRevocation) {
         pb.authStore.clear()
         setUser(null)
         setToken(null)
         return false
       }
-      // If it's a network glitch, authStore is still locally valid
+      // Se for oscilação de rede ou timeout, manter a sessão localmente válida para não deslogar
       return pb.authStore.isValid
     }
   }

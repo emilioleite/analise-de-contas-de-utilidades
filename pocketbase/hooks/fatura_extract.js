@@ -444,24 +444,24 @@ Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão o
 
 1. Se for fatura Comgás (Gás):
   - No topo superior direito (quadro do cliente):
-    * Nome do cliente e endereço (ex: "COND. E EDIF. 21ST CENTURY FLAT", "AL LORENA 473").
-    * "CPF/CNPJ: 03819289/0001-63" -> 'cnpj_cliente': "03.819.289/0001-63" (extraia com pontuação ou dígitos limpos, NUNCA deixe null!).
+    * Nome do cliente e endereço.
+    * "CPF/CNPJ": extraia com pontuação ou dígitos limpos EXATAMENTE como impresso no documento, NUNCA deixe null se visível.
     * "Código do usuário" / "CÓDIGO USUÁRIO".
   - No topo superior esquerdo/central:
-    * "Companhia de Gás de São Paulo - CNPJ 61.856.571/0006-21" -> 'cnpj_fornecedor': "61.856.571/0006-21".
-    * "NOTA FISCAL / CONTA DE GÁS Nº 140.162.786" -> 'numero_fatura': "140.162.786".
+    * Distribuidora: "Companhia de Gás de São Paulo - CNPJ 61.856.571/0006-21" -> 'cnpj_fornecedor': "61.856.571/0006-21".
+    * "NOTA FISCAL / CONTA DE GÁS Nº" -> 'numero_fatura': número exato impresso na imagem.
   - No quadro central superior de datas e totais:
-    * "Vencimento": data ex: "12.03.2026" -> 'vencimento': "2026-03-12".
-    * "Valor a pagar (R$)": ex: "211,20" -> 'valor_total': 211.20 e 'fatura_total': 211.20.
-    * "Mês de referência": ex: "fev/2026" -> 'competencia': "2026-02-01" e 'competencia_formatada': "02/2026".
+    * "Vencimento": data da fatura em formato YYYY-MM-DD.
+    * "Valor a pagar (R$)": valor monetário impresso da fatura em decimal.
+    * "Mês de referência": mês/ano de referência da fatura (ex: mm/aaaa -> 'competencia': YYYY-MM-01, 'competencia_formatada': MM/AAAA).
   - No quadro "Consumo e tarifas":
-    * "Consumo Corrigido/Faturado (m³)" -> 'consumo_corrigido': 33.037 e 'consumo': 33.037.
-    * "Tarifa Aplicada com ICMS" -> 'tarifa': 6.392832. NUNCA use a tarifa variável do bloco "Dados tarifários".
-    * "Fornecimento de gás natural (R$)" -> 'valor_fornecimento': 211.20.
+    * "Consumo Corrigido/Faturado (m³)" -> 'consumo_corrigido' e 'consumo'.
+    * "Tarifa Aplicada com ICMS" -> 'tarifa'. NUNCA use a tarifa variável do bloco "Dados tarifários".
+    * "Fornecimento de gás natural (R$)" -> 'valor_fornecimento'.
   - No quadro "Detalhamento do consumo" (linha do medidor):
-    * "Leitura Anterior": ex: 75.795 -> 'medicao_anterior': 75795 (atenção: ponto é separador de milhar!).
-    * "Leitura Atual": ex: 75.830 -> 'medicao_atual': 75830 (atenção: ponto é separador de milhar!).
-    * "consumo medido (m³)" -> 'consumo_medido': 35 (ou diferença Atual - Anterior).
+    * "Leitura Anterior": leitura anterior inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
+    * "Leitura Atual": leitura atual inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
+    * "consumo medido (m³)" -> 'consumo_medido' (diferença Atual - Anterior).
   - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente.
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):

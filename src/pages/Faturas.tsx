@@ -134,15 +134,13 @@ export default function Faturas() {
   // Track if enterprise was automatically suggested by extracted CNPJ
   const [empAutoSuggested, setEmpAutoSuggested] = useState(false)
 
-  // Reset upload modal form
-  const resetUploadForm = () => {
-    setStep(1)
-    setUploadedFile(null)
-    setSelectedEmpId('') // NÃO pré-selecionar nenhum empreendimento (limpar seleção de sessão anterior)
+  // Ref para token de requisição única de extração (evita race condition / respostas órfãs)
+  const extractionRequestIdRef = useRef<number>(0)
+
+  // Função central de zeramento TOTAL de estado de extração e valores do formulário do Passo 3
+  const clearExtractionState = () => {
+    setSelectedEmpId('')
     setEmpAutoSuggested(false)
-    setSelectedTipo('Energia Elétrica')
-    setExtracting(false)
-    setExtractingStatus('')
     setCompetenciaInput('')
     setValorTotal('')
     setConsumo('')
@@ -168,6 +166,17 @@ export default function Faturas() {
     setLastCreatedFatura(null)
   }
 
+  // Reset upload modal form
+  const resetUploadForm = () => {
+    extractionRequestIdRef.current += 1 // Invalida qualquer extração em andamento
+    setStep(1)
+    setUploadedFile(null)
+    setSelectedTipo('Energia Elétrica')
+    setExtracting(false)
+    setExtractingStatus('')
+    clearExtractionState()
+  }
+
   // Handle selected file drop or pick
   const handleFileSelect = (file: File) => {
     const validExtensions = ['pdf', 'csv', 'xls', 'xlsx']
@@ -181,28 +190,8 @@ export default function Faturas() {
       return
     }
     // Sempre resetar campos de extração anterior ao selecionar um novo arquivo para upload
-    setSelectedEmpId('')
-    setEmpAutoSuggested(false)
-    setCompetenciaInput('')
-    setValorTotal('')
-    setConsumo('')
-    setNumeroFatura('')
-    setCnpjCliente('')
-    setCnpjFornecedor('')
-    setVencimento('')
-    setMedicaoAnterior('')
-    setMedicaoAtual('')
-    setConsumoMedido('')
-    setConsumoCorrigido('')
-    setTarifa('')
-    setConsumoPonta('')
-    setConsumoForaPonta('')
-    setTarifaTusdPonta('')
-    setTarifaTePonta('')
-    setTarifaTusdFPonta('')
-    setTarifaTeFPonta('')
-    setCnpjMismatchIgnored(false)
-    setLastCreatedFatura(null)
+    extractionRequestIdRef.current += 1 // Invalida qualquer requisição anterior
+    clearExtractionState()
     setUploadedFile(file)
   }
 
@@ -213,31 +202,18 @@ export default function Faturas() {
     setExtractingStatus('Preparando documento...')
 
     // Limpar estados de extração anterior antes de iniciar nova extração
-    setCompetenciaInput('')
-    setValorTotal('')
-    setConsumo('')
-    setNumeroFatura('')
-    setCnpjCliente('')
-    setCnpjFornecedor('')
-    setVencimento('')
-    setMedicaoAnterior('')
-    setMedicaoAtual('')
-    setConsumoMedido('')
-    setConsumoCorrigido('')
-    setTarifa('')
-    setConsumoPonta('')
-    setConsumoForaPonta('')
-    setTarifaTusdPonta('')
-    setTarifaTePonta('')
-    setTarifaTusdFPonta('')
-    setTarifaTeFPonta('')
-    setCnpjMismatchIgnored(false)
-    setLastCreatedFatura(null)
+    clearExtractionState()
 
     // Pre-set unit based on utility
     setUnidadeConsumo(selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
 
+    // Gerar novo ID de requisição para garantir que apenas a resposta desta chamada será aplicada
+    const currentRequestId = ++extractionRequestIdRef.current
+
     try {
+      // Revalida preventivamente a sessão antes da chamada de extração para evitar 401 por token desatualizado
+      await ensureValidSession().catch(() => null)
+
       if (uploadedFile) {
         // Fluxo com retry automático alternando parâmetros/modelos (até 3 tentativas)
         let lastRes: any = null
@@ -323,6 +299,11 @@ export default function Faturas() {
               candidateData = { ...candidateData.data, ...candidateData }
             }
 
+            // Se este request já foi superado ou cancelado, pare imediatamente
+            if (currentRequestId !== extractionRequestIdRef.current) {
+              return
+            }
+
             if (checkEssentialData(candidateData)) {
               d = candidateData
               break
@@ -340,6 +321,9 @@ export default function Faturas() {
               }
             }
           } catch (attemptErr) {
+            if (currentRequestId !== extractionRequestIdRef.current) {
+              return
+            }
             console.warn(`[Faturas] Erro na tentativa ${attempt}:`, attemptErr)
             if (attempt === maxAttempts) {
               throw attemptErr
@@ -348,6 +332,12 @@ export default function Faturas() {
             await new Promise((r) => setTimeout(r, 600))
           }
         }
+
+        // Se uma nova extração foi disparada enquanto esta rodava, descarte o resultado órfão
+        if (currentRequestId !== extractionRequestIdRef.current) {
+          return
+        }
+
         if (d.dados && typeof d.dados === 'object') {
           d = { ...d.dados, ...d }
         } else if (d.data && typeof d.data === 'object') {
@@ -1087,7 +1077,7 @@ export default function Faturas() {
         if (hasConsumptionOrFinancialData) {
           toast({
             title: 'Extração inteligente concluída',
-            description: 'Revise os dados extraídos antes de confirmar.',
+            description: `Arquivo: ${uploadedFile.name}. Revise os dados extraídos antes de confirmar.`,
           })
         } else {
           toast({
@@ -1099,6 +1089,10 @@ export default function Faturas() {
         }
       }
     } catch (err: any) {
+      // Se este request já foi superado por outro mais recente, ignore o erro
+      if (currentRequestId !== extractionRequestIdRef.current) {
+        return
+      }
       console.warn('Erro na extração IA:', err)
       const rawErr = err?.message || String(err)
       let cleanDesc = rawErr
@@ -1119,7 +1113,9 @@ export default function Faturas() {
         variant: 'destructive',
       })
     } finally {
-      setExtracting(false)
+      if (currentRequestId === extractionRequestIdRef.current) {
+        setExtracting(false)
+      }
     }
   }
 
@@ -1797,7 +1793,15 @@ export default function Faturas() {
       )}
 
       {/* Multi-step Upload Modal */}
-      <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
+      <Dialog
+        open={uploadModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetUploadForm()
+          }
+          setUploadModalOpen(open)
+        }}
+      >
         <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-gray-900 flex items-center justify-between">
@@ -2729,7 +2733,11 @@ export default function Faturas() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setStep(2)}
+                      onClick={() => {
+                        extractionRequestIdRef.current += 1
+                        clearExtractionState()
+                        setStep(2)
+                      }}
                       className="text-xs"
                     >
                       <ArrowLeft className="w-3.5 h-3.5 mr-1" />
