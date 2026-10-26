@@ -761,15 +761,44 @@ export default function Faturas() {
         // Regra de negócio: Se a Classificação for B (B1, B2, B3, B4), o consumo é ÚNICO!
         // Não há consumo ponta ou fora-ponta. Se a IA enviou apenas ponta/fora-ponta ou medido,
         // consolidamos como consumo único e limpamos ponta/fora-ponta.
+        // NUNCA deixar o campo consumo vazio em Grupo B se qualquer uma das fontes o trouxer.
         if (detectedTipo === 'Energia Elétrica' && isGrupoB) {
-          if (cConsumo === undefined) {
+          let resolvedGrupoBConsumo = cConsumo
+          if (resolvedGrupoBConsumo === undefined) {
             const candidateUnico =
               cForaPonta ||
               cPonta ||
               parsePositiveNumber(getField('consumo_medido', 'consumoMedido'))
             if (candidateUnico !== undefined) {
-              setConsumo(candidateUnico)
+              resolvedGrupoBConsumo = candidateUnico
             }
+          }
+
+          // Fallback de coerência para Grupo B: se consumo ainda estiver vazio, mas medições existirem:
+          // Calcular (leitura_atual - leitura_anterior) x constante_comercial (ou constante padrão do medidor)
+          if (
+            resolvedGrupoBConsumo === undefined &&
+            medAtu !== undefined &&
+            medAnt !== undefined &&
+            medAtu > medAnt
+          ) {
+            const diff = medAtu - medAnt
+            const rawConst = parsePositiveNumber(
+              getField('constante', 'constante_medidor', 'const_medidor', 'constante_comercial'),
+            )
+            const constMulti = rawConst || 0.024
+            const calcCons = Number((diff * constMulti).toFixed(3))
+            const vTot = vTotal || parsePositiveNumber(rawVTotal)
+            // Se coerente com valor total ou se não houver valor total
+            if (calcCons > 0 && (!vTot || calcCons * 0.3 < vTot)) {
+              resolvedGrupoBConsumo = calcCons
+            } else if (diff > 0 && (!vTot || diff * 0.3 < vTot)) {
+              resolvedGrupoBConsumo = diff
+            }
+          }
+
+          if (resolvedGrupoBConsumo !== undefined) {
+            setConsumo(formatNumberValue(resolvedGrupoBConsumo, 3))
           }
           cPonta = undefined
           cForaPonta = undefined

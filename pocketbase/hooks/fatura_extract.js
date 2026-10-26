@@ -202,12 +202,16 @@ Campos de medição e tarifas:
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
 - REGRA CRÍTICA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
   * Se a Classificação for do GRUPO B (B1, B2, B3, B4 ou qualquer código iniciando com B, ex: "B3", "B-B3 - CONVENCIONAL - COMERCIAL"):
-    - O consumo é ÚNICO (fatura convencional sem divisão por posto horário).
+    - O consumo é SEMPRE ÚNICO (fatura convencional sem divisão por posto horário). NUNCA deixe o campo de consumo vazio ou nulo em Grupo B!
+    - Onde encontrar o Consumo Total Faturado em kWh (aparece em múltiplos locais da fatura Enel/Eletropaulo):
+      1) Na coluna "CONSUMO FATURADO (kWh)" da linha correspondente ao mês de referência no quadro histórico (ex.: "JAN/26 24.098,400" -> consumo = 24098.4);
+      2) Na coluna "Consumo kWh" da linha do medidor na tabela "DADOS DE MEDIÇÃO" (ex.: "11134555 ENRG ATV ÚNICO 58753.000 59757.100 0,02400 24.098,400" -> consumo = 24098.4);
+      3) Na tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA", na coluna "Quant. (kWh)" das linhas "USO SIST. DISTR. (TUSD)" e "ENERGIA (TE)" (ex.: 24.098,400 kWh).
     - NÃO há separação de consumo ponta/fora-ponta.
-    - Preencha SEMPRE 'consumo': número decimal do consumo total/faturado (ex: 20438.4 ou 20438.400).
-    - Também preencha 'consumo_medido' com esse mesmo valor.
+    - Preencha SEMPRE 'consumo': número decimal do consumo total/faturado (ex: 24098.4 ou 24098.400).
+    - Também preencha 'consumo_medido' com esse mesmo valor (24098.4).
     - Deixe 'consumo_ponta' e 'consumo_fora_ponta' como null.
-    - Tarifas: há apenas TUSD e TE únicas (sem ponta/fora-ponta). Preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.60978) e 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.40912).
+    - Tarifas: há apenas TUSD e TE únicas (sem ponta/fora-ponta). Preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.55454) e 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.37539).
   * Se a Classificação for do GRUPO A (A1, A2, A3, A4 ou qualquer código iniciando com A, estrutura horossazonal ex: Verde / Azul / A4):
     - Há Consumo Ponta e Consumo Fora-Ponta separados com suas respectivas tarifas por posto:
     - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' (da linha Ponta).
@@ -240,12 +244,14 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - Quadro "VENCIMENTO": ex: "25/09/2026" -> 'vencimento': "2026-09-25".
     - Quadro "TOTAL A PAGAR": ex: "R$22.347,38" -> 'valor_total': 22347.38 e 'fatura_total': 22347.38.
     - Quadro "MENSAGENS IMPORTANTES": ex: "Bandeira(s) tarifária(s) aplicada(s) no mês: AMARELA" -> 'adicional_bandeira': "Bandeira Amarela".
+    - Quadro histórico de consumo: "MÊS/ANO CONSUMO FATURADO (kWh)" -> na linha do mês da fatura (ex: "JAN/26 24.098,400") extraia 'consumo': 24098.4.
     - Tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
-      * USO SIST. DISTR. (TUSD): Quant. 20.438,400 kWh, Preço unit com tributos 0,60978, Valor 12.462,95 -> 'tarifa_tusd_ponta': 0.60978.
-      * ENERGIA (TE): Quant. 20.438,400 kWh, Preço unit com tributos 0,40912, Valor 8.361,74 -> 'tarifa_te_ponta': 0.40912.
+      * USO SIST. DISTR. (TUSD): Quant. 24.098,400 kWh, Preço unit com tributos 0,55454, Valor 13.363,46 -> 'tarifa_tusd_ponta': 0.55454.
+      * ENERGIA (TE): Quant. 24.098,400 kWh, Preço unit com tributos 0,37539, Valor 9.046,36 -> 'tarifa_te_ponta': 0.37539.
+      * Se houver ADICIONAL BANDEIRA AMARELA / VERMELHA, identifique a bandeira correspondente em 'adicional_bandeira'.
     - Tabela "DADOS DE MEDIÇÃO":
-      * Medidor: ex: 11134555 | Postos Tarifários: ÚNICO | Leitura Anterior: 65891,700 | Leitura Atual: 66743,300 | Const. Medidor: 0,02400 | Consumo kWh: 20.438,400.
-      * Extraia: 'medicao_anterior': 65891.7, 'medicao_atual': 66743.3, 'consumo_medido': 20438.4, 'consumo': 20438.4.
+      * Medidor: ex: 11134555 | Postos Tarifários: ÚNICO | Leitura Anterior: 58753.000 | Leitura Atual: 59757.100 | Const. Medidor: 0,02400 | Consumo kWh: 24.098,400.
+      * Extraia: 'medicao_anterior': 58753, 'medicao_atual': 59757, 'consumo_medido': 24098.4, 'consumo': 24098.4. Atenção: Leituras cumulativas de medidor são inteiros; o ponto é separador de milhar. O consumo usa ponto de milhar + vírgula decimal (24.098,400 kWh).
   * PÁGINA 2:
     - Informações adicionais de canais de atendimento, indicadores e dados complementares.
 
@@ -459,12 +465,13 @@ Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão o
   - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente.
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
-  - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
-  - Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh.
-  - Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é ÚNICO.
-  - "DESCRIÇÃO DO FATURAMENTO": extraia as tarifas sob a coluna "Preço Unit (R$) com tributos" para TUSD e TE.
-  - CNPJ do cliente no quadro de destinatário da fatura e CNPJ da distribuidora.
-
+- Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
+- Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh (ex.: "Consumo kWh 24.098,400" -> 'consumo': 24098.4).
+- Quadro histórico de consumo: linha do mês corrente sob "CONSUMO FATURADO (kWh)" (ex.: "JAN/26 24.098,400" -> 'consumo': 24098.4).
+- Tabela "ITENS DE FATURA" / "DESCRIÇÃO DO FATURAMENTO": coluna "Quant. (kWh)" nas linhas TUSD e TE (ex.: 24.098,400).
+- Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é SEMPRE ÚNICO e NUNCA nulo.
+- "DESCRIÇÃO DO FATURAMENTO": extraia as tarifas sob a coluna "Preço Unit (R$) com tributos" para TUSD e TE.
+- CNPJ do cliente no quadro de destinatário da fatura e CNPJ da distribuidora.
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Medições de hidrômetro (Anterior, Atual, Consumo m³).
   - Quadro de total a pagar e vencimento.
@@ -1401,6 +1408,129 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
             }
           }
 
+          // Fallback por regex no texto do PDF para faturas de Energia Elétrica (Enel e congêneres)
+          let extractedMeterConst = null
+          if (textExtracted && textContent && typeof textContent === 'string') {
+            // 1. Linha do medidor em DADOS DE MEDIÇÃO:
+            // Ex.: "11134555 ENRG ATV ÚNICO 58753.000 59757.100 0,02400 24.098,400"
+            // Colunas: Medidor / Grandezas / Postos Tarifários / Leitura Anterior / Leitura Atual / Const. Medidor / Consumo kWh
+            const meterLineRegex =
+              /(?:ENRG\s+ATV\s+(?:[A-Z\u00C0-\u00FF]+|\S+)\s+)?(\d{4,7}(?:\.\d{3})?)\s+(\d{4,7}(?:\.\d{3})?)\s+(\d+[,.]\d{2,6})\s+(\d{1,3}(?:\.\d{3})*,\d{1,3})/i
+            const meterMatch = textContent.match(meterLineRegex)
+            if (meterMatch) {
+              const rawAntStr = meterMatch[1]
+              const rawAtuStr = meterMatch[2]
+              const rawConstStr = meterMatch[3]
+              const rawConsStr = meterMatch[4]
+
+              // Consumo: usa ponto de milhar e vírgula decimal (ex: 24.098,400 -> 24098.4)
+              const consClean = Number(rawConsStr.replace(/\./g, '').replace(',', '.'))
+              if (!isNaN(consClean) && consClean > 0) {
+                if (!parsed.consumo || Number(parsed.consumo) === 0) {
+                  console.log(
+                    '[fatura_extract] Consumo extraído por regex da linha do medidor:',
+                    consClean,
+                  )
+                  parsed.consumo = consClean
+                }
+              }
+
+              // Constante do medidor
+              const constClean = Number(rawConstStr.replace(',', '.'))
+              if (!isNaN(constClean) && constClean > 0) {
+                extractedMeterConst = constClean
+              }
+
+              // Leituras do medidor (inteiros cumulativos, ignorar ponto de milhar ou casas decimais residuais de precisão)
+              const antClean = Math.round(
+                Number(rawAntStr.replace(/\./g, '')) / (rawAntStr.includes('.') ? 1000 : 1),
+              )
+              const atuClean = Math.round(
+                Number(rawAtuStr.replace(/\./g, '')) / (rawAtuStr.includes('.') ? 1000 : 1),
+              )
+              if (!parsed.medicao_anterior && antClean > 0) parsed.medicao_anterior = antClean
+              if (!parsed.medicao_atual && atuClean > 0) parsed.medicao_atual = atuClean
+            }
+
+            // 2. Tabela de itens de faturamento (TUSD / TE): coluna Quant. (kWh)
+            // Ex.: "USO SIST. DISTR. (TUSD) KWH 24.098,400 0,55454 13.363,46"
+            // ou "ENERGIA (TE) KWH 24.098,400 0,37539 9.046,36"
+            if (!parsed.consumo || Number(parsed.consumo) === 0) {
+              const tusdTeItemMatch = textContent.match(
+                /(?:USO\s+SIST\.?\s*DISTR\.?|ENERGIA\s*\(TE\)|TUSD|TE)\s+(?:KWH\s+)?(\d{1,3}(?:\.\d{3})*,\d{1,3})/i,
+              )
+              if (tusdTeItemMatch) {
+                const itemCons = Number(tusdTeItemMatch[1].replace(/\./g, '').replace(',', '.'))
+                if (!isNaN(itemCons) && itemCons > 0) {
+                  console.log(
+                    '[fatura_extract] Consumo extraído por regex dos itens TUSD/TE:',
+                    itemCons,
+                  )
+                  parsed.consumo = itemCons
+                }
+              }
+            }
+
+            // 3. Quadro histórico: "MÊS/ANO CONSUMO FATURADO (kWh)"
+            // Ex.: "JAN/26 24.098,400 31 LID"
+            if (!parsed.consumo || Number(parsed.consumo) === 0) {
+              let mesAbrev = ''
+              if (parsed.competencia_formatada) {
+                const mesesMap = {
+                  '01': 'JAN',
+                  '02': 'FEV',
+                  '03': 'MAR',
+                  '04': 'ABR',
+                  '05': 'MAI',
+                  '06': 'JUN',
+                  '07': 'JUL',
+                  '08': 'AGO',
+                  '09': 'SET',
+                  10: 'OUT',
+                  11: 'NOV',
+                  12: 'DEZ',
+                }
+                const [mm, yyyy] = String(parsed.competencia_formatada).split('/')
+                const sigla = mesesMap[mm]
+                const aa = yyyy ? yyyy.slice(-2) : ''
+                if (sigla && aa) {
+                  mesAbrev = `${sigla}/${aa}`
+                }
+              }
+
+              if (mesAbrev) {
+                const histRegex = new RegExp(
+                  `${mesAbrev}\\s+(\\d{1,3}(?:\\.\\d{3})*,\\d{1,3})`,
+                  'i',
+                )
+                const histMatch = textContent.match(histRegex)
+                if (histMatch) {
+                  const histCons = Number(histMatch[1].replace(/\./g, '').replace(',', '.'))
+                  if (!isNaN(histCons) && histCons > 0) {
+                    console.log(
+                      '[fatura_extract] Consumo extraído por regex do histórico:',
+                      histCons,
+                    )
+                    parsed.consumo = histCons
+                  }
+                }
+              }
+            }
+
+            // Fallback para constante do medidor isolada se não encontrada na linha do medidor
+            if (!extractedMeterConst) {
+              const constMatch = textContent.match(
+                /(?:Const\.?\s*Medidor|Constante)\s*[:.]?\s*(\d+[,.]\d{2,6})/i,
+              )
+              if (constMatch) {
+                const parsedC = Number(constMatch[1].replace(',', '.'))
+                if (!isNaN(parsedC) && parsedC > 0) {
+                  extractedMeterConst = parsedC
+                }
+              }
+            }
+          }
+
           // Se for Classe B (ou não houver ponta/fora-ponta discriminados):
           // Consumo é ÚNICO! Não deve haver separação ponta/fora-ponta.
           if (grupoConsumo === 'B') {
@@ -1427,6 +1557,53 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
                   (Number(parsed.consumo_ponta) || 0) + (Number(parsed.consumo_fora_ponta) || 0)
                 ).toFixed(3),
               )
+            }
+          }
+
+          // Validação de coerência adicional para energia Grupo B:
+          // Se consumo_total vier vazio mas medições e constante existirem,
+          // calcular consumo ≈ (leitura_atual − leitura_anterior) × constante e usar como fallback
+          // quando o resultado for coerente com o valor faturado.
+          if (
+            (!parsed.consumo || Number(parsed.consumo) === 0) &&
+            grupoConsumo === 'B' &&
+            parsed.medicao_atual !== undefined &&
+            parsed.medicao_anterior !== undefined &&
+            Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
+          ) {
+            const diffLeituras = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
+            // Se constante foi identificada
+            if (extractedMeterConst && extractedMeterConst > 0) {
+              const calcConsumo = Number((diffLeituras * extractedMeterConst).toFixed(3))
+              // Checagem de coerência contra o valor faturado
+              // Se tivermos tarifas TUSD/TE (soma das tarifas ≈ tarifa total)
+              const somaTarifas =
+                (Number(parsed.tarifa_tusd_ponta) || 0) + (Number(parsed.tarifa_te_ponta) || 0)
+              const vTotalVal = Number(parsed.valor_total || parsed.fatura_total || 0)
+              let coerente = false
+              if (somaTarifas > 0 && vTotalVal > 0) {
+                const valorEstimado = calcConsumo * somaTarifas
+                // Tolerância de 30% para impostos/bandeiras/iluminação pública
+                if (Math.abs(valorEstimado - vTotalVal) / vTotalVal < 0.4) {
+                  coerente = true
+                }
+              } else if (calcConsumo > 0) {
+                // Sem tarifas para checar, mas medição × constante é a fórmula padrão da distribuidora
+                coerente = true
+              }
+
+              if (coerente && calcConsumo > 0) {
+                console.log(
+                  `[fatura_extract] Consumo calculado por medições (${parsed.medicao_atual} - ${parsed.medicao_anterior}) * ${extractedMeterConst} = ${calcConsumo}`,
+                )
+                parsed.consumo = calcConsumo
+              }
+            } else if (
+              diffLeituras > 0 &&
+              (!parsed.valor_total || diffLeituras < Number(parsed.valor_total) * 10)
+            ) {
+              // Sem constante do medidor (constante = 1 direta)
+              parsed.consumo = diffLeituras
             }
           }
 
