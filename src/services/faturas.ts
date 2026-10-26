@@ -130,6 +130,21 @@ export const faturasService = {
       formData.append('force_model', forceModel)
     }
 
+    // Tenta renovar silenciosamente o token antes de enviar para garantir validade da sessão
+    try {
+      if (pb.authStore.isValid && pb.authStore.token) {
+        const refreshed = await pb
+          .collection('users')
+          .authRefresh()
+          .catch(() => null)
+        if (refreshed?.token && refreshed?.record) {
+          pb.authStore.save(refreshed.token, refreshed.record)
+        }
+      }
+    } catch {
+      // Falhas no refresh preventivo nunca devem interromper a tentativa de extração
+    }
+
     // Call custom hook route /backend/v1/faturas/extract with auth token and timeout controller
     const token = pb.authStore.token
     const baseUrl = import.meta.env.VITE_POCKETBASE_URL || ''

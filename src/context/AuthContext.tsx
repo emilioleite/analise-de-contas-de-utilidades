@@ -49,9 +49,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 6000)
 
     const rehydrateSession = async () => {
-      if (!pb.authStore.isValid || !pb.authStore.token) {
-        // Clear any orphaned or invalid auth data
-        pb.authStore.clear()
+      // Se tiver token salvo (mesmo com token expiry aproximando), preservar localmente
+      if (!pb.authStore.token) {
         if (isMounted) {
           setUser(null)
           setToken(null)
@@ -61,14 +60,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return
       }
 
-      // Pre-populate sync state immediately from local valid authStore so UI renders without flash
-      if (isMounted) {
+      // Pre-populate sync state immediately from local authStore so UI renders without flash
+      if (isMounted && pb.authStore.record) {
         setUser(pb.authStore.record)
         setToken(pb.authStore.token)
       }
 
       try {
-        // First try authRefresh to validate the token and get the refreshed record
+        // Tenta renovar preventivamente a sessão com authRefresh
         const authData = await pb.collection('users').authRefresh()
 
         if (isMounted && authData?.record) {
@@ -79,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err: any) {
         const status = err?.status || err?.response?.status
         const msg = err?.message || String(err)
-        // Só purgar se houver confirmação explícita de token inválido/revogado (HTTP 401/403 real com resposta do servidor)
+        // Só purgar se houver confirmação explícita de token inválido/revogado pelo servidor (401/403)
         // Se for falha de rede/timeout/offline (ex: "Failed to fetch", status 0), NÃO purgar!
         const isConfirmedAuthRevocation =
           (status === 401 || status === 403) &&
@@ -94,9 +93,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setToken(null)
           }
         } else {
-          // Falha de rede, timeout ou oscilação de conectividade: preserva o token local
+          // Falha transitória de rede ou timeout: preserva o token local
           console.warn('Falha transitória ao atualizar sessão, mantendo token local:', err)
-          if (isMounted && pb.authStore.record && pb.authStore.isValid) {
+          if (isMounted && pb.authStore.record) {
             setUser(pb.authStore.record)
             setToken(pb.authStore.token)
           }
@@ -171,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const ensureValidSession = async (): Promise<boolean> => {
-    if (!pb.authStore.isValid || !pb.authStore.token) {
+    if (!pb.authStore.token) {
       return false
     }
     try {
@@ -182,12 +181,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken(authData.token)
         return true
       }
-      return pb.authStore.isValid
+      return !!pb.authStore.token
     } catch (err: any) {
       // Falhas no authRefresh durante requisições longas ou oscilações de rede não devem
-      // desconectar proativamente o usuário. Mantém a sessão local para permitir nova tentativa.
+      // desconectar proativamente o usuário nem limpar o token local. Mantém a sessão local.
       console.warn('ensureValidSession: erro ao tentar refresh (preservando sessão local):', err)
-      return pb.authStore.isValid
+      return !!pb.authStore.token
     }
   }
 

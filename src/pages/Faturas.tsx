@@ -2108,10 +2108,18 @@ export default function Faturas() {
                           type="button"
                           variant="outline"
                           size="sm"
+                          disabled={extracting}
                           onClick={handleProceedToExtract}
                           className="h-7 text-[11px] border-amber-300 text-amber-900 hover:bg-amber-100"
                         >
-                          Tentar extrair novamente
+                          {extracting ? (
+                            <>
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              Extraindo...
+                            </>
+                          ) : (
+                            'Tentar extrair novamente'
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -2201,7 +2209,7 @@ export default function Faturas() {
                           Competência (MM/AAAA) *
                         </Label>
                         <Input
-                          placeholder="Ex: 08/2026"
+                          placeholder="Ex: MM/AAAA"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             competenciaInput
                               ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2217,7 +2225,7 @@ export default function Faturas() {
                           Valor Total da Fatura (R$) *
                         </Label>
                         <Input
-                          placeholder="Ex: 23.862,35"
+                          placeholder="Ex: 0,00"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             valorTotal !== ''
                               ? 'text-gray-900 font-bold bg-white border-teal-500/50'
@@ -2233,7 +2241,7 @@ export default function Faturas() {
                           Consumo Principal ({unidadeConsumo})
                         </Label>
                         <Input
-                          placeholder="Ex: 33,037"
+                          placeholder="Ex: 0,000"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             consumo !== ''
                               ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2248,7 +2256,7 @@ export default function Faturas() {
                           Número da Fatura / Nota
                         </Label>
                         <Input
-                          placeholder="Ex: 150.238.010"
+                          placeholder="Ex: 000.000.000"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             numeroFatura
                               ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2264,7 +2272,7 @@ export default function Faturas() {
                           CNPJ do Cliente (Titular da Unidade)
                         </Label>
                         <Input
-                          placeholder="Ex: 04.151.776/0001-63"
+                          placeholder="Ex: 00.000.000/0001-00"
                           className={`h-9 text-xs font-mono placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             cnpjCliente
                               ? 'text-gray-900 font-bold bg-white border-teal-500/50'
@@ -2283,7 +2291,7 @@ export default function Faturas() {
                           CNPJ do Fornecedor (Distribuidora)
                         </Label>
                         <Input
-                          placeholder="Ex: 61.856.571/0006-21"
+                          placeholder="Ex: 00.000.000/0001-00"
                           className={`h-9 text-xs font-mono placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             cnpjFornecedor
                               ? 'text-gray-900 font-bold bg-white border-teal-500/50'
@@ -2327,7 +2335,7 @@ export default function Faturas() {
                             Medição Anterior
                           </Label>
                           <Input
-                            placeholder="Ex: 65891.7"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAnterior !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2340,7 +2348,7 @@ export default function Faturas() {
                         <div>
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
-                            placeholder="Ex: 66743.3"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAtual !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2401,7 +2409,7 @@ export default function Faturas() {
                                 Consumo Total Faturado (kWh) *
                               </Label>
                               <Input
-                                placeholder="Ex: 20438.4"
+                                placeholder="Ex: 0,000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumo !== ''
                                     ? 'text-gray-900 font-bold bg-white border-amber-500 ring-1 ring-amber-400/50'
@@ -2419,7 +2427,7 @@ export default function Faturas() {
                                 Tarifa TUSD Única (R$/kWh)
                               </Label>
                               <Input
-                                placeholder="Ex: 0.60978"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2441,7 +2449,7 @@ export default function Faturas() {
                                 Tarifa TE Única (R$/kWh)
                               </Label>
                               <Input
-                                placeholder="Ex: 0.40912"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTePonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2467,7 +2475,7 @@ export default function Faturas() {
                                 Consumo Ponta (kWh)
                               </Label>
                               <Input
-                                placeholder="Ex: 1200"
+                                placeholder="Ex: 0,000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumoPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2482,7 +2490,7 @@ export default function Faturas() {
                                 Tarifa TUSD-Ponta
                               </Label>
                               <Input
-                                placeholder="Ex: 0.62"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2497,7 +2505,7 @@ export default function Faturas() {
                                 Tarifa TE-Ponta
                               </Label>
                               <Input
-                                placeholder="Ex: 0.41"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTePonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2513,7 +2521,7 @@ export default function Faturas() {
                                 Consumo Fora-Ponta (kWh)
                               </Label>
                               <Input
-                                placeholder="Ex: 3000"
+                                placeholder="Ex: 0,000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumoForaPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2528,7 +2536,7 @@ export default function Faturas() {
                                 Tarifa TUSD-F.Ponta
                               </Label>
                               <Input
-                                placeholder="Ex: 0.24"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdFPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2543,7 +2551,7 @@ export default function Faturas() {
                                 Tarifa TE-F.Ponta
                               </Label>
                               <Input
-                                placeholder="Ex: 0.32"
+                                placeholder="Ex: 0,000000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTeFPonta !== ''
                                     ? 'text-gray-900 font-semibold bg-white border-amber-500/50'
@@ -2589,7 +2597,7 @@ export default function Faturas() {
                             Medição Anterior
                           </Label>
                           <Input
-                            placeholder="Ex: 146.303"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAnterior !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2602,7 +2610,7 @@ export default function Faturas() {
                         <div>
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
-                            placeholder="Ex: 149.713"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAtual !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2617,7 +2625,7 @@ export default function Faturas() {
                             Consumo Medido (m³)
                           </Label>
                           <Input
-                            placeholder="Ex: 3.410"
+                            placeholder="Ex: 0,000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoMedido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2632,7 +2640,7 @@ export default function Faturas() {
                             Consumo Corrigido (m³)
                           </Label>
                           <Input
-                            placeholder="Ex: 33,037"
+                            placeholder="Ex: 0,000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoCorrigido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2647,7 +2655,7 @@ export default function Faturas() {
                             Tarifa (R$/m³)
                           </Label>
                           <Input
-                            placeholder="Ex: 7,387689"
+                            placeholder="Ex: 0,000000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               tarifa !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2676,7 +2684,7 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            placeholder="Ex: 5564"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAnterior !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
@@ -2690,7 +2698,7 @@ export default function Faturas() {
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
                             type="number"
-                            placeholder="Ex: 5721"
+                            placeholder="Ex: 000.000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAtual !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
@@ -2706,7 +2714,7 @@ export default function Faturas() {
                           </Label>
                           <Input
                             type="number"
-                            placeholder="Ex: 157"
+                            placeholder="Ex: 0,000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoMedido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
@@ -2723,7 +2731,7 @@ export default function Faturas() {
                           <Input
                             type="number"
                             step="0.0001"
-                            placeholder="Ex: 13.6558"
+                            placeholder="Ex: 0,000000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               tarifa !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-sky-500/50'
@@ -3016,7 +3024,7 @@ export default function Faturas() {
               <div>
                 <Label className="text-xs font-semibold text-gray-700">Valor Total (R$)</Label>
                 <Input
-                  placeholder="Ex: 23.862,35"
+                  placeholder="Ex: 0,00"
                   className="h-9 text-xs font-bold"
                   value={valorTotal}
                   onChange={(e) => setValorTotal(e.target.value)}
@@ -3026,7 +3034,7 @@ export default function Faturas() {
               <div>
                 <Label className="text-xs font-semibold text-gray-700">Consumo</Label>
                 <Input
-                  placeholder="Ex: 3.230,016"
+                  placeholder="Ex: 0,000"
                   className="h-9 text-xs"
                   value={consumo}
                   onChange={(e) => setConsumo(e.target.value)}
@@ -3036,6 +3044,7 @@ export default function Faturas() {
               <div>
                 <Label className="text-xs font-semibold text-gray-700">Número da Fatura</Label>
                 <Input
+                  placeholder="Ex: 000.000.000"
                   className="h-9 text-xs"
                   value={numeroFatura}
                   onChange={(e) => setNumeroFatura(e.target.value)}
@@ -3047,7 +3056,7 @@ export default function Faturas() {
                   CNPJ do Cliente (Titular)
                 </Label>
                 <Input
-                  placeholder="00.000.000/0000-00"
+                  placeholder="Ex: 00.000.000/0001-00"
                   className="h-9 text-xs font-mono"
                   value={cnpjCliente}
                   onChange={(e) => setCnpjCliente(e.target.value)}
@@ -3059,7 +3068,7 @@ export default function Faturas() {
                   CNPJ do Fornecedor (Distribuidora)
                 </Label>
                 <Input
-                  placeholder="00.000.000/0000-00"
+                  placeholder="Ex: 00.000.000/0001-00"
                   className="h-9 text-xs font-mono"
                   value={cnpjFornecedor}
                   onChange={(e) => setCnpjFornecedor(e.target.value)}
@@ -3249,7 +3258,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
                     <Input
-                      placeholder="Ex: 146.303"
+                      placeholder="Ex: 000.000"
                       className="h-8 text-xs"
                       value={medicaoAnterior}
                       onChange={(e) => setMedicaoAnterior(e.target.value)}
@@ -3258,7 +3267,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Atual</Label>
                     <Input
-                      placeholder="Ex: 149.713"
+                      placeholder="Ex: 000.000"
                       className="h-8 text-xs"
                       value={medicaoAtual}
                       onChange={(e) => setMedicaoAtual(e.target.value)}
@@ -3267,7 +3276,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Consumo Medido (m³)</Label>
                     <Input
-                      placeholder="Ex: 3.410"
+                      placeholder="Ex: 0,000"
                       className="h-8 text-xs"
                       value={consumoMedido}
                       onChange={(e) => setConsumoMedido(e.target.value)}
@@ -3276,7 +3285,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Consumo Corrigido (m³)</Label>
                     <Input
-                      placeholder="Ex: 3.230,016"
+                      placeholder="Ex: 0,000"
                       className="h-8 text-xs"
                       value={consumoCorrigido}
                       onChange={(e) => setConsumoCorrigido(e.target.value)}
@@ -3285,7 +3294,7 @@ export default function Faturas() {
                   <div>
                     <Label className="text-[11px] text-gray-700">Tarifa (R$/m³)</Label>
                     <Input
-                      placeholder="Ex: 7,387689"
+                      placeholder="Ex: 0,000000"
                       className="h-8 text-xs"
                       value={tarifa}
                       onChange={(e) => setTarifa(e.target.value)}
