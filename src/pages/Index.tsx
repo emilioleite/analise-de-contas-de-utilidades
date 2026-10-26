@@ -15,7 +15,7 @@ import {
   Download,
   Loader2,
 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -26,22 +26,24 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { formatCurrencyBRL, toSafeNumber } from '@/lib/cnpj'
+import { getFaturaConsumoReal } from '@/lib/consumoTarifa'
 import { useCountUp } from '@/hooks/use-count-up'
 import { useToast } from '@/hooks/use-toast'
 import { gerarRelatorioDashboardPDF } from '@/services/relatorioDashboardPdf'
 import {
+  UtilidadeSection,
+  UtilidadeSectionData,
+  MonthDataPoint,
+} from '@/components/dashboard/UtilidadeSection'
+import { ConsolidadoSection } from '@/components/dashboard/ConsolidadoSection'
+import {
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip as RechartsTooltip,
-  LineChart,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
-  BarChart,
-  Bar,
+  Tooltip as RechartsTooltip,
 } from 'recharts'
 
 interface KPICardProps {
@@ -94,208 +96,363 @@ export default function Index() {
   const { toast } = useToast()
 
   const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
-  const [exportandoPdf, setExportandoPdf] = useState(false)
+  const [exportandoPdfGeral, setExportandoPdfGeral] = useState(false)
 
   const userName = user?.name ? user.name.trim().split(/\s+/)[0] : 'Colaborador'
 
-  // Calculations for last 12 months respecting selectedEmpreendimento filter
-  const { total12m, energia12m, agua12m, gas12m, donutData, lineData, topConsumos, periodoTexto } =
-    useMemo(() => {
-      const emptyResult = {
-        total12m: 0,
-        energia12m: 0,
-        agua12m: 0,
-        gas12m: 0,
-        donutData: [],
-        lineData: [],
-        topConsumos: [],
-        periodoTexto: 'Sem dados',
-      }
-
-      if (!Array.isArray(faturas) || faturas.length === 0) {
-        return emptyResult
-      }
-
-      // Filtrar por empreendimento se selecionado
-      const filteredFaturas =
-        selectedEmpreendimento === 'todos'
-          ? faturas
-          : faturas.filter((f) => f && f.empreendimento === selectedEmpreendimento)
-
-      if (filteredFaturas.length === 0) {
-        return {
-          ...emptyResult,
-          periodoTexto: 'Sem faturas no filtro',
-        }
-      }
-
-      // Filtrar faturas com data de competência válida
-      const validFaturas = filteredFaturas.filter((fat) => {
-        if (!fat || !fat.competencia) return false
-        const d = new Date(fat.competencia)
-        return !isNaN(d.getTime())
-      })
-
-      // Se não houver faturas com competência válida, fallback para data atual
-      const monthNames = [
-        'jan',
-        'fev',
-        'mar',
-        'abr',
-        'mai',
-        'jun',
-        'jul',
-        'ago',
-        'set',
-        'out',
-        'nov',
-        'dez',
-      ]
-
-      let newestDate: Date
-      if (validFaturas.length > 0) {
-        const sorted = [...validFaturas].sort(
-          (a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime(),
-        )
-        newestDate = new Date(sorted[0].competencia)
-      } else {
-        newestDate = new Date()
-      }
-
-      const cutoffDate = new Date(newestDate)
-      cutoffDate.setMonth(cutoffDate.getMonth() - 11)
-      cutoffDate.setDate(1)
-      cutoffDate.setHours(0, 0, 0, 0)
-
-      let total = 0
-      let energia = 0
-      let agua = 0
-      let gas = 0
-
-      const monthlyMap: Record<
-        string,
-        {
-          monthKey: string
-          label: string
-          energia: number
-          agua: number
-          gas: number
-          total: number
-          date: Date
-        }
-      > = {}
-
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date(newestDate.getFullYear(), newestDate.getMonth() - i, 1)
-        const safeMonthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : 0
-        const key = `${d.getFullYear()}-${String(safeMonthIdx + 1).padStart(2, '0')}`
-        const label = `${monthNames[safeMonthIdx] || 'mês'}/${String(d.getFullYear()).slice(-2)}`
-        monthlyMap[key] = {
-          monthKey: key,
-          label,
-          energia: 0,
-          agua: 0,
-          gas: 0,
-          total: 0,
-          date: d,
-        }
-      }
-
-      // Preencher com faturas válidas
-      validFaturas.forEach((fat) => {
-        const fDate = new Date(fat.competencia)
-        if (isNaN(fDate.getTime())) return
-
-        const val = toSafeNumber(fat.valor_total, 0)
-        const key = `${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`
-
-        if (fDate >= cutoffDate) {
-          total += val
-          if (fat.tipo_utilidade === 'Energia Elétrica') energia += val
-          else if (fat.tipo_utilidade === 'Água e Esgoto') agua += val
-          else if (fat.tipo_utilidade === 'Gás') gas += val
-        }
-
-        if (monthlyMap[key]) {
-          monthlyMap[key].total += val
-          if (fat.tipo_utilidade === 'Energia Elétrica') monthlyMap[key].energia += val
-          else if (fat.tipo_utilidade === 'Água e Esgoto') monthlyMap[key].agua += val
-          else if (fat.tipo_utilidade === 'Gás') monthlyMap[key].gas += val
-        }
-      })
-
-      const donut = [
-        { name: 'Energia Elétrica', value: toSafeNumber(energia, 0), color: '#F59E0B' },
-        { name: 'Água e Esgoto', value: toSafeNumber(agua, 0), color: '#0EA5E9' },
-        { name: 'Gás', value: toSafeNumber(gas, 0), color: '#14B8A6' },
-      ].filter((d) => d.value > 0)
-
-      const lines = Object.values(monthlyMap)
-
-      // Top 5 invoices by value across all utilities (sanitizando expand e valor)
-      const top5 = [...filteredFaturas]
-        .sort((a, b) => toSafeNumber(b.valor_total, 0) - toSafeNumber(a.valor_total, 0))
-        .slice(0, 5)
-        .map((fat) => {
-          const empNome =
-            fat.expand?.empreendimento?.nome ||
-            empreendimentos.find((e) => e.id === fat.empreendimento)?.nome ||
-            'Empreendimento'
-
-          return {
-            id: fat.id || String(Math.random()),
-            nome: empNome,
-            tipo: fat.tipo_utilidade || 'Utilidade',
-            competencia: fat.competencia || '',
-            valor: toSafeNumber(fat.valor_total, 0),
-          }
-        })
-
-      const cutoffMonth = Number.isFinite(cutoffDate.getMonth()) ? cutoffDate.getMonth() : 0
-      const newestMonth = Number.isFinite(newestDate.getMonth()) ? newestDate.getMonth() : 0
-      const periodoStr = `${monthNames[cutoffMonth] || ''} ${cutoffDate.getFullYear()} — ${monthNames[newestMonth] || ''} ${newestDate.getFullYear()}`
-
-      return {
-        total12m: toSafeNumber(total, 0),
-        energia12m: toSafeNumber(energia, 0),
-        agua12m: toSafeNumber(agua, 0),
-        gas12m: toSafeNumber(gas, 0),
-        donutData: donut,
-        lineData: lines,
-        topConsumos: top5,
-        periodoTexto: periodoStr,
-      }
-    }, [faturas, empreendimentos, selectedEmpreendimento])
-
-  // Custom Dark Tooltip for charts (blindado contra valores nulos/indefinidos)
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && Array.isArray(payload) && payload.length) {
-      return (
-        <div className="bg-[#111827] text-white p-3 rounded-lg shadow-xl text-xs space-y-1.5 border border-gray-800 z-50">
-          <p className="font-semibold text-gray-200 border-b border-gray-700 pb-1">
-            {label || 'Período'}
-          </p>
-          {payload.map((entry: any, index: number) => {
-            if (!entry) return null
-            const name = entry.name || 'Valor'
-            const color = entry.color || '#14B8A6'
-            const val = toSafeNumber(entry.value, 0)
-            return (
-              <div key={`item-${index}`} className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-1.5 text-gray-300">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                  {name}:
-                </span>
-                <span className="font-bold tabular-nums text-white">{formatCurrencyBRL(val)}</span>
-              </div>
-            )
-          })}
-        </div>
-      )
+  // Nome do empreendimento formatado
+  const nomeEmpSelecionado = useMemo(() => {
+    if (selectedEmpreendimento === 'todos') {
+      return 'Todos os Empreendimentos'
     }
-    return null
-  }
+    const found = empreendimentos.find((e) => e.id === selectedEmpreendimento)
+    return found ? found.nome : 'Empreendimento Selecionado'
+  }, [selectedEmpreendimento, empreendimentos])
 
+  // Calculations for last 12 months respecting selectedEmpreendimento filter
+  const {
+    total12m,
+    energia12m,
+    agua12m,
+    gas12m,
+    consumoEnergiaTotal,
+    consumoAguaTotal,
+    consumoGasTotal,
+    secaoAgua,
+    secaoGas,
+    secaoEnergia,
+    donutData,
+    lineData,
+    topConsumos,
+    periodoTexto,
+    hasFilteredFaturas,
+  } = useMemo(() => {
+    const emptyResult = {
+      total12m: 0,
+      energia12m: 0,
+      agua12m: 0,
+      gas12m: 0,
+      consumoEnergiaTotal: 0,
+      consumoAguaTotal: 0,
+      consumoGasTotal: 0,
+      secaoAgua: null as UtilidadeSectionData | null,
+      secaoGas: null as UtilidadeSectionData | null,
+      secaoEnergia: null as UtilidadeSectionData | null,
+      donutData: [] as Array<{ name: string; value: number; color: string }>,
+      lineData: [] as Array<{
+        label: string
+        energia: number
+        agua: number
+        gas: number
+        total: number
+      }>,
+      topConsumos: [] as Array<{
+        id: string
+        nome: string
+        tipo: string
+        competencia: string
+        valor: number
+      }>,
+      periodoTexto: 'Sem dados',
+      hasFilteredFaturas: false,
+    }
+
+    if (!Array.isArray(faturas) || faturas.length === 0) {
+      return emptyResult
+    }
+
+    // Filtrar por empreendimento se selecionado
+    const filteredFaturas =
+      selectedEmpreendimento === 'todos'
+        ? faturas
+        : faturas.filter((f) => f && f.empreendimento === selectedEmpreendimento)
+
+    if (filteredFaturas.length === 0) {
+      return {
+        ...emptyResult,
+        periodoTexto: 'Sem faturas no filtro',
+      }
+    }
+
+    // Filtrar faturas com data de competência válida
+    const validFaturas = filteredFaturas.filter((fat) => {
+      if (!fat || !fat.competencia) return false
+      const d = new Date(fat.competencia)
+      return !isNaN(d.getTime())
+    })
+
+    const monthNames = [
+      'jan',
+      'fev',
+      'mar',
+      'abr',
+      'mai',
+      'jun',
+      'jul',
+      'ago',
+      'set',
+      'out',
+      'nov',
+      'dez',
+    ]
+
+    let newestDate: Date
+    if (validFaturas.length > 0) {
+      const sorted = [...validFaturas].sort(
+        (a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime(),
+      )
+      newestDate = new Date(sorted[0].competencia)
+    } else {
+      newestDate = new Date()
+    }
+
+    const cutoffDate = new Date(newestDate)
+    cutoffDate.setMonth(cutoffDate.getMonth() - 11)
+    cutoffDate.setDate(1)
+    cutoffDate.setHours(0, 0, 0, 0)
+
+    // Mapa mensal consolidado
+    const monthlyMap: Record<
+      string,
+      {
+        monthKey: string
+        label: string
+        energia: number
+        agua: number
+        gas: number
+        total: number
+        date: Date
+      }
+    > = {}
+
+    // Mapas mensais por utilidade
+    const aguaMonthlyMap: Record<string, MonthDataPoint> = {}
+    const gasMonthlyMap: Record<string, MonthDataPoint> = {}
+    const energiaMonthlyMap: Record<string, MonthDataPoint> = {}
+
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(newestDate.getFullYear(), newestDate.getMonth() - i, 1)
+      const safeMonthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : 0
+      const key = `${d.getFullYear()}-${String(safeMonthIdx + 1).padStart(2, '0')}`
+      const label = `${monthNames[safeMonthIdx] || 'mês'}/${String(d.getFullYear()).slice(-2)}`
+
+      monthlyMap[key] = {
+        monthKey: key,
+        label,
+        energia: 0,
+        agua: 0,
+        gas: 0,
+        total: 0,
+        date: d,
+      }
+
+      aguaMonthlyMap[key] = {
+        key,
+        label,
+        consumo: 0,
+        valor: 0,
+        tarifa: 0,
+      }
+
+      gasMonthlyMap[key] = {
+        key,
+        label,
+        consumo: 0,
+        valor: 0,
+        tarifa: 0,
+      }
+
+      energiaMonthlyMap[key] = {
+        key,
+        label,
+        consumo: 0,
+        valor: 0,
+        tarifa: 0,
+      }
+    }
+
+    let total = 0
+    let energia = 0
+    let agua = 0
+    let gas = 0
+
+    let cEnergiaTotal = 0
+    let cAguaTotal = 0
+    let cGasTotal = 0
+
+    let countAgua = 0
+    let countGas = 0
+    let countEnergia = 0
+
+    // Preencher com faturas válidas
+    validFaturas.forEach((fat) => {
+      const fDate = new Date(fat.competencia)
+      if (isNaN(fDate.getTime())) return
+
+      const val = toSafeNumber(fat.valor_total, 0)
+      const realConsumo = getFaturaConsumoReal(fat)
+      const consumoFisico = toSafeNumber(realConsumo?.consumo, 0)
+      const key = `${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`
+
+      if (fDate >= cutoffDate) {
+        total += val
+        if (fat.tipo_utilidade === 'Energia Elétrica') {
+          energia += val
+          cEnergiaTotal += consumoFisico
+          countEnergia++
+        } else if (fat.tipo_utilidade === 'Água e Esgoto') {
+          agua += val
+          cAguaTotal += consumoFisico
+          countAgua++
+        } else if (fat.tipo_utilidade === 'Gás') {
+          gas += val
+          cGasTotal += consumoFisico
+          countGas++
+        }
+      }
+
+      // Preenchimento mensal consolidado
+      if (monthlyMap[key]) {
+        monthlyMap[key].total += val
+        if (fat.tipo_utilidade === 'Energia Elétrica') {
+          monthlyMap[key].energia += val
+        } else if (fat.tipo_utilidade === 'Água e Esgoto') {
+          monthlyMap[key].agua += val
+        } else if (fat.tipo_utilidade === 'Gás') {
+          monthlyMap[key].gas += val
+        }
+      }
+
+      // Preenchimento mensal por utilidade
+      if (fat.tipo_utilidade === 'Água e Esgoto' && aguaMonthlyMap[key]) {
+        aguaMonthlyMap[key].valor += val
+        aguaMonthlyMap[key].consumo += consumoFisico
+      } else if (fat.tipo_utilidade === 'Gás' && gasMonthlyMap[key]) {
+        gasMonthlyMap[key].valor += val
+        gasMonthlyMap[key].consumo += consumoFisico
+      } else if (fat.tipo_utilidade === 'Energia Elétrica' && energiaMonthlyMap[key]) {
+        energiaMonthlyMap[key].valor += val
+        energiaMonthlyMap[key].consumo += consumoFisico
+      }
+    })
+
+    // Calcular tarifas médias mensais
+    Object.values(aguaMonthlyMap).forEach((m) => {
+      m.tarifa = m.consumo > 0 && m.valor > 0 ? m.valor / m.consumo : 0
+    })
+    Object.values(gasMonthlyMap).forEach((m) => {
+      m.tarifa = m.consumo > 0 && m.valor > 0 ? m.valor / m.consumo : 0
+    })
+    Object.values(energiaMonthlyMap).forEach((m) => {
+      m.tarifa = m.consumo > 0 && m.valor > 0 ? m.valor / m.consumo : 0
+    })
+
+    // Construção das 3 seções estruturadas
+    const secaoAguaData: UtilidadeSectionData = {
+      tipoUtilidade: 'Água e Esgoto',
+      titulo: 'Água e Esgoto',
+      subtitulo: 'Abastecimento público e saneamento (m³ e R$)',
+      icon: Droplets,
+      corTema: '#0EA5E9',
+      corFundoIcone: 'bg-sky-50',
+      corBordaIcone: 'border-sky-200',
+      corBadge: 'text-sky-800 bg-sky-50 border-sky-200',
+      unidadeConsumo: 'm³',
+      rotuloTarifa: 'R$/m³',
+      gastoTotal: toSafeNumber(agua, 0),
+      consumoTotal: toSafeNumber(cAguaTotal, 0),
+      tarifaMedia: cAguaTotal > 0 ? toSafeNumber(agua / cAguaTotal, 0) : 0,
+      faturasCount: countAgua,
+      meses: Object.values(aguaMonthlyMap),
+    }
+
+    const secaoGasData: UtilidadeSectionData = {
+      tipoUtilidade: 'Gás',
+      titulo: 'Gás Natural',
+      subtitulo: 'Gás canalizado / GLP cilindro (m³ e R$)',
+      icon: Flame,
+      corTema: '#14B8A6',
+      corFundoIcone: 'bg-teal-50',
+      corBordaIcone: 'border-teal-200',
+      corBadge: 'text-teal-800 bg-teal-50 border-teal-200',
+      unidadeConsumo: 'm³',
+      rotuloTarifa: 'R$/m³',
+      gastoTotal: toSafeNumber(gas, 0),
+      consumoTotal: toSafeNumber(cGasTotal, 0),
+      tarifaMedia: cGasTotal > 0 ? toSafeNumber(gas / cGasTotal, 0) : 0,
+      faturasCount: countGas,
+      meses: Object.values(gasMonthlyMap),
+    }
+
+    const secaoEnergiaData: UtilidadeSectionData = {
+      tipoUtilidade: 'Energia Elétrica',
+      titulo: 'Energia Elétrica',
+      subtitulo: 'Fornecimento elétrico de concessionária (kWh e R$)',
+      icon: Zap,
+      corTema: '#F59E0B',
+      corFundoIcone: 'bg-amber-50',
+      corBordaIcone: 'border-amber-200',
+      corBadge: 'text-amber-800 bg-amber-50 border-amber-200',
+      unidadeConsumo: 'kWh',
+      rotuloTarifa: 'R$/kWh',
+      gastoTotal: toSafeNumber(energia, 0),
+      consumoTotal: toSafeNumber(cEnergiaTotal, 0),
+      tarifaMedia: cEnergiaTotal > 0 ? toSafeNumber(energia / cEnergiaTotal, 0) : 0,
+      faturasCount: countEnergia,
+      meses: Object.values(energiaMonthlyMap),
+    }
+
+    const donut = [
+      { name: 'Energia Elétrica', value: toSafeNumber(energia, 0), color: '#F59E0B' },
+      { name: 'Água e Esgoto', value: toSafeNumber(agua, 0), color: '#0EA5E9' },
+      { name: 'Gás', value: toSafeNumber(gas, 0), color: '#14B8A6' },
+    ].filter((d) => d.value > 0)
+
+    const lines = Object.values(monthlyMap)
+
+    // Top 5 faturas de maior impacto
+    const top5 = [...filteredFaturas]
+      .sort((a, b) => toSafeNumber(b.valor_total, 0) - toSafeNumber(a.valor_total, 0))
+      .slice(0, 5)
+      .map((fat) => {
+        const empNome =
+          fat.expand?.empreendimento?.nome ||
+          empreendimentos.find((e) => e.id === fat.empreendimento)?.nome ||
+          'Empreendimento'
+
+        return {
+          id: fat.id || String(Math.random()),
+          nome: empNome,
+          tipo: fat.tipo_utilidade || 'Utilidade',
+          competencia: fat.competencia || '',
+          valor: toSafeNumber(fat.valor_total, 0),
+        }
+      })
+
+    const cutoffMonth = Number.isFinite(cutoffDate.getMonth()) ? cutoffDate.getMonth() : 0
+    const newestMonth = Number.isFinite(newestDate.getMonth()) ? newestDate.getMonth() : 0
+    const periodoStr = `${monthNames[cutoffMonth] || ''} ${cutoffDate.getFullYear()} — ${monthNames[newestMonth] || ''} ${newestDate.getFullYear()}`
+
+    return {
+      total12m: toSafeNumber(total, 0),
+      energia12m: toSafeNumber(energia, 0),
+      agua12m: toSafeNumber(agua, 0),
+      gas12m: toSafeNumber(gas, 0),
+      consumoEnergiaTotal: toSafeNumber(cEnergiaTotal, 0),
+      consumoAguaTotal: toSafeNumber(cAguaTotal, 0),
+      consumoGasTotal: toSafeNumber(cGasTotal, 0),
+      secaoAgua: secaoAguaData,
+      secaoGas: secaoGasData,
+      secaoEnergia: secaoEnergiaData,
+      donutData: donut,
+      lineData: lines,
+      topConsumos: top5,
+      periodoTexto: periodoStr,
+      hasFilteredFaturas: true,
+    }
+  }, [faturas, empreendimentos, selectedEmpreendimento])
+
+  // Empty State geral
   if (!loading && faturas.length === 0) {
     return (
       <div className="space-y-6">
@@ -308,7 +465,6 @@ export default function Index() {
           </p>
         </div>
 
-        {/* Empty State */}
         <Card className="p-12 text-center border-dashed border-2 border-gray-200 bg-white">
           <div className="w-16 h-16 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center mx-auto mb-4">
             <FileText className="w-8 h-8 text-teal-700" />
@@ -332,8 +488,8 @@ export default function Index() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Greeting */}
+    <div className="space-y-8">
+      {/* Header Greeting & Controles Globais */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -348,11 +504,12 @@ export default function Index() {
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-            Visão consolidada de energia elétrica, água e gás nos últimos 12 meses.
+            Painel Executivo: seções dedicadas por utilidade (quantidade e R$) e análise
+            consolidada.
           </p>
         </div>
 
-        {/* Controls: Filtro Empreendimento + Exportar PDF + Enviar Fatura */}
+        {/* Controls: Filtro Empreendimento + Exportar PDF Geral + Enviar Fatura */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Seletor de Empreendimento */}
           <div className="w-56">
@@ -374,21 +531,15 @@ export default function Index() {
             </Select>
           </div>
 
-          {/* Botão Exportar PDF */}
+          {/* Botão Exportar PDF Geral (visão executiva completa) */}
           <Button
             type="button"
             variant="outline"
             onClick={async () => {
               try {
-                setExportandoPdf(true)
-                const nomeEmp =
-                  selectedEmpreendimento === 'todos'
-                    ? 'Todos os Empreendimentos'
-                    : empreendimentos.find((e) => e.id === selectedEmpreendimento)?.nome ||
-                      'Empreendimento Selecionado'
-
+                setExportandoPdfGeral(true)
                 await gerarRelatorioDashboardPDF({
-                  nomeEmpreendimento: nomeEmp,
+                  nomeEmpreendimento: nomeEmpSelecionado,
                   periodoCobertura: periodoTexto,
                   total12m,
                   energia12m,
@@ -400,9 +551,9 @@ export default function Index() {
                 })
 
                 toast({
-                  title: 'Relatório PDF gerado!',
+                  title: 'Relatório Executivo Geral gerado!',
                   description:
-                    'O download do relatório do Dashboard Geral foi iniciado com sucesso.',
+                    'O download do relatório consolidado com maiores faturas foi iniciado com sucesso.',
                 })
               } catch (err: any) {
                 console.error('Erro ao gerar PDF do dashboard:', err)
@@ -412,13 +563,13 @@ export default function Index() {
                   variant: 'destructive',
                 })
               } finally {
-                setExportandoPdf(false)
+                setExportandoPdfGeral(false)
               }
             }}
-            disabled={exportandoPdf || loading || faturas.length === 0}
+            disabled={exportandoPdfGeral || loading || faturas.length === 0}
             className="h-9 text-xs font-semibold bg-white border-gray-200 hover:bg-gray-50 text-gray-700 shadow-sm flex items-center gap-1.5"
           >
-            {exportandoPdf ? (
+            {exportandoPdfGeral ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-700" />
                 <span>Gerando PDF...</span>
@@ -426,7 +577,7 @@ export default function Index() {
             ) : (
               <>
                 <Download className="w-3.5 h-3.5 text-teal-700" />
-                <span>Exportar PDF</span>
+                <span>Exportar Dashboard Completo</span>
               </>
             )}
           </Button>
@@ -440,25 +591,16 @@ export default function Index() {
         </div>
       </div>
 
-      {/* 4 KPI Cards Row */}
+      {/* 4 Cards de Visão Rápida Superior */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <AnimatedKPICard
-          title="Total Gasto (12m)"
+          title="Total Consolidado (12m)"
           value={total12m}
           icon={Coins}
           iconColor="text-teal-700"
           bgColor="bg-teal-50"
           borderColor="border-teal-100"
-          subtitle="Consolidado de todas as utilidades"
-        />
-        <AnimatedKPICard
-          title="Energia Elétrica"
-          value={energia12m}
-          icon={Zap}
-          iconColor="text-amber-500 fill-amber-500"
-          bgColor="bg-amber-50"
-          borderColor="border-amber-100"
-          subtitle="Contas de fornecimento elétrico"
+          subtitle="Soma de todas as utilidades"
         />
         <AnimatedKPICard
           title="Água e Esgoto"
@@ -467,177 +609,107 @@ export default function Index() {
           iconColor="text-sky-500 fill-sky-500"
           bgColor="bg-sky-50"
           borderColor="border-sky-100"
-          subtitle="Saneamento e abastecimento"
+          subtitle="Abastecimento e saneamento"
         />
         <AnimatedKPICard
-          title="Gás Natural/GLP"
+          title="Gás Natural / GLP"
           value={gas12m}
           icon={Flame}
           iconColor="text-teal-600 fill-teal-600"
           bgColor="bg-teal-50"
           borderColor="border-teal-100"
-          subtitle="Fornecimento canalizado/cilindro"
+          subtitle="Gás canalizado / cilindros"
+        />
+        <AnimatedKPICard
+          title="Energia Elétrica"
+          value={energia12m}
+          icon={Zap}
+          iconColor="text-amber-500 fill-amber-500"
+          bgColor="bg-amber-50"
+          borderColor="border-amber-100"
+          subtitle="Concessionária de energia"
         />
       </div>
 
-      {/* Charts Grid: Donut + Line */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Donut Chart: Gasto por Utilidade */}
-        <Card className="p-5 border-[#E5E7EB] shadow-sm flex flex-col justify-between">
-          <CardHeader className="p-0 mb-4">
-            <CardTitle className="text-sm font-bold text-gray-900">
-              Gasto por Utilidade (12 meses)
-            </CardTitle>
-            <CardDescription className="text-xs text-gray-500">
-              Distribuição percentual dos custos operacionais
-            </CardDescription>
-          </CardHeader>
-          <div className="h-64 relative flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={donutData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={95}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {donutData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <RechartsTooltip
-                  content={({ active, payload }) => {
-                    if (active && Array.isArray(payload) && payload.length && payload[0]) {
-                      const data = payload[0]
-                      const safeVal = toSafeNumber(data.value, 0)
-                      const pct = total12m > 0 ? ((safeVal / total12m) * 100).toFixed(1) : '0'
-                      return (
-                        <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1">
-                          <p className="font-semibold">{data.name || 'Utilidade'}</p>
-                          <p className="text-gray-300 tabular-nums">
-                            {formatCurrencyBRL(safeVal)} ({pct}%)
-                          </p>
-                        </div>
-                      )
-                    }
-                    return null
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            {/* Center Label */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px] uppercase font-bold text-gray-400">Total 12m</span>
-              <span className="text-xs font-bold text-gray-900 tabular-nums">
-                {formatCurrencyBRL(total12m)}
-              </span>
-            </div>
+      {/* =========================================================================
+          REQUISITO 1: SEÇÕES DEDICADAS POR UTILIDADE COM EXPORTAÇÃO INDIVIDUAL
+          1. Água e Esgoto
+          2. Gás Natural
+          3. Energia Elétrica
+         ========================================================================= */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+          <div>
+            <h3 className="text-base font-bold text-gray-900 tracking-tight">
+              Análises Dedicadas por Utilidade
+            </h3>
+            <p className="text-xs text-gray-500">
+              Métricas exclusivas, evolução física e financeira, tabela mensal e exportação de PDF
+              individual por utilidade.
+            </p>
           </div>
-          {/* Legend */}
-          <div className="pt-4 border-t border-gray-100 flex flex-col gap-2">
-            {donutData.map((item) => {
-              const pct = total12m > 0 ? ((item.value / total12m) * 100).toFixed(1) : 0
-              return (
-                <div key={item.name} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className="text-gray-700 font-medium">{item.name}</span>
-                  </div>
-                  <div className="text-right tabular-nums">
-                    <span className="text-gray-900 font-bold">{formatCurrencyBRL(item.value)}</span>
-                    <span className="text-gray-400 ml-1.5">({pct}%)</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </Card>
+        </div>
 
-        {/* Multi-line Chart: Evolução Mensal (12 meses) */}
-        <Card className="p-5 border-[#E5E7EB] shadow-sm lg:col-span-2 flex flex-col justify-between">
-          <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-sm font-bold text-gray-900">
-                Evolução Mensal (12 Meses)
-              </CardTitle>
-              <CardDescription className="text-xs text-gray-500">
-                Trajetória dos gastos por utilidade mês a mês
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1 text-gray-600">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-                Energia
-              </span>
-              <span className="flex items-center gap-1 text-gray-600">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#0EA5E9]" />
-                Água
-              </span>
-              <span className="flex items-center gap-1 text-gray-600">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#14B8A6]" />
-                Gás
-              </span>
-            </div>
-          </CardHeader>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={lineData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  stroke="#9CA3AF"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={{ stroke: '#E5E7EB' }}
-                />
-                <YAxis
-                  stroke="#9CA3AF"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={{ stroke: '#E5E7EB' }}
-                  tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`}
-                />
-                <RechartsTooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="energia"
-                  name="Energia Elétrica"
-                  stroke="#F59E0B"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#F59E0B' }}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="agua"
-                  name="Água e Esgoto"
-                  stroke="#0EA5E9"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#0EA5E9' }}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="gas"
-                  name="Gás"
-                  stroke="#14B8A6"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#14B8A6' }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        {/* 1. SEÇÃO: ÁGUA E ESGOTO */}
+        {secaoAgua && (
+          <UtilidadeSection
+            data={secaoAgua}
+            nomeEmpreendimento={nomeEmpSelecionado}
+            periodoTexto={periodoTexto}
+          />
+        )}
+
+        {/* 2. SEÇÃO: GÁS NATURAL */}
+        {secaoGas && (
+          <UtilidadeSection
+            data={secaoGas}
+            nomeEmpreendimento={nomeEmpSelecionado}
+            periodoTexto={periodoTexto}
+          />
+        )}
+
+        {/* 3. SEÇÃO: ENERGIA ELÉTRICA */}
+        {secaoEnergia && (
+          <UtilidadeSection
+            data={secaoEnergia}
+            nomeEmpreendimento={nomeEmpSelecionado}
+            periodoTexto={periodoTexto}
+          />
+        )}
       </div>
 
-      {/* Horizontal Bar Chart: Maiores Consumos (Top 5) */}
+      {/* =========================================================================
+          REQUISITO 3: ANÁLISE CONSOLIDADA EM R$ NO FINAL DA TELA
+          - Gasto total consolidado do período (R$)
+          - Gráfico de Composição (%) das utilidades (Donut)
+          - Gráfico de Evolução Mensal Consolidada em R$
+          - Botão "Exportar PDF" próprio da seção consolidada
+         ========================================================================= */}
+      <div className="space-y-4 pt-2">
+        <div className="border-b border-gray-200 pb-2">
+          <h3 className="text-base font-bold text-gray-900 tracking-tight">
+            Análise Financeira Consolidada
+          </h3>
+          <p className="text-xs text-gray-500">
+            Visão financeira agregada somando as três utilidades no período de 12 meses.
+          </p>
+        </div>
+
+        <ConsolidadoSection
+          total12m={total12m}
+          energia12m={energia12m}
+          agua12m={agua12m}
+          gas12m={gas12m}
+          donutData={donutData}
+          lineData={lineData}
+          topConsumos={topConsumos}
+          nomeEmpreendimento={nomeEmpSelecionado}
+          periodoTexto={periodoTexto}
+          disabled={!hasFilteredFaturas}
+        />
+      </div>
+
+      {/* Bloco Adicional de Maiores Faturas (Top 5) & Link para Análise 24 Meses */}
       <Card className="p-5 border-[#E5E7EB] shadow-sm">
         <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
           <div>
@@ -645,7 +717,7 @@ export default function Index() {
               Maiores Contas Registradas (Top 5)
             </CardTitle>
             <CardDescription className="text-xs text-gray-500">
-              Faturas com maior desembolso financeiro
+              Faturas individuais com maior desembolso financeiro
             </CardDescription>
           </div>
           <Link

@@ -22,6 +22,9 @@ export interface DashboardPdfData {
   energia12m: number
   agua12m: number
   gas12m: number
+  consumoEnergiaTotal?: number
+  consumoAguaTotal?: number
+  consumoGasTotal?: number
   donutData: Array<{ name: string; value: number; color: string }>
   lineData: Array<{
     label: string
@@ -30,7 +33,7 @@ export interface DashboardPdfData {
     gas: number
     total: number
   }>
-  topConsumos: Array<{
+  topConsumos?: Array<{
     id: string
     nome: string
     tipo: string
@@ -184,7 +187,7 @@ function renderLineChartCanvas(
   const stepX = chartWidth / Math.max(1, count - 1)
 
   // Função auxiliar para traçar série
-  const drawSeries = (key: 'energia' | 'agua' | 'gas', color: string) => {
+  const drawSeries = (key: 'energia' | 'agua' | 'gas' | 'total', color: string) => {
     if (lineData.length === 0) return
     ctx.beginPath()
     ctx.strokeStyle = color
@@ -209,7 +212,8 @@ function renderLineChartCanvas(
     })
   }
 
-  // Traçar utilidades
+  // Traçar consolidado e utilidades
+  drawSeries('total', '#0F766E')
   drawSeries('energia', '#F59E0B')
   drawSeries('agua', '#0EA5E9')
   drawSeries('gas', '#14B8A6')
@@ -227,6 +231,7 @@ function renderLineChartCanvas(
 
   // Legenda no topo
   const legend = [
+    { label: 'Total Consolidado', color: '#0F766E' },
     { label: 'Energia Elétrica', color: '#F59E0B' },
     { label: 'Água e Esgoto', color: '#0EA5E9' },
     { label: 'Gás Canalizado/GLP', color: '#14B8A6' },
@@ -424,51 +429,54 @@ export async function gerarRelatorioDashboardPDF(data: DashboardPdfData): Promis
   desenharCabecalho(2)
 
   // Tabela: Maiores Contas Registradas (Top Contas)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.setTextColor(15, 23, 42)
-  doc.text('Maiores Contas Registradas — Faturas de Maior Impacto Financeiro', margin, currentY)
-  currentY += 3.5
+  const topConsumosList = data.topConsumos || []
+  if (topConsumosList.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(15, 23, 42)
+    doc.text('Maiores Contas Registradas — Faturas de Maior Impacto Financeiro', margin, currentY)
+    currentY += 3.5
 
-  const topHeaders = [['#', 'Empreendimento', 'Utilidade', 'Competência', 'Valor Fatura (R$)']]
-  const topBody = data.topConsumos.map((c, idx) => [
-    String(idx + 1),
-    c.nome,
-    c.tipo,
-    formatDateBR(c.competencia).slice(3), // mm/aaaa
-    formatCurrencyBRL(c.valor),
-  ])
+    const topHeaders = [['#', 'Empreendimento', 'Utilidade', 'Competência', 'Valor Fatura (R$)']]
+    const topBody = topConsumosList.map((c, idx) => [
+      String(idx + 1),
+      c.nome,
+      c.tipo,
+      formatDateBR(c.competencia).slice(3), // mm/aaaa
+      formatCurrencyBRL(c.valor),
+    ])
 
-  if (typeof (doc as any).autoTable === 'function') {
-    ;(doc as any).autoTable({
-      startY: currentY,
-      head: topHeaders,
-      body: topBody,
-      theme: 'striped',
-      margin: { left: margin, right: margin },
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        textColor: [30, 41, 59],
-      },
-      headStyles: {
-        fillColor: [15, 118, 110],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        fontSize: 7.5,
-      },
-      alternateRowStyles: {
-        fillColor: [248, 250, 252],
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: 'center' },
-        1: { cellWidth: 'auto', fontStyle: 'bold' },
-        2: { cellWidth: 40 },
-        3: { cellWidth: 30, halign: 'center' },
-        4: { cellWidth: 38, halign: 'right', fontStyle: 'bold' },
-      },
-    })
-    currentY = (doc as any).lastAutoTable.finalY + 7
+    if (typeof (doc as any).autoTable === 'function') {
+      ;(doc as any).autoTable({
+        startY: currentY,
+        head: topHeaders,
+        body: topBody,
+        theme: 'striped',
+        margin: { left: margin, right: margin },
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 2,
+          textColor: [30, 41, 59],
+        },
+        headStyles: {
+          fillColor: [15, 118, 110],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 'auto', fontStyle: 'bold' },
+          2: { cellWidth: 40 },
+          3: { cellWidth: 30, halign: 'center' },
+          4: { cellWidth: 38, halign: 'right', fontStyle: 'bold' },
+        },
+      })
+      currentY = (doc as any).lastAutoTable.finalY + 7
+    }
   }
 
   // Tabela: Detalhamento Mensal das 12 competências
