@@ -184,20 +184,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return pb.authStore.isValid
     } catch (err: any) {
-      const status = err?.status || err?.response?.status
-      const msg = err?.message || String(err)
-      const isConfirmedAuthRevocation =
-        (status === 401 || status === 403) &&
-        !msg.includes('Failed to fetch') &&
-        !msg.includes('NetworkError')
-
-      if (isConfirmedAuthRevocation) {
-        pb.authStore.clear()
-        setUser(null)
-        setToken(null)
-        return false
-      }
-      // Se for oscilação de rede ou timeout, manter a sessão localmente válida para não deslogar
+      // Falhas no authRefresh durante requisições longas ou oscilações de rede não devem
+      // desconectar proativamente o usuário. Mantém a sessão local para permitir nova tentativa.
+      console.warn('ensureValidSession: erro ao tentar refresh (preservando sessão local):', err)
       return pb.authStore.isValid
     }
   }

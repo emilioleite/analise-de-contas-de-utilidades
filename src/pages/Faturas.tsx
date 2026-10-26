@@ -411,7 +411,7 @@ export default function Faturas() {
           return !s || s === 'null' || s === 'undefined' || s.includes('1900')
         }
 
-        // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871", "20.438,400", "22.347,38") e ponto de milhar ("431.304")
+        // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871", "20.438,400", "22.347,38", "33,037", "33.037")
         const parsePositiveNumber = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
@@ -433,7 +433,7 @@ export default function Faturas() {
           return n
         }
 
-        // Helper para medições cumulativas de medidor (especialmente Gás Comgás onde ponto é milhar, ex: "146.303" -> 146303)
+        // Helper para medições cumulativas de medidor (especialmente Gás Comgás onde ponto é milhar, ex: "75.795" -> 75795)
         const parseCumulativeMeterReading = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
@@ -506,6 +506,8 @@ export default function Faturas() {
           'consumoTotal',
           'consumo_faturado',
           'consumoFaturado',
+          'consumo_corrigido',
+          'consumoCorrigido',
           'consumo_medido',
           'consumoMedido',
           'consumo_apurado',
@@ -516,8 +518,6 @@ export default function Faturas() {
           'totalKwh',
           'kwh',
           'volume',
-          'consumo_corrigido',
-          'consumoCorrigido',
         )
         const cConsumo = parsePositiveNumber(rawCConsumo)
         if (cConsumo !== undefined) setConsumo(formatNumberValue(cConsumo, 3))
@@ -1030,7 +1030,11 @@ export default function Faturas() {
         }
 
         if (cMedido !== undefined) {
-          setConsumoMedido(formatNumberValue(cMedido, detectedTipo === 'Gás' ? 0 : 3))
+          // Em gás, medição pode ser medido inteiro ou decimal, mas se tiver casas decimais ou for medido
+          // se for inteiro (ex: 35), exibe "35"; se vier decimal (ex: 35.037), exibe "35,037"
+          setConsumoMedido(
+            formatNumberValue(cMedido, detectedTipo === 'Gás' && Number.isInteger(cMedido) ? 0 : 3),
+          )
         } else if (cCorrigido !== undefined) {
           setConsumoMedido(formatNumberValue(cCorrigido, 3))
         } else if (cConsumo !== undefined) {
@@ -1039,10 +1043,10 @@ export default function Faturas() {
 
         if (cCorrigido !== undefined) {
           setConsumoCorrigido(formatNumberValue(cCorrigido, 3))
-        } else if (cMedido !== undefined && detectedTipo !== 'Gás') {
-          setConsumoCorrigido(formatNumberValue(cMedido, 3))
         } else if (cConsumo !== undefined) {
           setConsumoCorrigido(formatNumberValue(cConsumo, 3))
+        } else if (cMedido !== undefined && detectedTipo !== 'Gás') {
+          setConsumoCorrigido(formatNumberValue(cMedido, 3))
         }
 
         if (tar !== undefined) {
@@ -1211,8 +1215,12 @@ export default function Faturas() {
 
     setSubmittingFatura(true)
     try {
-      // Revalida a sessão com o backend antes do submit para evitar 401 por token desatualizado
-      await ensureValidSession().catch(() => null)
+      // Revalida a sessão com o backend antes do submit de forma não destrutiva
+      try {
+        await ensureValidSession()
+      } catch {
+        /* intentionally ignored */
+      }
 
       const parsedValorTotal = parseNumberValue(valorTotal) ?? 0
 
@@ -2225,7 +2233,7 @@ export default function Faturas() {
                           Consumo Principal ({unidadeConsumo})
                         </Label>
                         <Input
-                          placeholder="Ex: 3.230,016"
+                          placeholder="Ex: 33,037"
                           className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                             consumo !== ''
                               ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
@@ -2624,7 +2632,7 @@ export default function Faturas() {
                             Consumo Corrigido (m³)
                           </Label>
                           <Input
-                            placeholder="Ex: 3.230,016"
+                            placeholder="Ex: 33,037"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               consumoCorrigido !== ''
                                 ? 'text-gray-900 font-semibold bg-white border-teal-500/50'

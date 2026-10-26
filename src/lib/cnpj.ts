@@ -93,11 +93,21 @@ export function formatNumberValue(
   if (val === undefined || val === null || val === '') return ''
   const s = String(val).trim()
   if (s === '') return ''
-  // Se já estiver formatado em pt-BR (ex: "23.862,35" ou "146.303" ou "3.230,016")
-  if (/^\d{1,3}(\.\d{3})*(,\d+)?$/.test(s)) {
+  // Se tem ponto e vírgula no padrão brasileiro (ex: "23.862,35" ou "3.230,016"), já é pt-BR
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
     return s
   }
-  const n = typeof val === 'number' ? val : Number(s.replace(',', '.'))
+  // Se tem apenas vírgula decimal (ex: "33,037" ou "211,2"), já está no padrão pt-BR
+  if (/^\d+,\d+$/.test(s)) {
+    return s
+  }
+  // Se for apenas dígitos inteiros (ex: "35" ou "75830")
+  if (/^\d+$/.test(s)) {
+    const n = Number(s)
+    return isNaN(n) ? s : n.toLocaleString('pt-BR', { maximumFractionDigits: maxDecimals })
+  }
+  // Se for string no formato decimal com ponto (ex: "33.037" ou "211.2" ou "6.392832") ou número nativo
+  const n = typeof val === 'number' ? val : Number(s)
   if (isNaN(n)) return s
   return n.toLocaleString('pt-BR', {
     maximumFractionDigits: maxDecimals,
@@ -123,10 +133,10 @@ export function parseNumberValue(val: number | string | undefined | null): numbe
   if (s.includes('.') && s.includes(',')) {
     s = s.replace(/\./g, '').replace(',', '.')
   } else if (s.includes(',')) {
-    // Apenas vírgula (ex: 7,387689 ou 23862,35) -> decimal
+    // Apenas vírgula (ex: 7,387689 ou 33,037 ou 211,2) -> decimal
     s = s.replace(',', '.')
-  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-    // Apenas ponto e múltiplos blocos de 3 dígitos (ex: 146.303 ou 3.410 ou 1.146.303) -> ponto de milhar
+  } else if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) {
+    // Apenas ponto com 2 ou mais blocos de milhar (ex: 1.146.303) -> ponto de milhar
     s = s.replace(/\./g, '')
   }
   const n = Number(s)
