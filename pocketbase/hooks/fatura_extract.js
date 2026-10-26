@@ -1,3 +1,4 @@
+// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.47 sync
 routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
