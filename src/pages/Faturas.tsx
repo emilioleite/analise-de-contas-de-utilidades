@@ -758,64 +758,6 @@ export default function Faturas() {
         let cPonta = parsePositiveNumber(getField('consumo_ponta', 'consumoPonta'))
         let cForaPonta = parsePositiveNumber(getField('consumo_fora_ponta', 'consumoForaPonta'))
 
-        // Regra de negócio: Se a Classificação for B (B1, B2, B3, B4), o consumo é ÚNICO!
-        // Não há consumo ponta ou fora-ponta. Se a IA enviou apenas ponta/fora-ponta ou medido,
-        // consolidamos como consumo único e limpamos ponta/fora-ponta.
-        // NUNCA deixar o campo consumo vazio em Grupo B se qualquer uma das fontes o trouxer.
-        if (detectedTipo === 'Energia Elétrica' && isGrupoB) {
-          let resolvedGrupoBConsumo = cConsumo
-          if (resolvedGrupoBConsumo === undefined) {
-            const candidateUnico =
-              cForaPonta ||
-              cPonta ||
-              parsePositiveNumber(getField('consumo_medido', 'consumoMedido'))
-            if (candidateUnico !== undefined) {
-              resolvedGrupoBConsumo = candidateUnico
-            }
-          }
-
-          // Fallback de coerência para Grupo B: se consumo ainda estiver vazio, mas medições existirem:
-          // Calcular (leitura_atual - leitura_anterior) x constante_comercial (ou constante padrão do medidor)
-          if (
-            resolvedGrupoBConsumo === undefined &&
-            medAtu !== undefined &&
-            medAnt !== undefined &&
-            medAtu > medAnt
-          ) {
-            const diff = medAtu - medAnt
-            const rawConst = parsePositiveNumber(
-              getField('constante', 'constante_medidor', 'const_medidor', 'constante_comercial'),
-            )
-            const constMulti = rawConst || 0.024
-            const calcCons = Number((diff * constMulti).toFixed(3))
-            const vTot = vTotal || parsePositiveNumber(rawVTotal)
-            // Se coerente com valor total ou se não houver valor total
-            if (calcCons > 0 && (!vTot || calcCons * 0.3 < vTot)) {
-              resolvedGrupoBConsumo = calcCons
-            } else if (diff > 0 && (!vTot || diff * 0.3 < vTot)) {
-              resolvedGrupoBConsumo = diff
-            }
-          }
-
-          if (resolvedGrupoBConsumo !== undefined) {
-            setConsumo(formatNumberValue(resolvedGrupoBConsumo, 3))
-          }
-          cPonta = undefined
-          cForaPonta = undefined
-          setConsumoPonta('')
-          setConsumoForaPonta('')
-        } else {
-          // Se for Grupo A ou classificação não informada
-          if (cPonta !== undefined) setConsumoPonta(cPonta)
-          if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
-
-          // Se for Grupo A e consumo geral não foi detectado mas temos ponta + fora-ponta
-          if (cConsumo === undefined && (cPonta !== undefined || cForaPonta !== undefined)) {
-            const sumA = Number(((cPonta || 0) + (cForaPonta || 0)).toFixed(3))
-            if (sumA > 0) setConsumo(sumA)
-          }
-        }
-
         let tTusdPonta = parsePositiveNumber(
           getField(
             'tarifa_tusd_ponta',
@@ -847,6 +789,95 @@ export default function Faturas() {
             'te',
           ),
         )
+
+        // Regra de negócio: Se a Classificação for B (B1, B2, B3, B4), o consumo é ÚNICO!
+        // Não há consumo ponta ou fora-ponta. Se a IA enviou apenas ponta/fora-ponta ou medido,
+        // consolidamos como consumo único e limpamos ponta/fora-ponta.
+        // NUNCA deixar o campo consumo vazio em Grupo B se qualquer uma das fontes o trouxer.
+        if (detectedTipo === 'Energia Elétrica' && isGrupoB) {
+          let resolvedGrupoBConsumo = cConsumo
+          if (resolvedGrupoBConsumo === undefined) {
+            const candidateUnico =
+              cForaPonta ||
+              cPonta ||
+              parsePositiveNumber(
+                getField(
+                  'consumo_medido',
+                  'consumoMedido',
+                  'consumo_faturado',
+                  'consumoFaturado',
+                  'kwh_total',
+                  'kwhTotal',
+                  'total_kwh',
+                  'kwh',
+                ),
+              )
+            if (candidateUnico !== undefined) {
+              resolvedGrupoBConsumo = candidateUnico
+            }
+          }
+
+          // Fallbacks em cascata para Grupo B caso o consumo ainda esteja indefinido:
+          // 1. TUSD / TE ou valor total / (tarifa TUSD + TE)
+          const vTotNum = vTotal || parsePositiveNumber(rawVTotal)
+          const somaTarifasB = (tTusdPonta || 0) + (tTePonta || 0)
+          if (resolvedGrupoBConsumo === undefined && vTotNum && somaTarifasB > 0) {
+            const estimativaPorTarifas = Number((vTotNum / somaTarifasB).toFixed(3))
+            if (estimativaPorTarifas > 0) {
+              resolvedGrupoBConsumo = estimativaPorTarifas
+            }
+          }
+
+          // 2. Medições: (leitura_atual - leitura_anterior) x constante
+          if (
+            resolvedGrupoBConsumo === undefined &&
+            medAtu !== undefined &&
+            medAnt !== undefined &&
+            medAtu > medAnt
+          ) {
+            const diff = medAtu - medAnt
+            const rawConst = parsePositiveNumber(
+              getField('constante', 'constante_medidor', 'const_medidor', 'constante_comercial'),
+            )
+            // Se constante foi fornecida (ex: 0.024) ou se soubermos a relação com valor total
+            if (rawConst && rawConst > 0) {
+              resolvedGrupoBConsumo = Number((diff * rawConst).toFixed(3))
+            } else if (vTotNum && somaTarifasB > 0) {
+              const estimativa = vTotNum / somaTarifasB
+              const impliedConst = estimativa / diff
+              // Se constante inferida for próxima de potências de 10 ou fatores comuns (0.024, 1, 10, etc.)
+              if (impliedConst > 0.0001 && impliedConst < 1000) {
+                resolvedGrupoBConsumo = Number(estimativa.toFixed(3))
+              }
+            } else {
+              // Padrão de segurança: se diff for coerente com valor faturado
+              const calcWithDefaultConst = Number((diff * 0.024).toFixed(3))
+              if (vTotNum && calcWithDefaultConst * 0.3 < vTotNum) {
+                resolvedGrupoBConsumo = calcWithDefaultConst
+              } else {
+                resolvedGrupoBConsumo = diff
+              }
+            }
+          }
+
+          if (resolvedGrupoBConsumo !== undefined) {
+            setConsumo(formatNumberValue(resolvedGrupoBConsumo, 3))
+          }
+          cPonta = undefined
+          cForaPonta = undefined
+          setConsumoPonta('')
+          setConsumoForaPonta('')
+        } else {
+          // Se for Grupo A ou classificação não informada
+          if (cPonta !== undefined) setConsumoPonta(cPonta)
+          if (cForaPonta !== undefined) setConsumoForaPonta(cForaPonta)
+
+          // Se for Grupo A e consumo geral não foi detectado mas temos ponta + fora-ponta
+          if (cConsumo === undefined && (cPonta !== undefined || cForaPonta !== undefined)) {
+            const sumA = Number(((cPonta || 0) + (cForaPonta || 0)).toFixed(3))
+            if (sumA > 0) setConsumo(sumA)
+          }
+        }
 
         let tTusdFPonta = parsePositiveNumber(
           getField(
@@ -1098,16 +1129,16 @@ export default function Faturas() {
     if (selectedTipo === 'Energia Elétrica') {
       const isB = /^B/i.test((classificacaoConsumo || '').replace(/^B-/, ''))
       dadosEsp = {
-        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
-        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        medicao_anterior: parseNumberValue(medicaoAnterior),
+        medicao_atual: parseNumberValue(medicaoAtual),
         classificacao_consumo: classificacaoConsumo || undefined,
-        consumo_medido: parseNumberValue(consumo) || undefined,
-        consumo_ponta: isB ? undefined : parseNumberValue(consumoPonta) || undefined,
-        tarifa_tusd_ponta: parseNumberValue(tarifaTusdPonta) || undefined,
-        tarifa_te_ponta: parseNumberValue(tarifaTePonta) || undefined,
-        consumo_fora_ponta: isB ? undefined : parseNumberValue(consumoForaPonta) || undefined,
-        tarifa_tusd_f_ponta: parseNumberValue(tarifaTusdFPonta || tarifaTusdPonta) || undefined,
-        tarifa_te_f_ponta: parseNumberValue(tarifaTeFPonta || tarifaTePonta) || undefined,
+        consumo_medido: parseNumberValue(consumo),
+        consumo_ponta: isB ? undefined : parseNumberValue(consumoPonta),
+        tarifa_tusd_ponta: parseNumberValue(tarifaTusdPonta),
+        tarifa_te_ponta: parseNumberValue(tarifaTePonta),
+        consumo_fora_ponta: isB ? undefined : parseNumberValue(consumoForaPonta),
+        tarifa_tusd_f_ponta: parseNumberValue(tarifaTusdFPonta || tarifaTusdPonta),
+        tarifa_te_f_ponta: parseNumberValue(tarifaTeFPonta || tarifaTePonta),
         adicional_bandeira: adicionalBandeira || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
@@ -2232,7 +2263,6 @@ export default function Faturas() {
                             Medição Anterior
                           </Label>
                           <Input
-                            type="number"
                             placeholder="Ex: 65891.7"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAnterior !== ''
@@ -2246,7 +2276,6 @@ export default function Faturas() {
                         <div>
                           <Label className="text-xs font-medium text-gray-700">Medição Atual</Label>
                           <Input
-                            type="number"
                             placeholder="Ex: 66743.3"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               medicaoAtual !== ''
@@ -2308,8 +2337,6 @@ export default function Faturas() {
                                 Consumo Total Faturado (kWh) *
                               </Label>
                               <Input
-                                type="number"
-                                step="0.001"
                                 placeholder="Ex: 20438.4"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumo !== ''
@@ -2328,8 +2355,6 @@ export default function Faturas() {
                                 Tarifa TUSD Única (R$/kWh)
                               </Label>
                               <Input
-                                type="number"
-                                step="0.00001"
                                 placeholder="Ex: 0.60978"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdPonta !== ''
@@ -2352,8 +2377,6 @@ export default function Faturas() {
                                 Tarifa TE Única (R$/kWh)
                               </Label>
                               <Input
-                                type="number"
-                                step="0.00001"
                                 placeholder="Ex: 0.40912"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTePonta !== ''
@@ -2380,7 +2403,6 @@ export default function Faturas() {
                                 Consumo Ponta (kWh)
                               </Label>
                               <Input
-                                type="number"
                                 placeholder="Ex: 1200"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumoPonta !== ''
@@ -2396,8 +2418,6 @@ export default function Faturas() {
                                 Tarifa TUSD-Ponta
                               </Label>
                               <Input
-                                type="number"
-                                step="0.0001"
                                 placeholder="Ex: 0.62"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdPonta !== ''
@@ -2413,8 +2433,6 @@ export default function Faturas() {
                                 Tarifa TE-Ponta
                               </Label>
                               <Input
-                                type="number"
-                                step="0.0001"
                                 placeholder="Ex: 0.41"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTePonta !== ''
@@ -2431,7 +2449,6 @@ export default function Faturas() {
                                 Consumo Fora-Ponta (kWh)
                               </Label>
                               <Input
-                                type="number"
                                 placeholder="Ex: 3000"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   consumoForaPonta !== ''
@@ -2447,8 +2464,6 @@ export default function Faturas() {
                                 Tarifa TUSD-F.Ponta
                               </Label>
                               <Input
-                                type="number"
-                                step="0.0001"
                                 placeholder="Ex: 0.24"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTusdFPonta !== ''
@@ -2464,8 +2479,6 @@ export default function Faturas() {
                                 Tarifa TE-F.Ponta
                               </Label>
                               <Input
-                                type="number"
-                                step="0.0001"
                                 placeholder="Ex: 0.32"
                                 className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                                   tarifaTeFPonta !== ''

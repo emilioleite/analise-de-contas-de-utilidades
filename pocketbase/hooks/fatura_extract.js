@@ -1411,48 +1411,117 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
           // Fallback por regex no texto do PDF para faturas de Energia Elétrica (Enel e congêneres)
           let extractedMeterConst = null
           if (textExtracted && textContent && typeof textContent === 'string') {
-            // 1. Linha do medidor em DADOS DE MEDIÇÃO:
-            // Ex.: "11134555 ENRG ATV ÚNICO 58753.000 59757.100 0,02400 24.098,400"
-            // Colunas: Medidor / Grandezas / Postos Tarifários / Leitura Anterior / Leitura Atual / Const. Medidor / Consumo kWh
-            const meterLineRegex =
-              /(?:ENRG\s+ATV\s+(?:[A-Z\u00C0-\u00FF]+|\S+)\s+)?(\d{4,7}(?:\.\d{3})?)\s+(\d{4,7}(?:\.\d{3})?)\s+(\d+[,.]\d{2,6})\s+(\d{1,3}(?:\.\d{3})*,\d{1,3})/i
-            const meterMatch = textContent.match(meterLineRegex)
-            if (meterMatch) {
-              const rawAntStr = meterMatch[1]
-              const rawAtuStr = meterMatch[2]
-              const rawConstStr = meterMatch[3]
-              const rawConsStr = meterMatch[4]
+            // 1. Quadro histórico: "MÊS/ANO CONSUMO FATURADO (kWh)"
+            // Ex.: "JAN/26 24.098,400 31 LID" ou "JAN/2026 24.098,400"
+            if (!parsed.consumo || Number(parsed.consumo) === 0) {
+              const mesesMap = {
+                '01': ['JAN', 'JANEIRO'],
+                '02': ['FEV', 'FEVEREIRO'],
+                '03': ['MAR', 'MARÇO', 'MARCO'],
+                '04': ['ABR', 'ABRIL'],
+                '05': ['MAI', 'MAIO'],
+                '06': ['JUN', 'JUNHO'],
+                '07': ['JUL', 'JULHO'],
+                '08': ['AGO', 'AGOSTO'],
+                '09': ['SET', 'SETEMBRO'],
+                10: ['OUT', 'OUTUBRO'],
+                11: ['NOV', 'NOVEMBRO'],
+                12: ['DEZ', 'DEZEMBRO'],
+              }
 
-              // Consumo: usa ponto de milhar e vírgula decimal (ex: 24.098,400 -> 24098.4)
-              const consClean = Number(rawConsStr.replace(/\./g, '').replace(',', '.'))
-              if (!isNaN(consClean) && consClean > 0) {
-                if (!parsed.consumo || Number(parsed.consumo) === 0) {
-                  console.log(
-                    '[fatura_extract] Consumo extraído por regex da linha do medidor:',
-                    consClean,
-                  )
-                  parsed.consumo = consClean
+              let compMes = ''
+              let compAnoCurto = ''
+              let compAnoLongo = ''
+
+              if (parsed.competencia_formatada) {
+                const [mm, yyyy] = String(parsed.competencia_formatada).split('/')
+                compMes = mm
+                compAnoLongo = yyyy || ''
+                compAnoCurto = yyyy ? yyyy.slice(-2) : ''
+              } else if (parsed.competencia && String(parsed.competencia).includes('-')) {
+                const [yyyy, mm] = String(parsed.competencia).split('-')
+                compMes = mm
+                compAnoLongo = yyyy || ''
+                compAnoCurto = yyyy ? yyyy.slice(-2) : ''
+              }
+
+              if (compMes && mesesMap[compMes]) {
+                const siglas = mesesMap[compMes]
+                for (const sigla of siglas) {
+                  // Tentar "JAN/26", "JAN/2026", "JAN 26"
+                  const patts = [
+                    new RegExp(
+                      `${sigla}\\/(?:${compAnoCurto}|${compAnoLongo})\\s+(\\d{1,3}(?:\\.\\d{3})*,\\d{1,3})`,
+                      'i',
+                    ),
+                    new RegExp(
+                      `${sigla}\\s+(?:${compAnoCurto}|${compAnoLongo})\\s+(\\d{1,3}(?:\\.\\d{3})*,\\d{1,3})`,
+                      'i',
+                    ),
+                  ]
+                  for (const p of patts) {
+                    const hMatch = textContent.match(p)
+                    if (hMatch) {
+                      const histCons = Number(hMatch[1].replace(/\./g, '').replace(',', '.'))
+                      if (!isNaN(histCons) && histCons > 0) {
+                        console.log(
+                          '[fatura_extract] Consumo extraído por regex do histórico:',
+                          histCons,
+                        )
+                        parsed.consumo = histCons
+                        break
+                      }
+                    }
+                  }
+                  if (parsed.consumo && Number(parsed.consumo) > 0) break
                 }
               }
-
-              // Constante do medidor
-              const constClean = Number(rawConstStr.replace(',', '.'))
-              if (!isNaN(constClean) && constClean > 0) {
-                extractedMeterConst = constClean
-              }
-
-              // Leituras do medidor (inteiros cumulativos, ignorar ponto de milhar ou casas decimais residuais de precisão)
-              const antClean = Math.round(
-                Number(rawAntStr.replace(/\./g, '')) / (rawAntStr.includes('.') ? 1000 : 1),
-              )
-              const atuClean = Math.round(
-                Number(rawAtuStr.replace(/\./g, '')) / (rawAtuStr.includes('.') ? 1000 : 1),
-              )
-              if (!parsed.medicao_anterior && antClean > 0) parsed.medicao_anterior = antClean
-              if (!parsed.medicao_atual && atuClean > 0) parsed.medicao_atual = atuClean
             }
 
-            // 2. Tabela de itens de faturamento (TUSD / TE): coluna Quant. (kWh)
+            // 2. Linha do medidor em DADOS DE MEDIÇÃO:
+            // Ex.: "11134555 ENRG ATV ÚNICO 58753.000 59757.100 0,02400 24.098,400"
+            // Suporta espaços múltiplos, quebras de linha ou colunas intercaladas
+            const meterLineRegexes = [
+              /(?:ENRG\s+ATV\s+(?:[A-Z\u00C0-\u00FF]+|\S+)\s+)?(\d{4,7}(?:\.\d{3})?)\s+(\d{4,7}(?:\.\d{3})?)\s+(\d+[,.]\d{2,6})\s+(\d{1,3}(?:\.\d{3})*,\d{1,3})/i,
+              /(\d{5,7}(?:\.\d{3})?)\s+(\d{5,7}(?:\.\d{3})?)\s+(0[,.]\d{3,6})\s+(\d{1,3}(?:\.\d{3})*,\d{1,3})/i,
+            ]
+            for (const rx of meterLineRegexes) {
+              const meterMatch = textContent.match(rx)
+              if (meterMatch) {
+                const rawAntStr = meterMatch[1]
+                const rawAtuStr = meterMatch[2]
+                const rawConstStr = meterMatch[3]
+                const rawConsStr = meterMatch[4]
+
+                const consClean = Number(rawConsStr.replace(/\./g, '').replace(',', '.'))
+                if (!isNaN(consClean) && consClean > 0) {
+                  if (!parsed.consumo || Number(parsed.consumo) === 0) {
+                    console.log(
+                      '[fatura_extract] Consumo extraído por regex da linha do medidor:',
+                      consClean,
+                    )
+                    parsed.consumo = consClean
+                  }
+                }
+
+                const constClean = Number(rawConstStr.replace(',', '.'))
+                if (!isNaN(constClean) && constClean > 0) {
+                  extractedMeterConst = constClean
+                }
+
+                const antClean = Math.round(
+                  Number(rawAntStr.replace(/\./g, '')) / (rawAntStr.includes('.') ? 1000 : 1),
+                )
+                const atuClean = Math.round(
+                  Number(rawAtuStr.replace(/\./g, '')) / (rawAtuStr.includes('.') ? 1000 : 1),
+                )
+                if (!parsed.medicao_anterior && antClean > 0) parsed.medicao_anterior = antClean
+                if (!parsed.medicao_atual && atuClean > 0) parsed.medicao_atual = atuClean
+                break
+              }
+            }
+
+            // 3. Tabela de itens de faturamento (TUSD / TE): coluna Quant. (kWh)
             // Ex.: "USO SIST. DISTR. (TUSD) KWH 24.098,400 0,55454 13.363,46"
             // ou "ENERGIA (TE) KWH 24.098,400 0,37539 9.046,36"
             if (!parsed.consumo || Number(parsed.consumo) === 0) {
@@ -1471,52 +1540,6 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
               }
             }
 
-            // 3. Quadro histórico: "MÊS/ANO CONSUMO FATURADO (kWh)"
-            // Ex.: "JAN/26 24.098,400 31 LID"
-            if (!parsed.consumo || Number(parsed.consumo) === 0) {
-              let mesAbrev = ''
-              if (parsed.competencia_formatada) {
-                const mesesMap = {
-                  '01': 'JAN',
-                  '02': 'FEV',
-                  '03': 'MAR',
-                  '04': 'ABR',
-                  '05': 'MAI',
-                  '06': 'JUN',
-                  '07': 'JUL',
-                  '08': 'AGO',
-                  '09': 'SET',
-                  10: 'OUT',
-                  11: 'NOV',
-                  12: 'DEZ',
-                }
-                const [mm, yyyy] = String(parsed.competencia_formatada).split('/')
-                const sigla = mesesMap[mm]
-                const aa = yyyy ? yyyy.slice(-2) : ''
-                if (sigla && aa) {
-                  mesAbrev = `${sigla}/${aa}`
-                }
-              }
-
-              if (mesAbrev) {
-                const histRegex = new RegExp(
-                  `${mesAbrev}\\s+(\\d{1,3}(?:\\.\\d{3})*,\\d{1,3})`,
-                  'i',
-                )
-                const histMatch = textContent.match(histRegex)
-                if (histMatch) {
-                  const histCons = Number(histMatch[1].replace(/\./g, '').replace(',', '.'))
-                  if (!isNaN(histCons) && histCons > 0) {
-                    console.log(
-                      '[fatura_extract] Consumo extraído por regex do histórico:',
-                      histCons,
-                    )
-                    parsed.consumo = histCons
-                  }
-                }
-              }
-            }
-
             // Fallback para constante do medidor isolada se não encontrada na linha do medidor
             if (!extractedMeterConst) {
               const constMatch = textContent.match(
@@ -1529,6 +1552,11 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
                 }
               }
             }
+          }
+
+          // Se constante foi detectada, persistir no objeto parsed
+          if (extractedMeterConst && extractedMeterConst > 0 && !parsed.constante) {
+            parsed.constante = extractedMeterConst
           }
 
           // Se for Classe B (ou não houver ponta/fora-ponta discriminados):
@@ -1572,38 +1600,34 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
             Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
           ) {
             const diffLeituras = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
+            const vTotalVal = Number(parsed.valor_total || parsed.fatura_total || 0)
+            const somaTarifas =
+              (Number(parsed.tarifa_tusd_ponta) || 0) + (Number(parsed.tarifa_te_ponta) || 0)
+
             // Se constante foi identificada
             if (extractedMeterConst && extractedMeterConst > 0) {
               const calcConsumo = Number((diffLeituras * extractedMeterConst).toFixed(3))
-              // Checagem de coerência contra o valor faturado
-              // Se tivermos tarifas TUSD/TE (soma das tarifas ≈ tarifa total)
-              const somaTarifas =
-                (Number(parsed.tarifa_tusd_ponta) || 0) + (Number(parsed.tarifa_te_ponta) || 0)
-              const vTotalVal = Number(parsed.valor_total || parsed.fatura_total || 0)
-              let coerente = false
-              if (somaTarifas > 0 && vTotalVal > 0) {
-                const valorEstimado = calcConsumo * somaTarifas
-                // Tolerância de 30% para impostos/bandeiras/iluminação pública
-                if (Math.abs(valorEstimado - vTotalVal) / vTotalVal < 0.4) {
-                  coerente = true
-                }
-              } else if (calcConsumo > 0) {
-                // Sem tarifas para checar, mas medição × constante é a fórmula padrão da distribuidora
-                coerente = true
-              }
-
-              if (coerente && calcConsumo > 0) {
+              console.log(
+                `[fatura_extract] Consumo calculado por medições (${parsed.medicao_atual} - ${parsed.medicao_anterior}) * ${extractedMeterConst} = ${calcConsumo}`,
+              )
+              parsed.consumo = calcConsumo
+            } else if (vTotalVal > 0 && somaTarifas > 0) {
+              // Se não temos a constante explicitamente, mas temos valor total e tarifas (TUSD + TE):
+              // consumo estimado = valor_total / somaTarifas
+              const estimatedConsumo = vTotalVal / somaTarifas
+              // Se diffLeituras * 0.024 bater com o consumo estimado
+              const ratio = estimatedConsumo / diffLeituras
+              if (ratio > 0.001 && ratio < 100) {
+                const roundedCons = Number(estimatedConsumo.toFixed(3))
                 console.log(
-                  `[fatura_extract] Consumo calculado por medições (${parsed.medicao_atual} - ${parsed.medicao_anterior}) * ${extractedMeterConst} = ${calcConsumo}`,
+                  `[fatura_extract] Consumo estimado por valor_total / tarifas = ${roundedCons} (ratio diff: ${ratio})`,
                 )
-                parsed.consumo = calcConsumo
+                parsed.consumo = roundedCons
+              } else {
+                parsed.consumo = Number(diffLeituras.toFixed(3))
               }
-            } else if (
-              diffLeituras > 0 &&
-              (!parsed.valor_total || diffLeituras < Number(parsed.valor_total) * 10)
-            ) {
-              // Sem constante do medidor (constante = 1 direta)
-              parsed.consumo = diffLeituras
+            } else if (diffLeituras > 0) {
+              parsed.consumo = Number(diffLeituras.toFixed(3))
             }
           }
 
