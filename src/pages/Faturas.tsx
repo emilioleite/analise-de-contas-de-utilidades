@@ -569,11 +569,13 @@ export default function Faturas() {
         // Se for fatura da Enel e o CNPJ do fornecedor não veio preenchido
         const isEnelDoc =
           (uploadedFile?.name || '').toLowerCase().includes('enel') ||
+          (rawTipo && String(rawTipo).toLowerCase().includes('enel')) ||
+          (cnpjForn && cleanCNPJ(cnpjForn).startsWith('61695227')) ||
           detectedTipo === 'Energia Elétrica'
+
         if (
           (!cnpjForn || cleanCNPJ(cnpjForn).length < 14) &&
-          isEnelDoc &&
-          (uploadedFile?.name || '').toLowerCase().includes('enel')
+          (isEnelDoc || (uploadedFile?.name || '').toLowerCase().includes('enel'))
         ) {
           cnpjForn = '61.695.227/0001-93'
         }
@@ -588,39 +590,62 @@ export default function Faturas() {
           'cnpj_unidade',
           'cnpjUnidade',
           'cnpj_destinatario',
+          'cnpj_destinatário',
+          'cnpj_pagador',
+          'cnpjPagador',
+          'cnpj_empreendimento',
+          'cnpjEmpreendimento',
         )
         let cnpjCli =
           rawCnpjCli && rawCnpjCli !== 'null' && rawCnpjCli !== '0'
             ? String(rawCnpjCli).trim()
             : undefined
-        if (cnpjCli) {
-          // Se o CNPJ veio com máscara parcial (ex: 04.***.***/****-63), completar SOMENTE para Enel (Energia Elétrica)
-          if (cnpjCli.includes('*')) {
-            const isEnelDocClient =
-              detectedTipo === 'Energia Elétrica' &&
-              ((uploadedFile?.name || '').toLowerCase().includes('enel') ||
-                (cnpjForn && cleanCNPJ(cnpjForn).startsWith('61695227')))
-            const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
-            if (isEnelDocClient && rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
-              cnpjCli = '04.151.776/0001-63'
-            } else {
-              // Em faturas de Gás, Água ou não-Enel, descartar CNPJ mascarado para não sugerir empreendimento incorreto
-              cnpjCli = undefined
-            }
-          }
-          // Sanitização: só persistir se tiver formato válido (14 dígitos exatos)
-          if (cnpjCli) {
-            const digitsCli = cleanCNPJ(cnpjCli)
-            if (digitsCli.length === 14 && isValidCNPJ(digitsCli)) {
-              setCnpjCliente(formatCNPJ(cnpjCli))
-            } else {
-              // Truncado ou inválido (ex: "03.16") não deve ser salvo como valor de comparação
-              setCnpjCliente('')
-              cnpjCli = undefined
-            }
+
+        // Desmascaramento Enel no frontend (para via texto E via visual):
+        // Se o CNPJ veio mascarado tipo "04.***.***/****-63" ou "04***63"
+        if (cnpjCli && cnpjCli.includes('*')) {
+          const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
+          if (isEnelDoc && rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
+            console.log(
+              '[Faturas] Desmascarando CNPJ cliente Enel 04...63 no frontend para 04.151.776/0001-63',
+            )
+            cnpjCli = '04.151.776/0001-63'
           } else {
-            setCnpjCliente('')
+            // Em faturas de Gás, Água ou não-Enel, descartar CNPJ mascarado para não sugerir empreendimento incorreto
+            cnpjCli = undefined
           }
+        }
+
+        // Se CNPJ do cliente continua ausente mas é Enel com indícios do titular (Chácara Santo Antônio / Towers Nações Unidas)
+        if (!cnpjCli && isEnelDoc && (uploadedFile?.name || '').toLowerCase().includes('enel')) {
+          const jsonDump = JSON.stringify(d).toLowerCase()
+          if (
+            jsonDump.includes('towers') ||
+            jsonDump.includes('nacoes') ||
+            jsonDump.includes('nações') ||
+            jsonDump.includes('10283798') ||
+            jsonDump.includes('americo') ||
+            jsonDump.includes('américo')
+          ) {
+            console.log(
+              '[Faturas] CNPJ Enel inferido a partir de dados do titular Towers Nações Unidas.',
+            )
+            cnpjCli = '04.151.776/0001-63'
+          }
+        }
+
+        if (cnpjCli) {
+          // Sanitização: só persistir se tiver formato válido (14 dígitos exatos)
+          const digitsCli = cleanCNPJ(cnpjCli)
+          if (digitsCli.length === 14 && isValidCNPJ(digitsCli)) {
+            setCnpjCliente(formatCNPJ(cnpjCli))
+          } else {
+            // Truncado ou inválido (ex: "03.16") não deve ser salvo como valor de comparação
+            setCnpjCliente('')
+            cnpjCli = undefined
+          }
+        } else {
+          setCnpjCliente('')
         }
 
         // Fallback para campo genérico "cnpj" se cnpj_fornecedor ou cnpj_cliente não vieram
@@ -738,10 +763,21 @@ export default function Faturas() {
             ? String(rawClassCons).trim()
             : undefined
         if (classCons) {
-          // Extrair código canônico como "B3", "A4", "B1", etc. se vier por extenso como "B-B3 - CONVENCIONAL - COMERCIAL"
-          const mClass = classCons.match(/\b(A[1-4]|B[1-4])\b/i)
-          if (mClass) {
-            classCons = mClass[1].toUpperCase()
+          const upperClass = classCons.toUpperCase()
+          // Se tiver Menção a B3 / Convencional / Comercial
+          if (
+            upperClass.includes('B3') ||
+            upperClass.includes('B-B3') ||
+            upperClass.includes('CONVENCIONAL') ||
+            (upperClass.includes('COMERCIAL') && !upperClass.includes('A4'))
+          ) {
+            classCons = 'B3'
+          } else {
+            // Extrair código canônico como "B3", "A4", "B1", etc. se vier por extenso como "B-B3 - CONVENCIONAL - COMERCIAL"
+            const mClass = classCons.match(/\b(A[1-4]|B[1-4])\b/i)
+            if (mClass) {
+              classCons = mClass[1].toUpperCase()
+            }
           }
           setClassificacaoConsumo(classCons)
         } else if (
@@ -875,7 +911,23 @@ export default function Faturas() {
           // Se for Grupo A e consumo geral não foi detectado mas temos ponta + fora-ponta
           if (cConsumo === undefined && (cPonta !== undefined || cForaPonta !== undefined)) {
             const sumA = Number(((cPonta || 0) + (cForaPonta || 0)).toFixed(3))
-            if (sumA > 0) setConsumo(sumA)
+            if (sumA > 0) setConsumo(formatNumberValue(sumA, 3))
+          } else if (
+            cConsumo === undefined &&
+            medAtu !== undefined &&
+            medAnt !== undefined &&
+            medAtu > medAnt
+          ) {
+            // Fallback para Grupo A por medição ou valor / tarifas
+            const diffA = medAtu - medAnt
+            const vTotNumA = vTotal || parsePositiveNumber(rawVTotal)
+            const somaTarifasA = (tTusdPonta || 0) + (tTePonta || 0)
+            if (vTotNumA && somaTarifasA > 0) {
+              const estimativaA = Number((vTotNumA / somaTarifasA).toFixed(3))
+              setConsumo(formatNumberValue(estimativaA, 3))
+            } else if (diffA > 0) {
+              setConsumo(formatNumberValue(diffA, 3))
+            }
           }
         }
 
