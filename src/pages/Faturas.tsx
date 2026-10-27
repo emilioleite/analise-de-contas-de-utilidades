@@ -1266,7 +1266,7 @@ export default function Faturas() {
     setSelectedTipo(fat.tipo_utilidade)
     setCompetenciaInput(formatCompetencia(fat.competencia))
     setValorTotal(formatNumberValue(fat.valor_total, 2))
-    setConsumo(formatNumberValue(fat.consumo || '', fat.tipo_utilidade === 'Gás' ? 3 : 2))
+    setConsumo(formatNumberValue(fat.consumo || '', fat.tipo_utilidade === 'Gás' ? 3 : 3))
     setUnidadeConsumo(
       fat.unidade_consumo || (fat.tipo_utilidade === 'Energia Elétrica' ? 'kWh' : 'm³'),
     )
@@ -1309,7 +1309,10 @@ export default function Faturas() {
 
     setConsumoMedido(
       d.consumo_medido !== undefined && d.consumo_medido !== null
-        ? formatNumberValue(d.consumo_medido, isGas ? 0 : 3)
+        ? formatNumberValue(
+            d.consumo_medido,
+            isGas && Number.isInteger(Number(d.consumo_medido)) ? 0 : 3,
+          )
         : '',
     )
     setConsumoCorrigido(
@@ -2963,7 +2966,9 @@ export default function Faturas() {
                           displayVal = formatNumberValue(v, 6)
                         } else if (
                           k.includes('medicao') ||
-                          (selectedFatura.tipo_utilidade === 'Gás' && k.includes('consumo_medido'))
+                          (selectedFatura.tipo_utilidade === 'Gás' &&
+                            k.includes('consumo_medido') &&
+                            Number.isInteger(v))
                         ) {
                           displayVal = formatNumberValue(v, 0)
                         } else {

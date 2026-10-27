@@ -97,6 +97,7 @@ export function formatNumberValue(
   if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
     return s
   }
+
   // Se tem apenas vírgula decimal (ex: "33,037" ou "211,2"), já está no padrão pt-BR
   if (/^\d+,\d+$/.test(s)) {
     return s
@@ -106,7 +107,16 @@ export function formatNumberValue(
     const n = Number(s)
     return isNaN(n) ? s : n.toLocaleString('pt-BR', { maximumFractionDigits: maxDecimals })
   }
-  // Se for string no formato decimal com ponto (ex: "33.037" ou "211.2" ou "6.392832") ou número nativo
+  // Se for string no formato decimal com ponto (ex: "33.037" ou "852.643" ou "211.2" ou "6.392832")
+  // ou número nativo
+  if (typeof val === 'string' && /^\d+\.\d+$/.test(s)) {
+    // Preserva exatamente as casas decimais informadas na string, apenas trocando '.' por ','
+    const [inteiro, decimal] = s.split('.')
+    const intNum = Number(inteiro)
+    const intFmt = isNaN(intNum) ? inteiro : intNum.toLocaleString('pt-BR')
+    const decFmt = decimal.slice(0, maxDecimals)
+    return decFmt ? `${intFmt},${decFmt}` : intFmt
+  }
   const n = typeof val === 'number' ? val : Number(s)
   if (isNaN(n)) return s
   return n.toLocaleString('pt-BR', {
