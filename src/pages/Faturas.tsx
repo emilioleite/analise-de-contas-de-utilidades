@@ -85,6 +85,15 @@ export default function Faturas() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
+  // Duplicate invoice modal state
+  const [duplicateConfirmOpen, setDuplicateConfirmOpen] = useState(false)
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    tipo: string
+    competenciaFormatada: string
+    empreendimentoNome: string
+  } | null>(null)
+  const pendingSaveActionRef = useRef<(() => Promise<void>) | null>(null)
+
   const [selectedFatura, setSelectedFatura] = useState<FaturaRecord | null>(null)
   const [faturaToDelete, setFaturaToDelete] = useState<FaturaRecord | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -1142,26 +1151,8 @@ export default function Faturas() {
     return empCnpjDigits !== clienteCnpjDigits
   }, [selectedEnterprise, cnpjCliente, hasValidClienteCnpj])
 
-  // Save new invoice from Step 3
-  const handleSaveInvoice = async () => {
-    if (!selectedEmpId) {
-      toast({
-        title: 'Selecione um empreendimento',
-        description: 'É necessário associar a fatura a um empreendimento antes de salvar.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    if (!valorTotal) {
-      toast({
-        title: 'Valor total obrigatório',
-        description: 'Informe o valor total da fatura.',
-        variant: 'destructive',
-      })
-      return
-    }
-
+  // Execução final da criação da fatura
+  const executeSaveNewInvoice = async () => {
     // Format ISO date for first day of month from MM/AAAA
     let compISO = new Date().toISOString()
     if (competenciaInput.includes('/')) {
@@ -1259,6 +1250,69 @@ export default function Faturas() {
     }
   }
 
+  // Save new invoice from Step 3 com verificação de duplicidade
+  const handleSaveInvoice = async () => {
+    if (!selectedEmpId) {
+      toast({
+        title: 'Selecione um empreendimento',
+        description: 'É necessário associar a fatura a um empreendimento antes de salvar.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!valorTotal) {
+      toast({
+        title: 'Valor total obrigatório',
+        description: 'Informe o valor total da fatura.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Calcular ano-mês para checagem de duplicidade
+    let compYearMonth = ''
+    if (competenciaInput.includes('/')) {
+      const [mm, yyyy] = competenciaInput.split('/')
+      if (mm && yyyy) {
+        compYearMonth = `${yyyy}-${mm.padStart(2, '0')}`
+      }
+    } else if (competenciaInput.includes('-')) {
+      compYearMonth = competenciaInput.substring(0, 7)
+    }
+
+    setSubmittingFatura(true)
+    try {
+      const duplicate = await faturasService.checkDuplicate({
+        empreendimentoId: selectedEmpId,
+        tipoUtilidade: selectedTipo,
+        competenciaYearMonth: compYearMonth,
+      })
+
+      if (duplicate) {
+        const empNome =
+          duplicate.expand?.empreendimento?.nome ||
+          empreendimentos.find((e) => e.id === selectedEmpId)?.nome ||
+          'Empreendimento'
+        const compFmt = formatCompetencia(duplicate.competencia || compYearMonth)
+        setDuplicateInfo({
+          tipo: selectedTipo,
+          competenciaFormatada: compFmt,
+          empreendimentoNome: empNome,
+        })
+        pendingSaveActionRef.current = executeSaveNewInvoice
+        setDuplicateConfirmOpen(true)
+        return
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar duplicidade:', err)
+    } finally {
+      setSubmittingFatura(false)
+    }
+
+    await executeSaveNewInvoice()
+  }
+
   // Open edit modal with existing invoice
   const openEditModal = (fat: FaturaRecord) => {
     setSelectedFatura(fat)
@@ -1325,9 +1379,8 @@ export default function Faturas() {
     setEditModalOpen(true)
   }
 
-  // Save changes to existing invoice
-  const handleUpdateInvoice = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Execução final da atualização da fatura
+  const executeUpdateInvoice = async () => {
     if (!selectedFatura) return
 
     let compISO = selectedFatura.competencia
@@ -1336,6 +1389,8 @@ export default function Faturas() {
       if (mm && yyyy) {
         compISO = `${yyyy}-${mm.padStart(2, '0')}-01T00:00:00.000Z`
       }
+    } else if (competenciaInput.includes('-')) {
+      compISO = `${competenciaInput}-01T00:00:00.000Z`
     }
 
     const empObj = empreendimentos.find((e) => e.id === selectedEmpId)
@@ -1409,6 +1464,58 @@ export default function Faturas() {
     } finally {
       setSubmittingFatura(false)
     }
+  }
+
+  // Save changes to existing invoice com verificação de duplicidade
+  const handleUpdateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedFatura) return
+
+    // Calcular ano-mês para checagem de duplicidade
+    let compYearMonth = ''
+    if (competenciaInput.includes('/')) {
+      const [mm, yyyy] = competenciaInput.split('/')
+      if (mm && yyyy) {
+        compYearMonth = `${yyyy}-${mm.padStart(2, '0')}`
+      }
+    } else if (competenciaInput.includes('-')) {
+      compYearMonth = competenciaInput.substring(0, 7)
+    } else if (selectedFatura.competencia) {
+      compYearMonth = selectedFatura.competencia.substring(0, 7)
+    }
+
+    setSubmittingFatura(true)
+    try {
+      const duplicate = await faturasService.checkDuplicate({
+        empreendimentoId: selectedEmpId || selectedFatura.empreendimento,
+        tipoUtilidade: selectedTipo,
+        competenciaYearMonth: compYearMonth,
+        excludeId: selectedFatura.id,
+      })
+
+      if (duplicate) {
+        const empNome =
+          duplicate.expand?.empreendimento?.nome ||
+          empreendimentos.find((emp) => emp.id === (selectedEmpId || selectedFatura.empreendimento))
+            ?.nome ||
+          'Empreendimento'
+        const compFmt = formatCompetencia(duplicate.competencia || compYearMonth)
+        setDuplicateInfo({
+          tipo: selectedTipo,
+          competenciaFormatada: compFmt,
+          empreendimentoNome: empNome,
+        })
+        pendingSaveActionRef.current = executeUpdateInvoice
+        setDuplicateConfirmOpen(true)
+        return
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar duplicidade na edição:', err)
+    } finally {
+      setSubmittingFatura(false)
+    }
+
+    await executeUpdateInvoice()
   }
 
   // Delete invoice handler
@@ -3470,6 +3577,66 @@ export default function Faturas() {
               ) : (
                 'Excluir Fatura'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Invoice Confirmation Dialog */}
+      <Dialog
+        open={duplicateConfirmOpen}
+        onOpenChange={(open) => {
+          setDuplicateConfirmOpen(open)
+          if (!open) {
+            pendingSaveActionRef.current = null
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            </div>
+            <DialogTitle className="text-base font-bold text-gray-900">
+              Fatura possivelmente duplicada
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-600 leading-relaxed pt-1">
+              {duplicateInfo && (
+                <>
+                  Já existe uma fatura de {duplicateInfo.tipo} ({duplicateInfo.competenciaFormatada}
+                  ) para o empreendimento {duplicateInfo.empreendimentoNome}. Deseja salvar mesmo
+                  assim? Isso criará um registro duplicado.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDuplicateConfirmOpen(false)
+                pendingSaveActionRef.current = null
+              }}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={submittingFatura}
+              onClick={async () => {
+                const action = pendingSaveActionRef.current
+                setDuplicateConfirmOpen(false)
+                pendingSaveActionRef.current = null
+                if (action) {
+                  await action()
+                }
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium"
+            >
+              Salvar mesmo assim
             </Button>
           </DialogFooter>
         </DialogContent>

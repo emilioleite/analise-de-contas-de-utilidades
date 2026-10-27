@@ -58,10 +58,23 @@ export const faturasService = {
     excludeId?: string
   }): Promise<FaturaRecord | null> {
     try {
+      // Normalizar competenciaYearMonth: se vier no formato MM/AAAA ou AAAA-MM, garantir formato AAAA-MM
+      let ym = (params.competenciaYearMonth || '').trim()
+      if (ym.includes('/')) {
+        const [mm, yyyy] = ym.split('/')
+        if (mm && yyyy) {
+          ym = `${yyyy}-${mm.padStart(2, '0')}`
+        }
+      } else if (ym.includes('T')) {
+        ym = ym.substring(0, 7)
+      } else if (ym.length >= 7) {
+        ym = ym.substring(0, 7)
+      }
+
       const filterParts = [
         `empreendimento = "${params.empreendimentoId}"`,
         `tipo_utilidade = "${params.tipoUtilidade}"`,
-        `competencia ~ "${params.competenciaYearMonth}"`,
+        `competencia ~ "${ym}"`,
       ]
       if (params.excludeId) {
         filterParts.push(`id != "${params.excludeId}"`)
