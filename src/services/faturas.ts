@@ -51,6 +51,45 @@ export const faturasService = {
     return pb.collection('faturas').delete(id)
   },
 
+  async deleteAll(onProgress?: (progress: { current: number; total: number }) => void): Promise<{
+    deletedCount: number
+    errors: { id: string; error: string }[]
+  }> {
+    // 1. Obter todas as faturas cadastradas
+    const allFaturas = await pb.collection('faturas').getFullList<{ id: string }>({
+      fields: 'id',
+      sort: '-created',
+    })
+
+    const total = allFaturas.length
+    let deletedCount = 0
+    const errors: { id: string; error: string }[] = []
+
+    if (total === 0) {
+      if (onProgress) onProgress({ current: 0, total: 0 })
+      return { deletedCount: 0, errors: [] }
+    }
+
+    // 2. Excluir item por item reportando progresso e coletando eventuais erros
+    for (let i = 0; i < total; i++) {
+      const item = allFaturas[i]
+      try {
+        await pb.collection('faturas').delete(item.id)
+        deletedCount++
+      } catch (err: any) {
+        errors.push({
+          id: item.id,
+          error: err?.message || String(err),
+        })
+      }
+      if (onProgress) {
+        onProgress({ current: i + 1, total })
+      }
+    }
+
+    return { deletedCount, errors }
+  },
+
   async checkDuplicate(params: {
     empreendimentoId: string
     tipoUtilidade: string

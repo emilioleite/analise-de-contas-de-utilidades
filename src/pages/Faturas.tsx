@@ -63,8 +63,27 @@ export default function Faturas() {
   const enterpriseQuery = searchParams.get('enterprise') || 'Todos'
 
   const { isAdmin, ensureValidSession } = useAuth()
-  const { faturas, empreendimentos, addFatura, updateFatura, deleteFatura, loading } = useData()
+  const {
+    faturas,
+    empreendimentos,
+    addFatura,
+    updateFatura,
+    deleteFatura,
+    deleteAllFaturas,
+    refreshData,
+    loading,
+  } = useData()
   const { toast } = useToast()
+
+  // State for Bulk Delete (Apagar todas as faturas - Admin only)
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
+  const [bulkDeleteStep, setBulkDeleteStep] = useState<1 | 2>(1)
+  const [bulkDeleteConfirmationText, setBulkDeleteConfirmationText] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ current: number; total: number }>({
+    current: 0,
+    total: 0,
+  })
 
   // Filters state
   const [searchTerm, setSearchTerm] = useState('')
@@ -1518,6 +1537,80 @@ export default function Faturas() {
     await executeUpdateInvoice()
   }
 
+  // Reset bulk delete modal
+  const resetBulkDeleteState = () => {
+    setBulkDeleteStep(1)
+    setBulkDeleteConfirmationText('')
+    setBulkDeleting(false)
+    setBulkDeleteProgress({ current: 0, total: 0 })
+  }
+
+  // Handle Bulk Delete execution
+  const handleBulkDeleteAllFaturas = async () => {
+    if (!isAdmin) {
+      toast({
+        title: 'Ação não permitida',
+        description: 'Apenas administradores podem executar esta operação.',
+        variant: 'destructive',
+      })
+      setBulkDeleteModalOpen(false)
+      resetBulkDeleteState()
+      return
+    }
+
+    if (bulkDeleteConfirmationText.trim().toUpperCase() !== 'APAGAR') {
+      toast({
+        title: 'Confirmação incorreta',
+        description: 'Digite exatamente APAGAR para prosseguir.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setBulkDeleting(true)
+    try {
+      // Renovar sessão preventivamente antes de operação longa
+      await ensureValidSession().catch(() => null)
+
+      const result = await deleteAllFaturas((progress) => {
+        setBulkDeleteProgress(progress)
+      })
+
+      if (result.errors.length === 0) {
+        toast({
+          title: 'Todas as faturas foram apagadas.',
+          description:
+            result.deletedCount > 0
+              ? `${result.deletedCount} fatura(s) excluída(s) com sucesso. O sistema foi reiniciado.`
+              : 'Nenhuma fatura encontrada para apagar.',
+        })
+      } else if (result.deletedCount > 0) {
+        toast({
+          title: 'Exclusão parcial concluída',
+          description: `${result.deletedCount} fatura(s) apagada(s), porém ${result.errors.length} fatura(s) apresentaram falha: ${result.errors[0]?.error}`,
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Falha ao apagar faturas',
+          description: `Erro: ${result.errors[0]?.error || 'Não foi possível apagar os registros.'}`,
+          variant: 'destructive',
+        })
+      }
+
+      setBulkDeleteModalOpen(false)
+      resetBulkDeleteState()
+      await refreshData()
+    } catch (err: any) {
+      toast({
+        title: 'Erro durante a exclusão em massa',
+        description: err?.message || 'Ocorreu um erro ao processar a exclusão.',
+        variant: 'destructive',
+      })
+      setBulkDeleting(false)
+    }
+  }
+
   // Delete invoice handler
   const handleDeleteInvoice = async () => {
     if (!faturaToDelete) return
@@ -1635,16 +1728,33 @@ export default function Faturas() {
           </p>
         </div>
 
-        <Button
-          onClick={() => {
-            resetUploadForm()
-            setUploadModalOpen(true)
-          }}
-          className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-9 shadow-sm"
-        >
-          <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
-          Enviar Fatura
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                resetBulkDeleteState()
+                setBulkDeleteModalOpen(true)
+              }}
+              className="text-xs h-9 border-red-200 text-red-700 hover:bg-red-50 hover:border-red-300 shadow-sm"
+              title="Exclusão em massa para reiniciar todos os lançamentos do sistema"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5 text-red-600" />
+              Apagar todas as faturas
+            </Button>
+          )}
+
+          <Button
+            onClick={() => {
+              resetUploadForm()
+              setUploadModalOpen(true)
+            }}
+            className="bg-teal-700 hover:bg-teal-800 text-white text-xs h-9 shadow-sm"
+          >
+            <UploadCloud className="w-3.5 h-3.5 mr-1.5" />
+            Enviar Fatura
+          </Button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -3641,6 +3751,178 @@ export default function Faturas() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Admin Bulk Delete Confirmation Dialog (2 Etapas) */}
+      {isAdmin && (
+        <Dialog
+          open={bulkDeleteModalOpen}
+          onOpenChange={(open) => {
+            if (!bulkDeleting) {
+              setBulkDeleteModalOpen(open)
+              if (!open) {
+                resetBulkDeleteState()
+              }
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-[480px]">
+            {bulkDeleteStep === 1 ? (
+              <>
+                <DialogHeader>
+                  <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-2">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <DialogTitle className="text-base font-bold text-gray-900">
+                    Reiniciar lançamentos: apagar todas as faturas?
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-gray-600 leading-relaxed pt-1 space-y-2">
+                    <span className="block font-semibold text-red-700">
+                      Atenção: Esta é uma operação administrativa irreversível e permanente!
+                    </span>
+                    <span className="block">
+                      <strong>TODAS</strong> as faturas cadastradas de{' '}
+                      <strong>todos os empreendimentos</strong> e de todas as utilidades (Energia
+                      Elétrica, Água e Esgoto, Gás) serão excluídas definitivamente da base de
+                      dados.
+                    </span>
+                    <span className="block text-gray-500">
+                      Total de faturas no sistema atualmente: <strong>{faturas.length}</strong>.
+                    </span>
+                  </DialogDescription>
+                </DialogHeader>
+
+                <DialogFooter className="pt-4 flex flex-col sm:flex-row gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setBulkDeleteModalOpen(false)
+                      resetBulkDeleteState()
+                    }}
+                    className="text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setBulkDeleteStep(2)}
+                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
+                  >
+                    Continuar
+                    <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <DialogHeader>
+                  <div className="w-12 h-12 rounded-full bg-red-100 text-red-700 flex items-center justify-center mb-2">
+                    <AlertTriangle className="w-6 h-6 text-red-700" />
+                  </div>
+                  <DialogTitle className="text-base font-bold text-gray-900">
+                    Confirmação final de exclusão em massa
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-gray-600 leading-relaxed pt-1 space-y-2">
+                    <span className="block text-gray-700">
+                      Para confirmar a eliminação de todas as faturas e reiniciar o sistema do zero,
+                      digite a palavra{' '}
+                      <strong className="font-mono text-red-700 bg-red-50 px-1 py-0.5 rounded border border-red-200">
+                        APAGAR
+                      </strong>{' '}
+                      no campo abaixo:
+                    </span>
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="py-2 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="bulk-delete-confirm-input"
+                      className="text-xs font-medium text-gray-700"
+                    >
+                      Digite APAGAR para liberar o botão:
+                    </Label>
+                    <Input
+                      id="bulk-delete-confirm-input"
+                      value={bulkDeleteConfirmationText}
+                      onChange={(e) => setBulkDeleteConfirmationText(e.target.value)}
+                      placeholder="APAGAR"
+                      disabled={bulkDeleting}
+                      className="font-mono uppercase tracking-wider text-sm border-red-300 focus-visible:ring-red-500"
+                      autoFocus
+                    />
+                  </div>
+
+                  {bulkDeleting && (
+                    <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-xs text-red-800 space-y-1.5 animate-in fade-in">
+                      <div className="flex items-center justify-between font-semibold">
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-red-700" />
+                          Excluindo faturas...
+                        </span>
+                        <span>
+                          {bulkDeleteProgress.current} de {bulkDeleteProgress.total}
+                        </span>
+                      </div>
+                      <div className="w-full bg-red-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-red-600 h-1.5 transition-all duration-300"
+                          style={{
+                            width: `${
+                              bulkDeleteProgress.total > 0
+                                ? Math.round(
+                                    (bulkDeleteProgress.current / bulkDeleteProgress.total) * 100,
+                                  )
+                                : 0
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="pt-2 flex flex-col sm:flex-row gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={bulkDeleting}
+                    onClick={() => {
+                      if (!bulkDeleting) {
+                        setBulkDeleteStep(1)
+                        setBulkDeleteConfirmationText('')
+                      }
+                    }}
+                    className="text-xs"
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      bulkDeleting || bulkDeleteConfirmationText.trim().toUpperCase() !== 'APAGAR'
+                    }
+                    onClick={handleBulkDeleteAllFaturas}
+                    className="bg-red-700 hover:bg-red-800 text-white text-xs font-semibold shadow-sm"
+                  >
+                    {bulkDeleting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                        Excluindo definitivamente...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Apagar definitivamente
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

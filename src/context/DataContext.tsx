@@ -30,6 +30,12 @@ interface DataContextType {
   addFatura: (fat: Partial<FaturaRecord>) => Promise<FaturaRecord>
   updateFatura: (id: string, fat: Partial<FaturaRecord>) => Promise<FaturaRecord>
   deleteFatura: (id: string) => Promise<boolean>
+  deleteAllFaturas: (
+    onProgress?: (progress: { current: number; total: number }) => void,
+  ) => Promise<{
+    deletedCount: number
+    errors: { id: string; error: string }[]
+  }>
   updateFator: (id: string, data: Partial<FatorEmissaoRecord>) => Promise<FatorEmissaoRecord>
   upsertFator: (
     data: Partial<FatorEmissaoRecord> & { chave: string },
@@ -152,6 +158,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res
   }
 
+  const deleteAllFaturas = async (
+    onProgress?: (progress: { current: number; total: number }) => void,
+  ) => {
+    const res = await faturasService.deleteAll(onProgress)
+    await refreshData()
+    return res
+  }
+
   const updateFator = async (id: string, data: Partial<FatorEmissaoRecord>) => {
     const res = await emissoesService.updateFator(id, data)
     await refreshFatores()
@@ -192,6 +206,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addFatura,
         updateFatura,
         deleteFatura,
+        deleteAllFaturas,
         updateFator,
         upsertFator,
         restaurarPadraoFatores,
