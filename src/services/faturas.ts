@@ -55,36 +55,99 @@ export const faturasService = {
     deletedCount: number
     errors: { id: string; error: string }[]
   }> {
-    // 1. Obter todas as faturas cadastradas
-    const allFaturas = await pb.collection('faturas').getFullList<{ id: string }>({
-      fields: 'id',
-      sort: '-created',
-    })
-
-    const total = allFaturas.length
-    let deletedCount = 0
-    const errors: { id: string; error: string }[] = []
-
-    if (total === 0) {
-      if (onProgress) onProgress({ current: 0, total: 0 })
-      return { deletedCount: 0, errors: [] }
+    // Obter contagem inicial para estimativa de progresso
+    let initialTotal = 0
+    try {
+      const initialPage = await pb.collection('faturas').getList<{ id: string }>(1, 1, {
+        fields: 'id',
+      })
+      initialTotal = initialPage.totalItems || 0
+    } catch (err) {
+      console.warn('Não foi possível obter contagem total inicial:', err)
     }
 
-    // 2. Excluir item por item reportando progresso e coletando eventuais erros
-    for (let i = 0; i < total; i++) {
-      const item = allFaturas[i]
+    let deletedCount = 0
+    const errors: { id: string; error: string }[] = []
+    const failedIds = new Set<string>()
+
+    // Reportar estado inicial
+    if (onProgress) {
+      onProgress({ current: 0, total: initialTotal })
+    }
+
+    const BATCH_SIZE = 50
+    let safetyLoopCount = 0
+    const MAX_LOOPS = 500 // Proteção contra loops infinitos em caso de faturas que falharem persistentemente
+
+    // Iterar até a coleção ficar completamente vazia ou restarem apenas faturas com falha persistente
+    while (safetyLoopCount < MAX_LOOPS) {
+      safetyLoopCount++
+
+      // Construir filtro para excluir faturas que já falharam, evitando retentativas infinitas
+      let filter: string | undefined = undefined
+      if (failedIds.size > 0) {
+        const idConditions = Array.from(failedIds).map((id) => `id != "${id}"`)
+        // Limita o tamanho do filtro para não exceder limites de URL
+        if (idConditions.length <= 100) {
+          filter = idConditions.join(' && ')
+        }
+      }
+
+      let batchItems: { id: string }[] = []
+      let totalRemaining = 0
+
       try {
-        await pb.collection('faturas').delete(item.id)
-        deletedCount++
-      } catch (err: any) {
-        errors.push({
-          id: item.id,
-          error: err?.message || String(err),
+        const pageResult = await pb.collection('faturas').getList<{ id: string }>(1, BATCH_SIZE, {
+          fields: 'id',
+          filter,
         })
+        batchItems = pageResult.items || []
+        totalRemaining = pageResult.totalItems || 0
+      } catch (fetchErr: any) {
+        // Se a busca falhar, tenta uma última vez sem filtro ou encerra
+        console.error('Erro ao buscar lote de faturas para exclusão:', fetchErr)
+        errors.push({
+          id: 'list_batch_error',
+          error: fetchErr?.message || String(fetchErr),
+        })
+        break
       }
-      if (onProgress) {
-        onProgress({ current: i + 1, total })
+
+      // Se nenhum registro foi encontrado, a coleção está limpa
+      if (batchItems.length === 0) {
+        break
       }
+
+      // Atualiza o total estimado para a barra de progresso caso a base tenha mudado
+      const dynamicTotal = Math.max(initialTotal, deletedCount + totalRemaining)
+
+      // Excluir cada item do lote sequencialmente
+      for (const item of batchItems) {
+        try {
+          await pb.collection('faturas').delete(item.id)
+          deletedCount++
+        } catch (delErr: any) {
+          failedIds.add(item.id)
+          errors.push({
+            id: item.id,
+            error: delErr?.message || String(delErr),
+          })
+        }
+
+        if (onProgress) {
+          onProgress({ current: deletedCount, total: dynamicTotal })
+        }
+      }
+
+      // Se todos os itens deste lote falharam e foram marcados, encerramos para não travar
+      const unhandledBatchItems = batchItems.filter((i) => !failedIds.has(i.id))
+      if (unhandledBatchItems.length === 0 && failedIds.size >= batchItems.length) {
+        break
+      }
+    }
+
+    if (onProgress) {
+      onProgress({ current: deletedCount, total: Math.max(deletedCount, initialTotal) })
     }
 
     return { deletedCount, errors }

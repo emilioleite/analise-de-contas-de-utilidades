@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react'
 import {
   EmpreendimentoRecord,
   FaturaRecord,
@@ -53,6 +61,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<Date | null>(null)
+  const isBulkDeletingRef = useRef(false)
 
   const refreshFatores = useCallback(async () => {
     if (!isAuthenticated) return
@@ -107,7 +116,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
 
     const unsubFatPromise = pb.collection('faturas').subscribe('*', () => {
-      if (isMounted) refreshData()
+      // Evitar dezenas de refreshes simultâneos se a exclusão em massa estiver rodando
+      if (isMounted && !isBulkDeletingRef.current) refreshData()
     })
 
     const unsubFatoresPromise = pb.collection('fatores_emissao').subscribe('*', () => {
@@ -161,9 +171,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteAllFaturas = async (
     onProgress?: (progress: { current: number; total: number }) => void,
   ) => {
-    const res = await faturasService.deleteAll(onProgress)
-    await refreshData()
-    return res
+    // 1. Desconectar temporariamente listener de faturas para não disparar dezenas de refreshData paralelos e causar HTTP 429
+    isBulkDeletingRef.current = true
+    try {
+      const res = await faturasService.deleteAll(onProgress)
+      return res
+    } finally {
+      isBulkDeletingRef.current = false
+      // 2. Recarregar os dados consolidados uma única vez após o término da limpeza completa
+      await refreshData()
+    }
   }
 
   const updateFator = async (id: string, data: Partial<FatorEmissaoRecord>) => {
