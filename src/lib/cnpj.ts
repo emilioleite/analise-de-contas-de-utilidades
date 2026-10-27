@@ -89,37 +89,69 @@ export function formatNumberBR(value: number | undefined | null, decimals = 0): 
 export function formatNumberValue(
   val: number | string | undefined | null,
   maxDecimals = 6,
+  minDecimals = 0,
 ): string {
   if (val === undefined || val === null || val === '') return ''
-  const s = String(val).trim()
-  if (s === '') return ''
-  // Se tem ponto e vírgula no padrão brasileiro (ex: "23.862,35" ou "3.230,016"), já é pt-BR
-  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+  const s = String(val)
+    .trim()
+    .replace(/^R\$\s*/i, '')
+  if (s === '' || s === 'null' || s === 'undefined') return ''
+
+  // 1. Se já tem ponto de milhar E vírgula decimal no padrão brasileiro (ex: "23.862,35" ou "3.230,016")
+  // A vírgula é OBRIGATÓRIA (,\d+). Sem vírgula, "852.643" é decimal com ponto, NÃO milhar!
+  if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) {
+    if (minDecimals > 0) {
+      const [inteiro, decimal = ''] = s.split(',')
+      const paddedDec = decimal.padEnd(minDecimals, '0').slice(0, maxDecimals)
+      return `${inteiro},${paddedDec}`
+    }
     return s
   }
 
-  // Se tem apenas vírgula decimal (ex: "33,037" ou "211,2"), já está no padrão pt-BR
+  // 2. Se tem apenas vírgula decimal (ex: "852,643" ou "33,037" ou "211,2"), já está no padrão pt-BR
   if (/^\d+,\d+$/.test(s)) {
-    return s
-  }
-  // Se for apenas dígitos inteiros (ex: "35" ou "75830")
-  if (/^\d+$/.test(s)) {
-    const n = Number(s)
-    return isNaN(n) ? s : n.toLocaleString('pt-BR', { maximumFractionDigits: maxDecimals })
-  }
-  // Se for string no formato decimal com ponto (ex: "33.037" ou "852.643" ou "211.2" ou "6.392832")
-  // ou número nativo
-  if (typeof val === 'string' && /^\d+\.\d+$/.test(s)) {
-    // Preserva exatamente as casas decimais informadas na string, apenas trocando '.' por ','
-    const [inteiro, decimal] = s.split('.')
+    const [inteiro, decimal = ''] = s.split(',')
     const intNum = Number(inteiro)
     const intFmt = isNaN(intNum) ? inteiro : intNum.toLocaleString('pt-BR')
-    const decFmt = decimal.slice(0, maxDecimals)
+    let decFmt = decimal.slice(0, maxDecimals)
+    if (minDecimals > 0 && decFmt.length < minDecimals) {
+      decFmt = decFmt.padEnd(minDecimals, '0')
+    }
     return decFmt ? `${intFmt},${decFmt}` : intFmt
   }
+
+  // 3. Se for string com 2 ou mais blocos de milhar com ponto e sem vírgula (ex: "148.479.173" ou "1.146.303")
+  if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) {
+    return s
+  }
+
+  // 4. Se for apenas dígitos inteiros (ex: "35", "889", "75830", "430415")
+  if (/^\d+$/.test(s)) {
+    const n = Number(s)
+    if (isNaN(n)) return s
+    const intFmt = n.toLocaleString('pt-BR')
+    if (minDecimals > 0) {
+      return `${intFmt},${'0'.repeat(minDecimals)}`
+    }
+    return intFmt
+  }
+
+  // 5. Se for formato decimal com ponto (ex: "852.643", "33.037", "5453.4", "6.395877")
+  if (/^\d+\.\d+$/.test(s)) {
+    const [inteiro, decimal = ''] = s.split('.')
+    const intNum = Number(inteiro)
+    const intFmt = isNaN(intNum) ? inteiro : intNum.toLocaleString('pt-BR')
+    let decFmt = decimal.slice(0, maxDecimals)
+    if (minDecimals > 0 && decFmt.length < minDecimals) {
+      decFmt = decFmt.padEnd(minDecimals, '0')
+    }
+    return decFmt ? `${intFmt},${decFmt}` : intFmt
+  }
+
   const n = typeof val === 'number' ? val : Number(s)
   if (isNaN(n)) return s
   return n.toLocaleString('pt-BR', {
+    minimumFractionDigits: minDecimals,
     maximumFractionDigits: maxDecimals,
   })
 }
