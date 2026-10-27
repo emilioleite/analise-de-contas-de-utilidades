@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import pb from '@/lib/pocketbase/client'
 import { RecordModel } from 'pocketbase'
 import { UserRole, UserStatus } from '@/types/entities'
@@ -26,6 +26,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<RecordModel | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  const ensureValidSessionRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false))
 
   useEffect(() => {
     let isMounted = true
@@ -86,11 +88,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           !msg.includes('NetworkError')
 
         if (isConfirmedAuthRevocation) {
-          console.warn('Sessão revogada ou expirada no backend (401/403):', err)
-          pb.authStore.clear()
-          if (isMounted) {
-            setUser(null)
-            setToken(null)
+          // Tenta pb.collection('users').authRefresh() uma única vez mais após 1.5s de espera
+          // Se tiver sucesso, salva e mantém a sessão; só se falhar novamente faz o clear.
+          let recovered = false
+          try {
+            await new Promise((r) => setTimeout(r, 1500))
+            const retryData = await pb.collection('users').authRefresh()
+            if (retryData?.record && retryData?.token) {
+              pb.authStore.save(retryData.token, retryData.record)
+              if (isMounted) {
+                setUser(retryData.record)
+                setToken(retryData.token)
+              }
+              recovered = true
+            }
+          } catch {
+            recovered = false
+          }
+
+          if (!recovered) {
+            console.warn('Sessão revogada ou expirada no backend (401/403):', err)
+            pb.authStore.clear()
+            if (isMounted) {
+              setUser(null)
+              setToken(null)
+            }
           }
         } else {
           // Falha transitória de rede ou timeout: preserva o token local
@@ -110,9 +132,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     rehydrateSession()
 
+    const keepAlive = setInterval(() => {
+      if (pb.authStore.token) {
+        ensureValidSessionRef.current()
+      }
+    }, 180000)
+
     return () => {
       isMounted = false
       clearTimeout(safetyTimeout)
+      clearInterval(keepAlive)
       unsubscribe()
     }
   }, [])
@@ -189,6 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return !!pb.authStore.token
     }
   }
+  ensureValidSessionRef.current = ensureValidSession
 
   const updateProfileName = async (name: string) => {
     if (!user) throw new Error('Usuário não logado')
