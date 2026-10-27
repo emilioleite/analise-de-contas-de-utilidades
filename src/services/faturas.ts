@@ -51,6 +51,33 @@ export const faturasService = {
     return pb.collection('faturas').delete(id)
   },
 
+  async checkDuplicate(params: {
+    empreendimentoId: string
+    tipoUtilidade: string
+    competenciaYearMonth: string
+    excludeId?: string
+  }): Promise<FaturaRecord | null> {
+    try {
+      const filterParts = [
+        `empreendimento = "${params.empreendimentoId}"`,
+        `tipo_utilidade = "${params.tipoUtilidade}"`,
+        `competencia ~ "${params.competenciaYearMonth}"`,
+      ]
+      if (params.excludeId) {
+        filterParts.push(`id != "${params.excludeId}"`)
+      }
+
+      const list = await pb.collection('faturas').getList<FaturaRecord>(1, 1, {
+        filter: filterParts.join(' && '),
+        expand: 'empreendimento',
+      })
+      return list.items.length > 0 ? list.items[0] : null
+    } catch (err) {
+      console.warn('Erro ao verificar duplicidade de fatura no backend:', err)
+      return null
+    }
+  },
+
   async extractFromDocument(
     file: File,
     tipoUtilidade?: TipoUtilidade,

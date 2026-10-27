@@ -1863,6 +1863,22 @@ export default function Faturas() {
                 </p>
               </div>
 
+              {/* Dica de nomenclatura */}
+              <div className="p-2.5 rounded-lg bg-teal-50/50 border border-teal-100 text-[11px] text-teal-900 leading-relaxed flex items-start gap-2">
+                <FileText className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Dica:</strong> padronize os arquivos como{' '}
+                  <code className="px-1.5 py-0.5 bg-white border border-teal-200 rounded font-mono text-[10px] text-teal-800">
+                    EMPREENDIMENTO_UTILITY_MMAAAA.pdf
+                  </code>{' '}
+                  (ex.:{' '}
+                  <code className="px-1.5 py-0.5 bg-white border border-teal-200 rounded font-mono text-[10px] text-teal-800">
+                    JARDINS_COMGAS_072026.pdf
+                  </code>
+                  ) para facilitar a conferência.
+                </span>
+              </div>
+
               {/* Selected file preview */}
               {uploadedFile && (
                 <div className="flex items-center justify-between p-3 rounded-lg border border-teal-200 bg-teal-50/60 animate-in fade-in">
@@ -2164,6 +2180,39 @@ export default function Faturas() {
                       </div>
                     </div>
                   ) : null}
+
+                  {/* Cabeçalho do arquivo em conferência */}
+                  <div className="p-3 rounded-xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-teal-500/20 border border-teal-400/40 flex items-center justify-center shrink-0 text-teal-300">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-teal-300">
+                            Arquivo em Conferência
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            (verifique antes de salvar)
+                          </span>
+                        </div>
+                        <p
+                          className="text-xs font-semibold text-white truncate max-w-[420px] tracking-tight"
+                          title={uploadedFile?.name || 'Documento'}
+                        >
+                          {uploadedFile?.name || 'Documento em processamento'}
+                        </p>
+                      </div>
+                    </div>
+                    {uploadedFile?.name && (
+                      <Badge
+                        variant="secondary"
+                        className="bg-teal-950/80 text-teal-300 border border-teal-600/50 hover:bg-teal-950 text-[11px] font-mono px-2.5 py-1 shrink-0 self-start sm:self-center"
+                      >
+                        PDF verificado
+                      </Badge>
+                    )}
+                  </div>
 
                   {/* Enterprise Selection and Status Bar in Step 3 */}
                   <div className="p-3 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
