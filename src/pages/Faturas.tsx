@@ -498,7 +498,7 @@ export default function Faturas() {
           'fornecimento_gas',
         )
         const vTotal = parsePositiveNumber(rawVTotal)
-        if (vTotal !== undefined) setValorTotal(formatNumberValue(vTotal, 2))
+        if (vTotal !== undefined) setValorTotal(formatNumberValue(vTotal, 2, 2))
 
         const rawCConsumo = getField(
           'consumo',
@@ -1265,8 +1265,8 @@ export default function Faturas() {
     setSelectedEmpId(fat.empreendimento)
     setSelectedTipo(fat.tipo_utilidade)
     setCompetenciaInput(formatCompetencia(fat.competencia))
-    setValorTotal(formatNumberValue(fat.valor_total, 2))
-    setConsumo(formatNumberValue(fat.consumo || '', fat.tipo_utilidade === 'Gás' ? 3 : 3))
+    setValorTotal(formatNumberValue(fat.valor_total, 2, 2))
+    setConsumo(formatNumberValue(fat.consumo || '', 3))
     setUnidadeConsumo(
       fat.unidade_consumo || (fat.tipo_utilidade === 'Energia Elétrica' ? 'kWh' : 'm³'),
     )
