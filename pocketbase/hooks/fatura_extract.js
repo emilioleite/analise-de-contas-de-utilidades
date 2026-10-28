@@ -463,16 +463,16 @@ Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão o
     * "Leitura Anterior": leitura anterior inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
     * "Leitura Atual": leitura atual inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
     * "consumo medido (m³)" -> 'consumo_medido' (diferença Atual - Anterior).
-  - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente.
+  - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente. Se o valor total legítimo for 0.00, reporte 0.00.
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
 - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
-- CNPJ do cliente no quadro de destinatário da fatura ou no canhoto inferior de pagamento / PAGADOR (ex: "04.***.***/****-63" ou "04.151.776/0001-63") -> 'cnpj_cliente'. NUNCA deixe vazio se estiver visível!
+- CNPJ do cliente no quadro de destinatário da fatura ou no canhoto inferior de pagamento / PAGADOR -> 'cnpj_cliente'. NUNCA deixe vazio se estiver visível!
 - CNPJ da distribuidora: Enel SP "61.695.227/0001-93".
-- Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh (ex.: "Consumo kWh 13.713,600" -> 'consumo': 13713.6).
-- Quadro histórico de consumo: linha do mês corrente sob "CONSUMO FATURADO (kWh)" (ex.: "JUL/26 13.713,600" -> 'consumo': 13713.6).
-- Tabela "ITENS DE FATURA" / "DESCRIÇÃO DO FATURAMENTO": coluna "Quant. (kWh)" nas linhas TUSD e TE (ex.: 13.713,600).
-- Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é SEMPRE ÚNICO e NUNCA nulo. Classificação B3 (B-B3 Comercial).
+- Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh -> 'consumo'.
+- Quadro histórico de consumo: linha do mês corrente sob "CONSUMO FATURADO (kWh)" -> 'consumo'.
+- Tabela "ITENS DE FATURA" / "DESCRIÇÃO DO FATURAMENTO": coluna "Quant. (kWh)" nas linhas TUSD e TE.
+- Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é SEMPRE ÚNICO e NUNCA nulo.
 - "DESCRIÇÃO DO FATURAMENTO": extraia as tarifas sob a coluna "Preço Unit (R$) com tributos" para TUSD e TE.
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Medições de hidrômetro (Anterior, Atual, Consumo m³).
@@ -658,28 +658,30 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
         }
 
         // Sanitização e parsing robusto para números no padrão brasileiro
-        function parseBrazilianNumber(val) {
+        function parseBrazilianNumber(val, allowZero = false) {
           if (val === undefined || val === null || val === '') return null
           if (typeof val === 'number') {
-            return isNaN(val) || val <= 0 ? null : val
+            if (isNaN(val)) return null
+            if (val === 0) return allowZero ? 0 : null
+            return val < 0 ? null : val
           }
           let s = String(val).trim()
-          if (!s || s === 'null' || s === 'undefined' || s === '0') return null
+          if (!s || s === 'null' || s === 'undefined') return null
           s = s.replace(/^R\$\s*/i, '').trim()
           if (s.includes('*')) {
             s = s.replace(/[\*]+/g, '').trim()
           }
           if (s.includes(',') && s.includes('.')) {
-            // "22.347,38" ou "4.363,05" -> 22347.38
             s = s.replace(/\./g, '').replace(',', '.')
           } else if (s.includes(',')) {
-            // "682,168" ou "20438,400" -> vírgula decimal
             s = s.replace(',', '.')
           }
           const cleanedStr = s.replace(/[^0-9.]/g, '')
+          if (cleanedStr === '') return null
           const num = Number(cleanedStr)
-          if (isNaN(num) || num <= 0) return null
-          return num
+          if (isNaN(num)) return null
+          if (num === 0) return allowZero ? 0 : null
+          return num < 0 ? null : num
         }
         function isSentinelDate(val) {
           if (!val) return true
@@ -690,7 +692,11 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
         }
 
         function sanitizeNumeric(val) {
-          return parseBrazilianNumber(val)
+          return parseBrazilianNumber(val, false)
+        }
+
+        function sanitizeMonetary(val) {
+          return parseBrazilianNumber(val, true)
         }
 
         function sanitizeText(val) {
@@ -873,9 +879,9 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
           parsed.consumo_medido = consumoCandidate
         }
 
-        // Sanitizar numéricos essenciais
-        parsed.valor_total = sanitizeNumeric(parsed.valor_total)
-        parsed.fatura_total = sanitizeNumeric(parsed.fatura_total)
+        // Sanitizar numéricos essenciais (valor total aceita 0)
+        parsed.valor_total = sanitizeMonetary(parsed.valor_total)
+        parsed.fatura_total = sanitizeMonetary(parsed.fatura_total)
         parsed.consumo = sanitizeNumeric(parsed.consumo)
         parsed.medicao_anterior = sanitizeNumeric(parsed.medicao_anterior)
         parsed.medicao_atual = sanitizeNumeric(parsed.medicao_atual)
@@ -1198,7 +1204,7 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
             }
           }
 
-          // Se número da fatura não foi identificado na Comgás, buscar no texto "NOTA FISCAL / CONTA DE GÁS [Nº] 140.162.786" (apenas se houver texto válido)
+          // Se número da fatura não foi identificado na Comgás, buscar no texto "NOTA FISCAL / CONTA DE GÁS [Nº] ..." (apenas se houver texto válido)
           if (
             !parsed.numero_fatura &&
             textExtracted &&
@@ -1216,16 +1222,15 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
           function parseGasCumulativeReading(val) {
             if (val === undefined || val === null || val === '') return null
             let s = String(val).trim()
-            // Se veio "146.303" com ponto e 3 dígitos, era ponto de milhar -> 146303
+            // Se veio com ponto e 3 dígitos, era ponto de milhar -> ex: "123.456" vira 123456
             if (/^\d{1,3}\.\d{3}$/.test(s)) {
               return Number(s.replace(/\./g, ''))
             }
-            // Se veio como decimal float porque algum parser converteu (ex: 146.303 ou 149.713), e o número é < 1000 com 3 casas
+            // Se veio como decimal float porque algum parser converteu, e o número é < 1000 com 3 casas
             if (typeof val === 'number') {
               const strVal = String(val)
               const parts = strVal.split('.')
               if (parts.length === 2 && parts[1].length === 3 && val < 1000 && val > 10) {
-                // Era 146.303 que foi interpretado erroneamente como cento e quarenta e seis vírgula três
                 return Math.round(val * 1000)
               }
               return Math.round(val)
@@ -1251,7 +1256,6 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
             typeof textContent === 'string'
           ) {
             // Padrão típico Comgás na linha de medição:
-            // "FR25 H20F0000045433R 149.713 146.303 3.410 ..." ou "149.713 146.303 3.410"
             const medMatch = textContent.match(
               /(\d{2,3}[.,]\d{3})\s+(\d{2,3}[.,]\d{3})\s+(\d{1,3}[.,]\d{3}|\d+)/,
             )
@@ -1276,10 +1280,9 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
             Number(parsed.medicao_atual) >= Number(parsed.medicao_anterior)
           ) {
             const diffLeituras = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
-            // Se consumo_medido foi extraído como "3.41" ou 3.410 por erro de milhar, corrigir para a diferença exata (ex: 3410)
+            // Se consumo_medido foi extraído incorretamente por erro de milhar, corrigir para a diferença exata
             parsed.consumo_medido = diffLeituras
           } else if (parsed.consumo_medido && Number(parsed.consumo_medido) < 10) {
-            // Se veio sem medições completas mas veio "3.41" ou "3.410", se o consumo corrigido é ~3230, o medido é 3410
             if (parsed.consumo_corrigido && Number(parsed.consumo_corrigido) > 100) {
               const candidateMedido = Math.round(Number(parsed.consumo_medido) * 1000)
               if (
@@ -1778,10 +1781,34 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
 
         let hasConsumptionOrValue = false
 
-        if (parsed.valor_total && Number(parsed.valor_total) > 0) {
-          hasConsumptionOrValue = true
+        if (
+          parsed.valor_total !== null &&
+          parsed.valor_total !== undefined &&
+          !isNaN(Number(parsed.valor_total))
+        ) {
+          // Se o valor total é zero, é válido caso haja algum outro dado (consumo, medição, CNPJ ou fatura)
+          if (Number(parsed.valor_total) > 0) {
+            hasConsumptionOrValue = true
+          } else if (Number(parsed.valor_total) === 0) {
+            if (
+              (parsed.consumo && Number(parsed.consumo) > 0) ||
+              (parsed.consumo_corrigido && Number(parsed.consumo_corrigido) > 0) ||
+              (parsed.consumo_medido && Number(parsed.consumo_medido) > 0) ||
+              (parsed.medicao_anterior && Number(parsed.medicao_anterior) > 0) ||
+              (parsed.medicao_atual && Number(parsed.medicao_atual) > 0) ||
+              (parsed.tarifa && Number(parsed.tarifa) > 0) ||
+              parsed.numero_fatura ||
+              parsed.cnpj_cliente
+            ) {
+              hasConsumptionOrValue = true
+            }
+          }
         }
-        if (parsed.fatura_total && Number(parsed.fatura_total) > 0) {
+        if (
+          parsed.fatura_total !== null &&
+          parsed.fatura_total !== undefined &&
+          Number(parsed.fatura_total) > 0
+        ) {
           hasConsumptionOrValue = true
         }
         if (parsed.consumo && Number(parsed.consumo) > 0) {
