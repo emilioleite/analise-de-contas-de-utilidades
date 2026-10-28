@@ -62,7 +62,7 @@ export default function Faturas() {
   const [searchParams] = useSearchParams()
   const enterpriseQuery = searchParams.get('enterprise') || 'Todos'
 
-  const { isAdmin, ensureValidSession } = useAuth()
+  const { isAdmin, ensureValidSession, safeRefreshSession } = useAuth()
   const {
     faturas,
     empreendimentos,
@@ -239,8 +239,8 @@ export default function Faturas() {
     const currentRequestId = ++extractionRequestIdRef.current
 
     try {
-      // Revalida preventivamente a sessão antes da chamada de extração para evitar 401 por token desatualizado
-      await ensureValidSession().catch(() => null)
+      // Revalida preventivamente a sessão antes da chamada de extração de forma segura (sem deslogar em 401/429/rede)
+      await safeRefreshSession().catch(() => null)
 
       if (uploadedFile) {
         // Fluxo com retry automático alternando parâmetros/modelos (até 3 tentativas)
@@ -533,10 +533,10 @@ export default function Faturas() {
         // Valores financeiros e consumo geral (aceita 0,00 para faturas de crédito/estorno)
         const rawVTotal = getField(
           'valor_total',
-          'fatura_total',
-          'total',
           'valorTotal',
+          'fatura_total',
           'faturaTotal',
+          'total',
           'valor_a_pagar',
           'valorAPagar',
           'valor_fornecimento',
@@ -544,7 +544,13 @@ export default function Faturas() {
           'fornecimento_gas',
         )
         const vTotal = parseMonetaryNumber(rawVTotal)
-        if (vTotal !== undefined) setValorTotal(formatNumberValue(vTotal, 2, 2))
+        if (vTotal !== undefined && vTotal !== null) {
+          if (vTotal === 0) {
+            setValorTotal('0,00')
+          } else {
+            setValorTotal(formatNumberValue(vTotal, 2, 2))
+          }
+        }
 
         const rawCConsumo = getField(
           'consumo',
@@ -1246,12 +1252,14 @@ export default function Faturas() {
     try {
       // Revalida a sessão com o backend antes do submit de forma não destrutiva
       try {
-        await ensureValidSession()
+        await safeRefreshSession()
       } catch {
         /* intentionally ignored */
       }
 
-      const parsedValorTotal = parseNumberValue(valorTotal) ?? 0
+      const rawParsedValor = parseNumberValue(valorTotal)
+      const parsedValorTotal =
+        rawParsedValor !== undefined && !isNaN(rawParsedValor) ? rawParsedValor : 0
 
       const created = await addFatura({
         empreendimento: selectedEmpId,
@@ -1274,23 +1282,34 @@ export default function Faturas() {
       }
       setStep(4) // Move to success step
     } catch (err: any) {
-      console.error(err)
-      const status = err?.status || err?.response?.status
-      let msg = err?.message || 'Ocorreu um erro ao gravar os dados.'
+      console.error('[Faturas] Falha ao cadastrar fatura:', err)
+      const status = err?.status || err?.response?.status || err?.data?.code
+
+      // Extrair detalhes reais retornados pelo PocketBase (ex: err.data.message e campos de err.data.data)
+      let detailedMsg = err?.data?.message || err?.message || 'Ocorreu um erro ao gravar os dados.'
+      if (err?.data?.data && typeof err?.data?.data === 'object') {
+        const fieldErrors = Object.entries(err.data.data)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join('; ')
+        if (fieldErrors) {
+          detailedMsg += ` (${fieldErrors})`
+        }
+      }
+
       let title = 'Erro ao cadastrar fatura'
 
       if (status === 429) {
         title = 'Muitas solicitações seguidas'
-        msg =
+        detailedMsg =
           'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
       } else if (status === 401) {
         title = 'Aviso de autenticação'
-        msg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
+        detailedMsg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
       }
 
       toast({
         title,
-        description: msg,
+        description: detailedMsg,
         variant: 'destructive',
       })
       // Mantém no modal sem deslogar indevidamente
@@ -1495,11 +1514,17 @@ export default function Faturas() {
 
     setSubmittingFatura(true)
     try {
+      await safeRefreshSession().catch(() => null)
+
+      const rawParsedValor = parseNumberValue(valorTotal)
+      const parsedValorTotal =
+        rawParsedValor !== undefined && !isNaN(rawParsedValor) ? rawParsedValor : 0
+
       await updateFatura(selectedFatura.id, {
         empreendimento: selectedEmpId,
         tipo_utilidade: selectedTipo,
         competencia: compISO,
-        valor_total: parseNumberValue(valorTotal) || 0,
+        valor_total: parsedValorTotal,
         consumo: parseNumberValue(consumo) || undefined,
         unidade_consumo: selectedTipo === 'Energia Elétrica' ? 'kWh' : 'm³',
         numero_fatura: numeroFatura || undefined,
@@ -1515,19 +1540,33 @@ export default function Faturas() {
       })
       setEditModalOpen(false)
     } catch (err: any) {
-      const status = err?.status || err?.response?.status
-      let msg = err?.message || 'Erro ao atualizar fatura.'
+      console.error('[Faturas] Falha ao atualizar fatura:', err)
+      const status = err?.status || err?.response?.status || err?.data?.code
+
+      let detailedMsg = err?.data?.message || err?.message || 'Erro ao atualizar fatura.'
+      if (err?.data?.data && typeof err?.data?.data === 'object') {
+        const fieldErrors = Object.entries(err.data.data)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join('; ')
+        if (fieldErrors) {
+          detailedMsg += ` (${fieldErrors})`
+        }
+      }
+
       let title = 'Erro ao atualizar'
 
       if (status === 429) {
         title = 'Muitas solicitações seguidas'
-        msg =
+        detailedMsg =
           'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
+      } else if (status === 401) {
+        title = 'Aviso de autenticação'
+        detailedMsg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
       }
 
       toast({
         title,
-        description: msg,
+        description: detailedMsg,
         variant: 'destructive',
       })
     } finally {

@@ -78,7 +78,7 @@ export function formatNumberBR(value: number | undefined | null, decimals = 0): 
       maximumFractionDigits: safeDecimals,
     }).format(safe)
   } catch {
-    return '0'
+    return safeDecimals > 0 ? `0,${'0'.repeat(safeDecimals)}` : '0'
   }
 }
 

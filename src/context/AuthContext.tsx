@@ -15,6 +15,7 @@ interface AuthContextType {
   logout: () => void
   refreshUser: () => Promise<void>
   ensureValidSession: () => Promise<boolean>
+  safeRefreshSession: () => Promise<boolean>
   updateProfileName: (name: string) => Promise<void>
   requestPasswordReset: (email?: string) => Promise<{ error: any }>
   deactivateAccount: () => Promise<void>
@@ -100,55 +101,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return
         }
 
-        const isConfirmedAuthRevocation =
-          (status === 401 || status === 403) &&
-          !msg.includes('Failed to fetch') &&
-          !msg.includes('NetworkError') &&
-          !msg.includes('AbortError')
-
-        if (isConfirmedAuthRevocation) {
-          // Tenta pb.collection('users').authRefresh() uma única vez mais após 2.0s de espera
-          // Se tiver sucesso, salva e mantém a sessão; só se falhar novamente com 401/403 confirmado faz o clear.
-          let recovered = false
-          try {
-            await new Promise((r) => setTimeout(r, 2000))
-            const retryData = await pb.collection('users').authRefresh()
-            if (retryData?.record && retryData?.token) {
-              pb.authStore.save(retryData.token, retryData.record)
-              if (isMounted) {
-                setUser(retryData.record)
-                setToken(retryData.token)
-              }
-              recovered = true
-            }
-          } catch (retryErr: any) {
-            const retryStatus = retryErr?.status || retryErr?.response?.status
-            // Se o retry der 429 ou erro de rede, não considere revogação confirmada!
-            if (retryStatus === 429 || retryStatus === 0) {
-              recovered = true // Preserva sessão local
-            } else {
-              recovered = false
-            }
-          }
-
-          if (!recovered) {
-            console.warn('Sessão revogada ou expirada no backend (401/403 confirmado):', err)
-            pb.authStore.clear()
-            if (isMounted) {
-              setUser(null)
-              setToken(null)
-            }
-          } else if (isMounted && pb.authStore.record) {
-            setUser(pb.authStore.record)
-            setToken(pb.authStore.token)
-          }
-        } else {
-          // Falha transitória de rede ou timeout: preserva o token local
-          console.warn('Falha transitória ao atualizar sessão, mantendo token local:', err)
-          if (isMounted && pb.authStore.record) {
-            setUser(pb.authStore.record)
-            setToken(pb.authStore.token)
-          }
+        // Falha no rehydrateSession (inclusive 401 real, rede, timeout, 429):
+        // NUNCA desloga ou chama clear() fora do logout explícito do usuário.
+        // Mantém os dados da sessão local já hidratados do authStore.
+        console.warn('rehydrateSession: falha ao atualizar sessão. Preservando sessão local:', err)
+        if (isMounted && pb.authStore.record) {
+          setUser(pb.authStore.record)
+          setToken(pb.authStore.token)
         }
       } finally {
         clearTimeout(safetyTimeout)
@@ -233,6 +192,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const lastRefreshTimestampRef = useRef<number>(0)
 
+  // safeRefreshSession:
+  // (a) Em 401 real do servidor, NÃO limpa o store — apenas retorna false, mantendo a sessão local e modal aberto;
+  // (b) Em qualquer outro erro (rede, timeout, 429), mantém a sessão intacta e retorna false sem tocar no authStore;
+  // (c) NUNCA chama pb.authStore.clear() fora do logout manual do usuário.
+  const safeRefreshSession = async (): Promise<boolean> => {
+    if (!pb.authStore.token) {
+      return false
+    }
+
+    try {
+      const authData = await pb.collection('users').authRefresh()
+      if (authData?.record && authData?.token) {
+        pb.authStore.save(authData.token, authData.record)
+        setUser(authData.record)
+        setToken(authData.token)
+        lastRefreshTimestampRef.current = Date.now()
+        return true
+      }
+      return false
+    } catch (err: any) {
+      const status = err?.status || err?.response?.status
+      if (status === 401) {
+        console.warn(
+          'safeRefreshSession: 401 retornado pelo backend. Preservando sessão local e sem limpar store.',
+        )
+      } else if (status === 429) {
+        console.warn(
+          'safeRefreshSession: 429 (Too Many Requests). Preservando sessão local intacta.',
+        )
+      } else {
+        console.warn(
+          'safeRefreshSession: falha de rede/timeout/servidor. Preservando sessão local intacta:',
+          err,
+        )
+      }
+      // NUNCA limpa o store. Mantém sessão local e retorna false.
+      return false
+    }
+  }
+
   const ensureValidSession = async (): Promise<boolean> => {
     if (!pb.authStore.token) {
       return false
@@ -244,31 +243,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true
     }
 
-    try {
-      const authData = await pb.collection('users').authRefresh()
-      if (authData?.record) {
-        pb.authStore.save(authData.token, authData.record)
-        setUser(authData.record)
-        setToken(authData.token)
-        lastRefreshTimestampRef.current = now
-        return true
-      }
-      return !!pb.authStore.token
-    } catch (err: any) {
-      const status = err?.status || err?.response?.status
-      // Erro 429 (Too Many Requests), timeout ou oscilação de rede: NUNCA deslogar e manter sessão local
-      if (status === 429) {
-        console.warn(
-          'ensureValidSession: limite de taxa (429) no auth-refresh. Preservando sessão local.',
-        )
-        return !!pb.authStore.token
-      }
-      console.warn(
-        'ensureValidSession: falha ao tentar refresh preventivo (preservando sessão local):',
-        err,
-      )
-      return !!pb.authStore.token
+    const refreshed = await safeRefreshSession()
+    if (refreshed) {
+      return true
     }
+    // Se não renovou, mantém sessão local válida se houver token
+    return !!pb.authStore.token
   }
   ensureValidSessionRef.current = ensureValidSession
 
@@ -316,6 +296,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         refreshUser,
         ensureValidSession,
+        safeRefreshSession,
         updateProfileName,
         requestPasswordReset,
         deactivateAccount,
