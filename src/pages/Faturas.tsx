@@ -252,9 +252,9 @@ export default function Faturas() {
           if (!rawD || typeof rawD !== 'object') return false
           const obj = { ...(rawD.dados || {}), ...(rawD.data || {}), ...rawD }
 
-          const hasPos = (v: any) => {
+          const hasNum = (v: any, allowZero = false) => {
             if (v === undefined || v === null || v === '' || v === 'null') return false
-            if (typeof v === 'number') return v > 0
+            if (typeof v === 'number') return allowZero ? !isNaN(v) && v >= 0 : v > 0
             let s = String(v)
               .replace(/^R\$\s*/i, '')
               .trim()
@@ -265,15 +265,17 @@ export default function Faturas() {
               s = s.replace(',', '.')
             }
             const n = Number(s.replace(/[^0-9.]/g, ''))
-            return !isNaN(n) && n > 0
+            return !isNaN(n) && (allowZero ? n >= 0 : n > 0)
           }
 
+          const hasPos = (v: any) => hasNum(v, false)
+
           const hasVal =
-            hasPos(obj.valor_total) ||
-            hasPos(obj.fatura_total) ||
-            hasPos(obj.total) ||
-            hasPos(obj.valorTotal) ||
-            hasPos(obj.faturaTotal) ||
+            hasNum(obj.valor_total, true) ||
+            hasNum(obj.fatura_total, true) ||
+            hasNum(obj.total, true) ||
+            hasNum(obj.valorTotal, true) ||
+            hasNum(obj.faturaTotal, true) ||
             hasPos(obj.valor_fornecimento) ||
             hasPos(obj.valorFornecimento) ||
             hasPos(obj.fornecimento_gas)
@@ -440,25 +442,39 @@ export default function Faturas() {
         }
 
         // Helper para valores numéricos brasileiros: suporta number, string com vírgula ("682,168", "6,395871", "20.438,400", "22.347,38", "33,037", "33.037")
-        const parsePositiveNumber = (val: any) => {
+        // allowZero: permite 0 (zero) como valor válido (ex: faturas de crédito/estorno com valor total 0,00)
+        const parseBrazilianNumber = (val: any, allowZero = false) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
-            return isNaN(val) || val <= 0 ? undefined : val
+            if (isNaN(val)) return undefined
+            if (val === 0) return allowZero ? 0 : undefined
+            return val < 0 ? undefined : val
           }
           let s = String(val)
             .trim()
             .replace(/^R\$\s*/i, '')
           if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
-          if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
+          if (!s || s === 'null' || s === 'undefined') return undefined
+          if (s === '0' || s === '0,00' || s === '0.00') return allowZero ? 0 : undefined
           if (s.includes(',') && s.includes('.')) {
             s = s.replace(/\./g, '').replace(',', '.')
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
           }
           const cleanStr = s.replace(/[^0-9.]/g, '')
+          if (cleanStr === '') return undefined
           const n = Number(cleanStr)
-          if (isNaN(n) || n <= 0) return undefined
-          return n
+          if (isNaN(n)) return undefined
+          if (n === 0) return allowZero ? 0 : undefined
+          return n < 0 ? undefined : n
+        }
+
+        const parsePositiveNumber = (val: any) => {
+          return parseBrazilianNumber(val, false)
+        }
+
+        const parseMonetaryNumber = (val: any) => {
+          return parseBrazilianNumber(val, true)
         }
 
         // Helper para medições cumulativas de medidor (especialmente Gás Comgás onde ponto é milhar, ex: "75.795" -> 75795)
@@ -514,18 +530,20 @@ export default function Faturas() {
           }
         }
 
-        // Valores financeiros e consumo geral
+        // Valores financeiros e consumo geral (aceita 0,00 para faturas de crédito/estorno)
         const rawVTotal = getField(
           'valor_total',
           'fatura_total',
           'total',
           'valorTotal',
           'faturaTotal',
+          'valor_a_pagar',
+          'valorAPagar',
           'valor_fornecimento',
           'valorFornecimento',
           'fornecimento_gas',
         )
-        const vTotal = parsePositiveNumber(rawVTotal)
+        const vTotal = parseMonetaryNumber(rawVTotal)
         if (vTotal !== undefined) setValorTotal(formatNumberValue(vTotal, 2, 2))
 
         const rawCConsumo = getField(
@@ -873,10 +891,11 @@ export default function Faturas() {
 
           // Fallbacks em cascata para Grupo B caso o consumo ainda esteja indefinido:
           // 1. TUSD / TE ou valor total / (tarifa TUSD + TE)
-          const vTotNum = vTotal || parsePositiveNumber(rawVTotal)
+          // PULAR a estimativa financeira quando o valor total for 0 ou ausente para evitar divisão por zero / consumo fake
+          const vTotPositive = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
           const somaTarifasB = (tTusdPonta || 0) + (tTePonta || 0)
-          if (resolvedGrupoBConsumo === undefined && vTotNum && somaTarifasB > 0) {
-            const estimativaPorTarifas = Number((vTotNum / somaTarifasB).toFixed(3))
+          if (resolvedGrupoBConsumo === undefined && vTotPositive && somaTarifasB > 0) {
+            const estimativaPorTarifas = Number((vTotPositive / somaTarifasB).toFixed(3))
             if (estimativaPorTarifas > 0) {
               resolvedGrupoBConsumo = estimativaPorTarifas
             }
@@ -896,8 +915,8 @@ export default function Faturas() {
             // Se constante foi fornecida (ex: 0.024) ou se soubermos a relação com valor total
             if (rawConst && rawConst > 0) {
               resolvedGrupoBConsumo = Number((diff * rawConst).toFixed(3))
-            } else if (vTotNum && somaTarifasB > 0) {
-              const estimativa = vTotNum / somaTarifasB
+            } else if (vTotPositive && somaTarifasB > 0) {
+              const estimativa = vTotPositive / somaTarifasB
               const impliedConst = estimativa / diff
               // Se constante inferida for próxima de potências de 10 ou fatores comuns (0.024, 1, 10, etc.)
               if (impliedConst > 0.0001 && impliedConst < 1000) {
@@ -906,7 +925,7 @@ export default function Faturas() {
             } else {
               // Padrão de segurança: se diff for coerente com valor faturado
               const calcWithDefaultConst = Number((diff * 0.024).toFixed(3))
-              if (vTotNum && calcWithDefaultConst * 0.3 < vTotNum) {
+              if (vTotPositive && calcWithDefaultConst * 0.3 < vTotPositive) {
                 resolvedGrupoBConsumo = calcWithDefaultConst
               } else {
                 resolvedGrupoBConsumo = diff
@@ -936,12 +955,12 @@ export default function Faturas() {
             medAnt !== undefined &&
             medAtu > medAnt
           ) {
-            // Fallback para Grupo A por medição ou valor / tarifas
+            // Fallback para Grupo A por medição ou valor / tarifas (pula estimativa financeira se valor total for 0 ou ausente)
             const diffA = medAtu - medAnt
-            const vTotNumA = vTotal || parsePositiveNumber(rawVTotal)
+            const vTotPositiveA = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
             const somaTarifasA = (tTusdPonta || 0) + (tTePonta || 0)
-            if (vTotNumA && somaTarifasA > 0) {
-              const estimativaA = Number((vTotNumA / somaTarifasA).toFixed(3))
+            if (vTotPositiveA && somaTarifasA > 0) {
+              const estimativaA = Number((vTotPositiveA / somaTarifasA).toFixed(3))
               setConsumo(formatNumberValue(estimativaA, 3))
             } else if (diffA > 0) {
               setConsumo(formatNumberValue(diffA, 3))
@@ -1079,22 +1098,19 @@ export default function Faturas() {
 
         if (tar !== undefined) {
           setTarifa(formatNumberValue(tar, 6))
-        } else if (
-          detectedTipo !== 'Energia Elétrica' &&
-          vTotal &&
-          (cCorrigido || cMedido || cConsumo)
-        ) {
+        } else if (detectedTipo !== 'Energia Elétrica') {
+          const vTotPositive = parsePositiveNumber(vTotal)
           const divCons = Number(cCorrigido || cMedido || cConsumo)
-          if (divCons > 0) {
-            tar = Number((Number(vTotal) / divCons).toFixed(4))
+          if (vTotPositive && divCons > 0) {
+            tar = Number((vTotPositive / divCons).toFixed(4))
             setTarifa(tar)
           }
         }
 
         // Validação estrita: toast de sucesso REQUER ao menos um dado real de consumo, medição ou valor financeiro
-        // (CNPJ, número de fatura ou competência isolados NÃO bastam para declarar sucesso)
+        // (faturas de crédito/estorno com vTotal === 0 são perfeitamente válidas caso acompanhadas de consumo/medições/tarifa ou dados reais)
         const hasConsumptionOrFinancialData =
-          (vTotal !== undefined && vTotal > 0) ||
+          (vTotal !== undefined && vTotal >= 0) ||
           (cConsumo !== undefined && cConsumo > 0) ||
           (cMedido !== undefined && cMedido > 0) ||
           (cCorrigido !== undefined && cCorrigido > 0) ||
@@ -1138,6 +1154,9 @@ export default function Faturas() {
       } else if (!cleanDesc) {
         cleanDesc = 'Não foi possível concluir a extração. Preencha os campos manualmente.'
       }
+
+      // Zeramento total do estado também em caso de erro na extração
+      clearExtractionState()
 
       toast({
         title: 'Extração assistida',
@@ -1291,10 +1310,20 @@ export default function Faturas() {
       return
     }
 
-    if (!valorTotal) {
+    const numericValorTotal = parseNumberValue(valorTotal)
+    if (
+      valorTotal === '' ||
+      valorTotal === undefined ||
+      valorTotal === null ||
+      numericValorTotal === undefined ||
+      numericValorTotal === null ||
+      isNaN(numericValorTotal) ||
+      numericValorTotal < 0
+    ) {
       toast({
         title: 'Valor total obrigatório',
-        description: 'Informe o valor total da fatura.',
+        description:
+          'Informe um valor total válido para a fatura (pode ser 0,00 para faturas de crédito/estorno).',
         variant: 'destructive',
       })
       return

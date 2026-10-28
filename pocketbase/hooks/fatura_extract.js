@@ -182,7 +182,7 @@ Campos gerais obrigatórios:
 - tipo_utilidade: "Energia Elétrica" | "Gás" | "Água e Esgoto"
 - competencia: data no formato "YYYY-MM-01" correspondente ao Mês de Referência da fatura (ex: mês "fev/2026" vira "2026-02-01").
 - competencia_formatada: "MM/AAAA" correspondente ao Mês de Referência (ex: "fev/2026" vira "02/2026").
-- valor_total: número decimal do valor total a pagar (ex: 211.20, 22347.38). ATENÇÃO: ignore pontos de milhar, asteriscos ou símbolos decorativos!
+- valor_total: número decimal do VALOR FINAL A PAGAR da fatura após todos os créditos, devoluções, descontos e saldos (ex: fornecimento X − devolução de faturas anteriores Y ± saldo = total final a pagar). Se o total final for R$ 0,00 (fatura de crédito/estorno com compensação total), preencha 0.00 — zero é um valor legítimo! NUNCA preencha com o valor parcial de fornecimento ou subtotal quando houver créditos/devoluções deduzidos.
 - fatura_total: número decimal idêntico a valor_total
 - consumo: número decimal do consumo faturado principal (kWh para energia, m³ para gás e água). Em Gás (Comgás), extraia do campo "Consumo Corrigido/Faturado" do bloco "Consumo e tarifas" (ex: 33.037).
 - unidade_consumo: "kWh" ou "m³"
@@ -257,11 +257,13 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - Informações adicionais de canais de atendimento, indicadores e dados complementares.
 
 Para Gás Canalizado (Comgás, Naturgy, etc.):
-- REGRA CRÍTICA DO VALOR TOTAL DA FATURA (DEVOLUÇÃO / DÉBITO AUTOMÁTICO):
-  * Faturas de gás podem mostrar "Valor Total a Pagar (R$) 0,00" ou "Total R$ 0,00" quando houve compensação, devolução de fornecimento ("Devolução de Fornecimento R$ 1.525,75-") ou débito automático previamente liquidado.
-  * O objetivo do sistema é o registro financeiro refletir o custo real de fornecimento do mês, e NUNCA um zero enganoso.
-  * Se o "Valor a Pagar" / "Total a Pagar" for 0,00 (ou R$ 0,00), mas houver uma linha de "Fornecimento de Gás Natural" com valor positivo (ex: R$ 1.525,75): preencha 'valor_total' e 'fatura_total' com o valor do fornecimento (ex: 1525.75) e informe 'valor_a_pagar': 0.0 e 'valor_fornecimento': 1525.75.
-  * Se o valor a pagar for positivo normal (sem devolução que zere o total), preencha 'valor_total' e 'fatura_total' com o valor total a pagar.
+- REGRA CRÍTICA DO VALOR TOTAL DA FATURA (VALOR FINAL A PAGAR / CRÉDITOS E DEVOLUÇÕES):
+  * O campo 'valor_total' (e 'fatura_total') deve conter SEMPRE o VALOR FINAL A PAGAR apurado na fatura, após deduzidos todos os créditos, devoluções de faturas anteriores, compensações e saldos.
+  * Em faturas da Comgás e outras distribuidoras com devoluções/créditos (ex.: "Fornecimento de Gás Natural" R$ 698,49, "Dev. forn. faturas anteriores" −R$ 1.418,01, "Saldo a devolver NF posterior" R$ 719,52 -> "Total R$ 0,00" / "Valor a pagar (R$) 0,00"):
+    - O 'valor_total' e 'fatura_total' é 0.00 (ZERO), pois é o valor final a pagar desta fatura! Zero é um valor perfeitamente legítimo para faturas de crédito/estorno.
+    - NUNCA use o valor isolado da linha "Fornecimento de Gás Natural" como valor_total quando o Total / Valor a Pagar for 0,00 ou quando houver devoluções deduzidas.
+    - Lance o valor do fornecimento em 'valor_fornecimento' e o valor final a pagar em 'valor_total', 'fatura_total' e 'valor_a_pagar'.
+  * Se a fatura tiver valor a pagar positivo normal, extraia esse valor final a pagar em 'valor_total' e 'fatura_total'.
 
 - REGRA CRÍTICA DO CONSUMO CORRIGIDO, TARIFA E COERÊNCIA (GÁS COMGÁS):
   * O bloco "Consumo e tarifas" traz o "Consumo Corrigido/Faturado" em m³ com casas decimais (extraia exatamente o número real do documento) -> preencha 'consumo_corrigido' e 'consumo'.
@@ -325,9 +327,9 @@ Retorne APENAS um objeto JSON com essa estrutura:`
       if (!obj || typeof obj !== 'object') return false
       const merged = Object.assign({}, obj.dados, obj.fatura, obj.data, obj)
 
-      function hasPositive(v) {
+      function hasValidNumber(v, allowZero = false) {
         if (v === undefined || v === null || v === '' || v === 'null') return false
-        if (typeof v === 'number') return v > 0
+        if (typeof v === 'number') return allowZero ? !isNaN(v) && v >= 0 : v > 0
         let s = String(v)
           .replace(/^R\$\s*/i, '')
           .trim()
@@ -338,7 +340,11 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           s = s.replace(',', '.')
         }
         const num = Number(s.replace(/[^0-9.]/g, ''))
-        return !isNaN(num) && num > 0
+        return !isNaN(num) && (allowZero ? num >= 0 : num > 0)
+      }
+
+      function hasPositive(v) {
+        return hasValidNumber(v, false)
       }
 
       const hasFornecimento =
@@ -347,11 +353,15 @@ Retorne APENAS um objeto JSON com essa estrutura:`
         hasPositive(merged.fornecimento_gas) ||
         hasPositive(merged['Fornecimento de Gás Natural'])
 
+      const hasTotalOrCreditZero =
+        hasValidNumber(merged.valor_total, true) ||
+        hasValidNumber(merged.valorTotal, true) ||
+        hasValidNumber(merged.fatura_total, true) ||
+        hasValidNumber(merged.faturaTotal, true) ||
+        hasValidNumber(merged.valor_a_pagar, true)
+
       return (
-        hasPositive(merged.valor_total) ||
-        hasPositive(merged.valorTotal) ||
-        hasPositive(merged.fatura_total) ||
-        hasPositive(merged.faturaTotal) ||
+        hasTotalOrCreditZero ||
         hasFornecimento ||
         hasPositive(merged.consumo) ||
         hasPositive(merged.consumo_corrigido) ||
@@ -463,7 +473,7 @@ Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão o
     * "Leitura Anterior": leitura anterior inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
     * "Leitura Atual": leitura atual inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
     * "consumo medido (m³)" -> 'consumo_medido' (diferença Atual - Anterior).
-  - Se houver devolução total e "Valor a pagar" for R$ 0,00, use o valor positivo da linha "Fornecimento de Gás Natural" para preencher 'valor_total' e 'fatura_total'. Se houver valor positivo normal, use-o diretamente. Se o valor total legítimo for 0.00, reporte 0.00.
+  - ATENÇÃO AO VALOR TOTAL: no campo "Valor a pagar (R$)" ou "Total R$": extraia SEMPRE o VALOR FINAL A PAGAR impresso. Se houver devolução de faturas anteriores, créditos ou estornos que resultem em Total R$ 0,00 / Valor a pagar R$ 0,00, extraia 0.00 para 'valor_total', 'fatura_total' e 'valor_a_pagar'. NUNCA substitua 0.00 pelo valor da linha "Fornecimento de Gás Natural"!
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
 - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
@@ -1151,7 +1161,7 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
           parsed.tipo_utilidade = 'Gás'
           parsed.unidade_consumo = 'm³'
 
-          // Tratamento especial de valores monetários de gás (devolução/débito automático e fornecimento real)
+          // Tratamento especial de valores monetários de gás (fornecimento, devoluções e valor final a pagar)
           const valorFornecimento = sanitizeNumeric(
             parsed.valor_fornecimento ||
               parsed.valorFornecimento ||
@@ -1161,29 +1171,16 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
               parsed['fornecimento_de_gas_natural'],
           )
 
-          // Se valor_total for 0 (ou estiver zerado/nulo) mas temos valor de fornecimento ou encontramos devolução
-          if (
-            (!parsed.valor_total || Number(parsed.valor_total) === 0) &&
-            valorFornecimento &&
-            valorFornecimento > 0
-          ) {
-            parsed.valor_total = valorFornecimento
-            parsed.fatura_total = valorFornecimento
-          }
-
-          // Se a IA ainda assim não trouxe valor_total positivo, mas trouxe tarifa e consumo, calcular o fornecimento
-          if (
-            (!parsed.valor_total || Number(parsed.valor_total) === 0) &&
-            parsed.tarifa &&
-            Number(parsed.tarifa) > 0 &&
-            (parsed.consumo || parsed.consumo_corrigido)
-          ) {
-            const cTemp = Number(parsed.consumo_corrigido || parsed.consumo)
-            // Se cTemp for plausível (< 100000 m³), calcular
-            const calcTotal = Number((cTemp * Number(parsed.tarifa)).toFixed(2))
-            if (calcTotal > 0) {
-              parsed.valor_total = calcTotal
-              parsed.fatura_total = calcTotal
+          // Se valor_total veio explicitamente 0 (fatura de crédito / estorno / devolução), 0 é legítimo!
+          // NUNCA substituir 0.00 pelo valor de fornecimento isolado.
+          // Somente se valor_total estiver null/undefined (não veio na extração), tentar usar o valor_a_pagar
+          if (parsed.valor_total === null || parsed.valor_total === undefined) {
+            if (parsed.valor_a_pagar !== null && parsed.valor_a_pagar !== undefined) {
+              parsed.valor_total = sanitizeMonetary(parsed.valor_a_pagar)
+              parsed.fatura_total = parsed.valor_total
+            } else if (valorFornecimento && valorFornecimento > 0) {
+              parsed.valor_total = valorFornecimento
+              parsed.fatura_total = valorFornecimento
             }
           }
 
@@ -1299,7 +1296,10 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
           // (consumo * tarifa com ICMS ≈ fornecimento) falhar em 3 ordens de grandeza.
           function adjustGasConsumptionScale(c) {
             if (!c || isNaN(c) || c <= 0) return c
-            const targetVal = Number(valorFornecimento || parsed.valor_total || 0)
+            const targetVal = Number(
+              valorFornecimento ||
+                (parsed.valor_total && parsed.valor_total > 0 ? parsed.valor_total : 0),
+            )
             const tarVal = Number(parsed.tarifa || 0)
 
             // Se temos tarifa e valor alvo para conferência
