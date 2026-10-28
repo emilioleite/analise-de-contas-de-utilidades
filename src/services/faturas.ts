@@ -272,63 +272,70 @@ export const faturasService = {
       formData.append('force_model', forceModel)
     }
 
-    // Tenta renovar silenciosamente o token antes de enviar para garantir validade da sessão
-    try {
-      if (pb.authStore.isValid && pb.authStore.token) {
-        const refreshed = await pb
-          .collection('users')
-          .authRefresh()
-          .catch(() => null)
-        if (refreshed?.token && refreshed?.record) {
-          pb.authStore.save(refreshed.token, refreshed.record)
-        }
-      }
-    } catch {
-      // Falhas no refresh preventivo nunca devem interromper a tentativa de extração
-    }
-
-    // Call custom hook route /backend/v1/faturas/extract with auth token and timeout controller
-    const token = pb.authStore.token
+    // Call custom hook route /backend/v1/faturas/extract with auth token, timeout controller and automatic backoff on 429
     const baseUrl = import.meta.env.VITE_POCKETBASE_URL || ''
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort()
-    }, 60000) // 60 segundos de timeout para modelos de visão
+    const executeExtractRequest = async (attemptCount = 1): Promise<Response> => {
+      const token = pb.authStore.token
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+      }, 75000) // 75 segundos de timeout para modelos de visão
 
-    let res: Response
-    try {
-      res = await fetch(`${baseUrl}/backend/v1/faturas/extract`, {
-        method: 'POST',
-        headers: {
-          Authorization: token ? `Bearer ${token}` : '',
-        },
-        body: formData,
-        signal: controller.signal,
-      })
-    } catch (networkErr: any) {
-      clearTimeout(timeoutId)
-      if (networkErr.name === 'AbortError') {
-        throw new Error(
-          'O processamento da fatura excedeu o tempo limite. Tente novamente ou preencha os campos manualmente.',
-        )
+      try {
+        const response = await fetch(`${baseUrl}/backend/v1/faturas/extract`, {
+          method: 'POST',
+          headers: {
+            Authorization: token ? `Bearer ${token}` : '',
+          },
+          body: formData,
+          signal: controller.signal,
+        })
+
+        // Se receber 429 (Too Many Requests), aplicar espera e retentativa automática (até 2 retentativas)
+        if (response.status === 429 && attemptCount <= 2) {
+          const waitSec = attemptCount * 4
+          if (onProgress) {
+            onProgress(
+              `Limite temporário de requisições. Aguardando ${waitSec}s para tentar novamente...`,
+            )
+          }
+          await new Promise((r) => setTimeout(r, waitSec * 1000))
+          return executeExtractRequest(attemptCount + 1)
+        }
+
+        return response
+      } catch (networkErr: any) {
+        if (networkErr.name === 'AbortError') {
+          throw new Error(
+            'O processamento da fatura excedeu o tempo limite. Tente novamente ou preencha os campos manualmente.',
+          )
+        }
+        const rawMsg = networkErr?.message || String(networkErr)
+        if (
+          rawMsg.includes('Failed to fetch') ||
+          rawMsg.includes('NetworkError') ||
+          rawMsg.includes('Load failed')
+        ) {
+          throw new Error(
+            'Não foi possível conectar ao serviço de extração. Verifique sua conexão e tente novamente.',
+          )
+        }
+        throw new Error(`Falha na comunicação: ${rawMsg}`)
+      } finally {
+        clearTimeout(timeoutId)
       }
-      const rawMsg = networkErr?.message || String(networkErr)
-      if (
-        rawMsg.includes('Failed to fetch') ||
-        rawMsg.includes('NetworkError') ||
-        rawMsg.includes('Load failed')
-      ) {
-        throw new Error(
-          'Não foi possível conectar ao serviço de extração. Verifique sua conexão e tente novamente.',
-        )
-      }
-      throw new Error(`Falha na comunicação: ${rawMsg}`)
-    } finally {
-      clearTimeout(timeoutId)
     }
 
+    const res = await executeExtractRequest(1)
+
     if (!res.ok) {
+      if (res.status === 429) {
+        throw new Error(
+          'Muitas solicitações seguidas de extração. Por favor, aguarde alguns instantes e tente novamente.',
+        )
+      }
+
       const errJson = await res.json().catch(() => ({}))
       let errMsg = errJson.message || 'Falha ao extrair dados do documento.'
       // Clean up raw gateway error bodies or developer diagnostics if any leaked through

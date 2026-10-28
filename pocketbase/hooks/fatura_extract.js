@@ -1844,6 +1844,19 @@ Extraia com rigor e retorne o JSON completo preenchido com todos os valores reai
       const msg = aiErr.message || String(aiErr)
       console.log('[fatura_extract] Erro capturado no handler:', msg)
 
+      // Se for rate limit (429) do gateway ou muitas requisições
+      if (
+        msg.includes('429') ||
+        msg.includes('Too Many Requests') ||
+        msg.includes('rate limit') ||
+        msg.includes('Rate limit')
+      ) {
+        throw new ApiError(
+          429,
+          'Muitas faturas foram processadas em sequência rápida. Aguarde alguns instantes e tente novamente.',
+        )
+      }
+
       if (
         msg.includes('Não foi possível') ||
         msg.includes('Por favor') ||

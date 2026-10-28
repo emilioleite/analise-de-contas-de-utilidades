@@ -35,6 +35,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen to reactive authStore changes (login, logout, token refresh)
     const unsubscribe = pb.authStore.onChange((newToken, newRecord) => {
       if (isMounted) {
+        // Se ambos forem nulos, foi um logout/clear explícito
+        if (!newToken && !newRecord) {
+          setToken(null)
+          setUser(null)
+          return
+        }
         setToken(newToken || null)
         setUser(newRecord || null)
       }
@@ -82,17 +88,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const msg = err?.message || String(err)
         // Só purgar se houver confirmação explícita de token inválido/revogado pelo servidor (401/403)
         // Se for falha de rede/timeout/offline (ex: "Failed to fetch", status 0), NÃO purgar!
+        // Se receber 429 (Too Many Requests), timeout, offline ou erro de conexão, NUNCA revogar a sessão!
+        if (status === 429) {
+          console.warn(
+            'rehydrateSession: limite de requisições (429) atingido. Mantendo token local.',
+          )
+          if (isMounted && pb.authStore.record) {
+            setUser(pb.authStore.record)
+            setToken(pb.authStore.token)
+          }
+          return
+        }
+
         const isConfirmedAuthRevocation =
           (status === 401 || status === 403) &&
           !msg.includes('Failed to fetch') &&
-          !msg.includes('NetworkError')
+          !msg.includes('NetworkError') &&
+          !msg.includes('AbortError')
 
         if (isConfirmedAuthRevocation) {
-          // Tenta pb.collection('users').authRefresh() uma única vez mais após 1.5s de espera
-          // Se tiver sucesso, salva e mantém a sessão; só se falhar novamente faz o clear.
+          // Tenta pb.collection('users').authRefresh() uma única vez mais após 2.0s de espera
+          // Se tiver sucesso, salva e mantém a sessão; só se falhar novamente com 401/403 confirmado faz o clear.
           let recovered = false
           try {
-            await new Promise((r) => setTimeout(r, 1500))
+            await new Promise((r) => setTimeout(r, 2000))
             const retryData = await pb.collection('users').authRefresh()
             if (retryData?.record && retryData?.token) {
               pb.authStore.save(retryData.token, retryData.record)
@@ -102,17 +121,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
               recovered = true
             }
-          } catch {
-            recovered = false
+          } catch (retryErr: any) {
+            const retryStatus = retryErr?.status || retryErr?.response?.status
+            // Se o retry der 429 ou erro de rede, não considere revogação confirmada!
+            if (retryStatus === 429 || retryStatus === 0) {
+              recovered = true // Preserva sessão local
+            } else {
+              recovered = false
+            }
           }
 
           if (!recovered) {
-            console.warn('Sessão revogada ou expirada no backend (401/403):', err)
+            console.warn('Sessão revogada ou expirada no backend (401/403 confirmado):', err)
             pb.authStore.clear()
             if (isMounted) {
               setUser(null)
               setToken(null)
             }
+          } else if (isMounted && pb.authStore.record) {
+            setUser(pb.authStore.record)
+            setToken(pb.authStore.token)
           }
         } else {
           // Falha transitória de rede ou timeout: preserva o token local
@@ -136,7 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (pb.authStore.token) {
         ensureValidSessionRef.current()
       }
-    }, 180000)
+    }, 300000) // Verifica a cada 5 minutos
 
     return () => {
       isMounted = false
@@ -176,6 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const authData = await pb.collection('users').authRefresh()
           if (authData?.record) {
+            pb.authStore.save(authData.token, authData.record)
             setUser(authData.record)
             setToken(authData.token)
             return
@@ -189,32 +218,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           pb.authStore.save(pb.authStore.token, fresh)
           setUser(fresh)
         }
-      } else {
+      } else if (pb.authStore.record) {
         setUser(pb.authStore.record)
       }
     } catch (_) {
-      setUser(pb.authStore.record)
+      if (pb.authStore.record) {
+        setUser(pb.authStore.record)
+      }
     }
-    setToken(pb.authStore.token)
+    if (pb.authStore.token) {
+      setToken(pb.authStore.token)
+    }
   }
+
+  const lastRefreshTimestampRef = useRef<number>(0)
 
   const ensureValidSession = async (): Promise<boolean> => {
     if (!pb.authStore.token) {
       return false
     }
+
+    // Se o token ainda é válido e foi renovado há menos de 5 minutos, evitar flood de chamadas ao backend
+    const now = Date.now()
+    if (pb.authStore.isValid && now - lastRefreshTimestampRef.current < 5 * 60 * 1000) {
+      return true
+    }
+
     try {
       const authData = await pb.collection('users').authRefresh()
       if (authData?.record) {
         pb.authStore.save(authData.token, authData.record)
         setUser(authData.record)
         setToken(authData.token)
+        lastRefreshTimestampRef.current = now
         return true
       }
       return !!pb.authStore.token
     } catch (err: any) {
-      // Falhas no authRefresh durante requisições longas ou oscilações de rede não devem
-      // desconectar proativamente o usuário nem limpar o token local. Mantém a sessão local.
-      console.warn('ensureValidSession: erro ao tentar refresh (preservando sessão local):', err)
+      const status = err?.status || err?.response?.status
+      // Erro 429 (Too Many Requests), timeout ou oscilação de rede: NUNCA deslogar e manter sessão local
+      if (status === 429) {
+        console.warn(
+          'ensureValidSession: limite de taxa (429) no auth-refresh. Preservando sessão local.',
+        )
+        return !!pb.authStore.token
+      }
+      console.warn(
+        'ensureValidSession: falha ao tentar refresh preventivo (preservando sessão local):',
+        err,
+      )
       return !!pb.authStore.token
     }
   }

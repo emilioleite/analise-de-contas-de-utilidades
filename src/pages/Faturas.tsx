@@ -1257,9 +1257,20 @@ export default function Faturas() {
     } catch (err: any) {
       console.error(err)
       const status = err?.status || err?.response?.status
-      const msg = err?.message || 'Ocorreu um erro ao gravar os dados.'
+      let msg = err?.message || 'Ocorreu um erro ao gravar os dados.'
+      let title = 'Erro ao cadastrar fatura'
+
+      if (status === 429) {
+        title = 'Muitas solicitações seguidas'
+        msg =
+          'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
+      } else if (status === 401) {
+        title = 'Aviso de autenticação'
+        msg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
+      }
+
       toast({
-        title: status === 401 ? 'Sessão expirada' : 'Erro ao cadastrar fatura',
+        title,
         description: msg,
         variant: 'destructive',
       })
@@ -1475,9 +1486,19 @@ export default function Faturas() {
       })
       setEditModalOpen(false)
     } catch (err: any) {
+      const status = err?.status || err?.response?.status
+      let msg = err?.message || 'Erro ao atualizar fatura.'
+      let title = 'Erro ao atualizar'
+
+      if (status === 429) {
+        title = 'Muitas solicitações seguidas'
+        msg =
+          'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
+      }
+
       toast({
-        title: 'Erro ao atualizar',
-        description: err.message,
+        title,
+        description: msg,
         variant: 'destructive',
       })
     } finally {
