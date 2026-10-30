@@ -1285,14 +1285,27 @@ export default function Faturas() {
       console.error('[Faturas] Falha ao cadastrar fatura:', err)
       const status = err?.status || err?.response?.status || err?.data?.code
 
-      // Extrair detalhes reais retornados pelo PocketBase (ex: err.data.message e campos de err.data.data)
-      let detailedMsg = err?.data?.message || err?.message || 'Ocorreu um erro ao gravar os dados.'
-      if (err?.data?.data && typeof err?.data?.data === 'object') {
-        const fieldErrors = Object.entries(err.data.data)
-          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
-          .join('; ')
-        if (fieldErrors) {
-          detailedMsg += ` (${fieldErrors})`
+      // Extrair detalhes reais retornados pelo PocketBase (ex: err.data.message, err.response.data e validações de campo)
+      const serverMessage =
+        err?.data?.message ||
+        err?.response?.message ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to create record'
+
+      let detailedMsg = serverMessage
+
+      const errData =
+        err?.data?.data || err?.response?.data?.data || err?.data || err?.response?.data
+      if (errData && typeof errData === 'object') {
+        const fieldEntries = Object.entries(errData)
+          .filter(([k]) => k !== 'code' && k !== 'message' && k !== 'data')
+          .map(([k, v]: [string, any]) => {
+            const vMsg = typeof v === 'object' && v ? v?.message || JSON.stringify(v) : String(v)
+            return `${k}: ${vMsg}`
+          })
+        if (fieldEntries.length > 0) {
+          detailedMsg = `${serverMessage}: ${fieldEntries.join('; ')}`
         }
       }
 
@@ -1304,7 +1317,7 @@ export default function Faturas() {
           'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
       } else if (status === 401) {
         title = 'Aviso de autenticação'
-        detailedMsg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
+        detailedMsg = `Sua sessão está sendo verificada: ${detailedMsg}`
       }
 
       toast({
@@ -1312,7 +1325,7 @@ export default function Faturas() {
         description: detailedMsg,
         variant: 'destructive',
       })
-      // Mantém no modal sem deslogar indevidamente
+      // Mantém o usuário no modal com os dados preenchidos
     } finally {
       setSubmittingFatura(false)
     }
@@ -1543,13 +1556,26 @@ export default function Faturas() {
       console.error('[Faturas] Falha ao atualizar fatura:', err)
       const status = err?.status || err?.response?.status || err?.data?.code
 
-      let detailedMsg = err?.data?.message || err?.message || 'Erro ao atualizar fatura.'
-      if (err?.data?.data && typeof err?.data?.data === 'object') {
-        const fieldErrors = Object.entries(err.data.data)
-          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
-          .join('; ')
-        if (fieldErrors) {
-          detailedMsg += ` (${fieldErrors})`
+      const serverMessage =
+        err?.data?.message ||
+        err?.response?.message ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to update record'
+
+      let detailedMsg = serverMessage
+
+      const errData =
+        err?.data?.data || err?.response?.data?.data || err?.data || err?.response?.data
+      if (errData && typeof errData === 'object') {
+        const fieldEntries = Object.entries(errData)
+          .filter(([k]) => k !== 'code' && k !== 'message' && k !== 'data')
+          .map(([k, v]: [string, any]) => {
+            const vMsg = typeof v === 'object' && v ? v?.message || JSON.stringify(v) : String(v)
+            return `${k}: ${vMsg}`
+          })
+        if (fieldEntries.length > 0) {
+          detailedMsg = `${serverMessage}: ${fieldEntries.join('; ')}`
         }
       }
 
@@ -1561,7 +1587,7 @@ export default function Faturas() {
           'O servidor está ocupado no momento. Aguarde alguns instantes e clique em Salvar novamente.'
       } else if (status === 401) {
         title = 'Aviso de autenticação'
-        detailedMsg = 'Sua sessão está sendo verificada. Tente salvar novamente em instantes.'
+        detailedMsg = `Sua sessão está sendo verificada: ${detailedMsg}`
       }
 
       toast({

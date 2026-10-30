@@ -1,5 +1,234 @@
 import pb from '@/lib/pocketbase/client'
+import { parseNumberValue } from '@/lib/cnpj'
 import { FaturaRecord, TipoUtilidade } from '@/types/entities'
+
+/**
+ * Normaliza datas para o formato ISO/YYYY-MM-DD aceito pelo PocketBase date field.
+ * Suporta "DD/MM/AAAA", "DD/MM/AA", strings ISO com horário "YYYY-MM-DDTHH:mm:ss..." ou "YYYY-MM-DD".
+ * Se isCompetencia for true e vier "MM/AAAA", converte para o 1º dia do mês "YYYY-MM-01".
+ */
+export function normalizeDateForPocketBase(
+  rawVal: any,
+  options?: { isCompetencia?: boolean },
+): string | null {
+  if (rawVal === undefined || rawVal === null) return null
+  const str = String(rawVal).trim()
+  if (!str || str === 'null' || str === 'undefined' || str === '-') return null
+
+  // Se já contém 'T', ex: 2026-08-01T00:00:00.000Z
+  if (str.includes('T')) {
+    const datePart = str.split('T')[0]
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+      return `${datePart} 00:00:00.000Z`
+    }
+  }
+
+  // Se formato já for YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return `${str} 00:00:00.000Z`
+  }
+
+  // Se formato com espaço YYYY-MM-DD HH:mm:ss
+  if (/^\d{4}-\d{2}-\d{2}\s/.test(str)) {
+    return str
+  }
+
+  // Se formato brasileiro com barras DD/MM/AAAA ou DD/MM/AA
+  if (str.includes('/')) {
+    const parts = str.split('/').map((p) => p.trim())
+    if (parts.length === 3) {
+      const [dia, mes, anoRaw] = parts
+      let ano = anoRaw
+      if (ano.length === 2) {
+        ano = Number(ano) < 70 ? `20${ano}` : `19${ano}`
+      }
+      if (ano && mes && dia && ano !== '1900') {
+        const yyyy = ano.padStart(4, '0')
+        const mm = mes.padStart(2, '0')
+        const dd = dia.padStart(2, '0')
+        return `${yyyy}-${mm}-${dd} 00:00:00.000Z`
+      }
+    } else if (parts.length === 2 && options?.isCompetencia) {
+      // MM/AAAA
+      const [mes, anoRaw] = parts
+      let ano = anoRaw
+      if (ano.length === 2) {
+        ano = Number(ano) < 70 ? `20${ano}` : `19${ano}`
+      }
+      if (ano && mes && ano !== '1900') {
+        const yyyy = ano.padStart(4, '0')
+        const mm = mes.padStart(2, '0')
+        return `${yyyy}-${mm}-01 00:00:00.000Z`
+      }
+    }
+  }
+
+  // Se formato brasileiro com traço DD-MM-AAAA
+  if (/^\d{2}-\d{2}-\d{4}$/.test(str)) {
+    const [dia, mes, ano] = str.split('-')
+    return `${ano}-${mes}-${dia} 00:00:00.000Z`
+  }
+
+  // Se competencia no formato YYYY-MM
+  if (options?.isCompetencia && /^\d{4}-\d{2}$/.test(str)) {
+    return `${str}-01 00:00:00.000Z`
+  }
+
+  // Tentativa final via Date parse
+  const parsed = new Date(str)
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString()
+  }
+
+  return null
+}
+
+/**
+ * Normaliza um valor para número float aceito pelo PocketBase number field.
+ * Trata formato pt-BR ("1.234,56", "852,643", "0,00"), números e strings.
+ * Preserva 0 rigorosamente (nunca descarta por ser falsy).
+ */
+export function normalizeNumberForPocketBase(val: any): number | undefined {
+  if (val === undefined || val === null || val === '') return undefined
+  if (typeof val === 'number') {
+    return isNaN(val) ? undefined : val
+  }
+  const parsed = parseNumberValue(val)
+  return parsed !== undefined && !isNaN(parsed) ? parsed : undefined
+}
+
+/**
+ * Sanitiza o payload da fatura antes de enviar para o PocketBase (create e update).
+ * (a) Normaliza campos de data (competência, vencimento) de "DD/MM/AAAA" para formato aceito pelo PB.
+ * (b) Converte números pt-BR ("1.234,56", "0,00") para number; nunca envia string com vírgula.
+ * (c) Garante que valor 0 seja mantido (nunca descartado por ser falsy).
+ * (d) Remove campos undefined/vazios que o schema do PocketBase rejeite.
+ */
+export function sanitizeFaturaPayload(
+  data: Partial<FaturaRecord> & Record<string, any>,
+  isCreate = false,
+): Record<string, any> {
+  const payload: Record<string, any> = {}
+
+  // 1. Empreendimento (relation obrigatória no schema)
+  if (data.empreendimento !== undefined) {
+    if (data.empreendimento) {
+      payload.empreendimento = String(data.empreendimento).trim()
+    } else if (!isCreate) {
+      // Não sobrescreve com vazio no update a menos que explícito
+    }
+  }
+
+  // 2. Tipo Utilidade (select obrigatório: Energia Elétrica | Água e Esgoto | Gás)
+  if (data.tipo_utilidade !== undefined) {
+    if (data.tipo_utilidade) {
+      payload.tipo_utilidade = String(data.tipo_utilidade).trim()
+    }
+  }
+
+  // 3. Competência (date obrigatório)
+  if (data.competencia !== undefined) {
+    const compNorm = normalizeDateForPocketBase(data.competencia, { isCompetencia: true })
+    if (compNorm) {
+      payload.competencia = compNorm
+    } else if (isCreate) {
+      // Fallback de segurança para não quebrar create se não informado
+      const now = new Date()
+      const yyyy = now.getUTCFullYear()
+      const mm = String(now.getUTCMonth() + 1).padStart(2, '0')
+      payload.competencia = `${yyyy}-${mm}-01 00:00:00.000Z`
+    }
+  }
+
+  // 4. Valor Total (number obrigatório; 0 é VÁLIDO!)
+  if (data.valor_total !== undefined) {
+    const num = normalizeNumberForPocketBase(data.valor_total)
+    if (num !== undefined) {
+      payload.valor_total = num
+    } else if (isCreate) {
+      payload.valor_total = 0
+    }
+  } else if (isCreate) {
+    payload.valor_total = 0
+  }
+
+  // 5. Consumo (number opcional)
+  if (data.consumo !== undefined) {
+    const numConsumo = normalizeNumberForPocketBase(data.consumo)
+    if (numConsumo !== undefined) {
+      payload.consumo = numConsumo
+    } else {
+      payload.consumo = null
+    }
+  }
+
+  // 6. Unidade de Consumo (text opcional)
+  if (data.unidade_consumo !== undefined) {
+    const str = String(data.unidade_consumo || '').trim()
+    payload.unidade_consumo = str || null
+  }
+
+  // 7. Número da Fatura (text opcional)
+  if (data.numero_fatura !== undefined) {
+    const str = String(data.numero_fatura || '').trim()
+    payload.numero_fatura = str || null
+  }
+
+  // 8. CNPJ Fornecedor (text opcional)
+  if (data.cnpj_fornecedor !== undefined) {
+    const str = String(data.cnpj_fornecedor || '').trim()
+    payload.cnpj_fornecedor = str || null
+  }
+
+  // 9. CNPJ Cliente (text opcional)
+  if (data.cnpj_cliente !== undefined) {
+    const str = String(data.cnpj_cliente || '').trim()
+    payload.cnpj_cliente = str || null
+  }
+
+  // 10. CNPJ Validado (bool opcional)
+  if (data.cnpj_validado !== undefined) {
+    payload.cnpj_validado = Boolean(data.cnpj_validado)
+  }
+
+  // 11. Arquivo Nome (text opcional)
+  if (data.arquivo_nome !== undefined) {
+    const str = String(data.arquivo_nome || '').trim()
+    payload.arquivo_nome = str || null
+  }
+
+  // 12. Vencimento (date opcional no schema)
+  if (data.vencimento !== undefined) {
+    const vencNorm = normalizeDateForPocketBase(data.vencimento)
+    // Se vazio ou inválido, enviar null (limpa no PB sem erro de parsing de data)
+    payload.vencimento = vencNorm || null
+  }
+
+  // 13. Dados Específicos (json opcional)
+  if (data.dados_especificos !== undefined) {
+    if (data.dados_especificos === null || data.dados_especificos === '') {
+      payload.dados_especificos = null
+    } else if (typeof data.dados_especificos === 'object') {
+      // Objeto JS: PocketBase aceita objeto diretamente ou serializado em string
+      payload.dados_especificos = data.dados_especificos
+    } else if (typeof data.dados_especificos === 'string') {
+      try {
+        payload.dados_especificos = JSON.parse(data.dados_especificos)
+      } catch {
+        payload.dados_especificos = data.dados_especificos
+      }
+    }
+  }
+
+  // 14. Owner (relation obrigatória no create)
+  if (data.owner !== undefined) {
+    if (data.owner) {
+      payload.owner = String(data.owner).trim()
+    }
+  }
+
+  return payload
+}
 
 export interface FaturasFilter {
   search?: string
@@ -37,14 +266,42 @@ export const faturasService = {
 
   async create(data: Partial<FaturaRecord>): Promise<FaturaRecord> {
     const userId = pb.authStore.record?.id
-    return pb.collection('faturas').create<FaturaRecord>({
-      ...data,
-      owner: userId,
-    })
+    const payload = sanitizeFaturaPayload(
+      {
+        ...data,
+        owner: data.owner || userId,
+      },
+      true,
+    )
+
+    try {
+      return await pb.collection('faturas').create<FaturaRecord>(payload)
+    } catch (err: any) {
+      console.warn('[faturasService.create] Erro ao cadastrar fatura no PocketBase:', {
+        status: err?.status || err?.response?.status || err?.data?.code,
+        message: err?.message,
+        serverData: err?.data,
+        payloadFinal: payload,
+      })
+      throw err
+    }
   },
 
   async update(id: string, data: Partial<FaturaRecord>): Promise<FaturaRecord> {
-    return pb.collection('faturas').update<FaturaRecord>(id, data)
+    const payload = sanitizeFaturaPayload(data, false)
+
+    try {
+      return await pb.collection('faturas').update<FaturaRecord>(id, payload)
+    } catch (err: any) {
+      console.warn('[faturasService.update] Erro ao atualizar fatura no PocketBase:', {
+        id,
+        status: err?.status || err?.response?.status || err?.data?.code,
+        message: err?.message,
+        serverData: err?.data,
+        payloadFinal: payload,
+      })
+      throw err
+    }
   },
 
   async delete(id: string): Promise<boolean> {
