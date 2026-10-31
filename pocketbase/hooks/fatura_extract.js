@@ -8,6 +8,7 @@ routerAdd(
         const res = $ai.chat({
           model: modelAlias,
           messages: messages,
+          temperature: 0.0,
         })
         if (res && res.choices && res.choices[0] && res.choices[0].message) {
           return res
@@ -29,6 +30,7 @@ routerAdd(
           body: JSON.stringify({
             model: modelAlias,
             messages: messages,
+            temperature: 0.0,
           }),
         })
 
@@ -170,120 +172,87 @@ routerAdd(
       } catch (_) {}
     }
 
-    const systemPrompt = `Você é um extrator especialista de faturas de utilidades brasileiras (Energia Elétrica, Gás, Água e Esgoto).
-Analise as imagens e documentos da fatura e extraia TODOS os campos visíveis com máxima fidelidade aos dados impressos.
-Responda OBRIGATORIAMENTE com um objeto JSON válido, contendo as chaves especificadas preenchidas com os valores reais da fatura.
-NUNCA responda com campos nulos ou objeto vazio quando as informações estiverem impressas na fatura.`
+    const reqUniqueToken = $security.randomString(16)
+    const reqTimestamp = new Date().toISOString()
 
-    const instructions = `Extraia todos os dados da fatura anexada (arquivo "${fileName}").
+    const systemPrompt = `Você é um extrator especialista de faturas de utilidades brasileiras (Energia Elétrica, Gás, Água e Esgoto).
+Sessão isolada única: ${reqUniqueToken} (${reqTimestamp}).
+Analise EXCLUSIVAMENTE o documento fornecido nesta requisição e extraia todos os campos visíveis com máxima fidelidade.
+Responda OBRIGATORIAMENTE com um objeto JSON válido, contendo as chaves especificadas preenchidas com os valores reais da fatura.
+NUNCA invente números, nunca use valores de faturas anteriores ou exemplos fictícios.`
+
+    const instructions = `[Sessão de Extração Independente: ${reqUniqueToken}]
+Arquivo atual: "${fileName}".
 Tipo de utilidade sugerido: "${requestedUtility || 'Detectar da fatura'}".
 
-Campos gerais obrigatórios:
+REFORÇO ANTI-ALUCINAÇÃO E ISOLAMENTO TOTAL (OBRIGATÓRIO):
+- Extraia APENAS dados legíveis NESTE documento anexado.
+- Se um campo não estiver legível ou não existir nesta fatura, retorne null ou vazio.
+- NUNCA utilize valores de outras faturas, de faturas processadas anteriormente, de exemplos ou de memória.
+- Cada campo deve corresponder estritamente ao que está impresso neste arquivo específico.
+
+Campos gerais:
 - tipo_utilidade: "Energia Elétrica" | "Gás" | "Água e Esgoto"
-- competencia: data no formato "YYYY-MM-01" correspondente ao Mês de Referência da fatura (ex: mês "fev/2026" vira "2026-02-01").
-- competencia_formatada: "MM/AAAA" correspondente ao Mês de Referência (ex: "fev/2026" vira "02/2026").
-- valor_total: número decimal do VALOR FINAL A PAGAR da fatura após todos os créditos, devoluções, descontos e saldos (ex: fornecimento X − devolução de faturas anteriores Y ± saldo = total final a pagar). Se o total final for R$ 0,00 (fatura de crédito/estorno com compensação total), preencha 0.00 — zero é um valor legítimo! NUNCA preencha com o valor parcial de fornecimento ou subtotal quando houver créditos/devoluções deduzidos.
+- competencia: data no formato "YYYY-MM-01" correspondente ao Mês de Referência da fatura impressa.
+- competencia_formatada: "MM/AAAA" correspondente ao Mês de Referência impresso.
+- valor_total: número decimal do VALOR FINAL A PAGAR da fatura após todos os créditos, devoluções, descontos e saldos (exemplo: fornecimento X − devolução de faturas anteriores Y ± saldo = total final a pagar). Se o total final for R$ 0,00 (fatura de crédito/estorno com compensação total), preencha 0.00 — zero é um valor legítimo! NUNCA preencha com o valor parcial de fornecimento ou subtotal quando houver créditos/devoluções deduzidos.
 - fatura_total: número decimal idêntico a valor_total
-- consumo: número decimal do consumo faturado principal (kWh para energia, m³ para gás e água). Em Gás (Comgás), extraia do campo "Consumo Corrigido/Faturado" do bloco "Consumo e tarifas" (ex: 33.037).
+- consumo: número decimal do consumo faturado principal impresso (kWh para energia, m³ para gás e água). Em Gás (Comgás), extraia do campo "Consumo Corrigido/Faturado" do bloco "Consumo e tarifas".
 - unidade_consumo: "kWh" ou "m³"
-- numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" (ex: "140.162.786"). NUNCA invente números.
-- vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento (ex: "12.03.2026" vira "2026-03-12").
-- cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). ATENÇÃO CRÍTICA: extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente (ex: no quadro COND. E EDIF., campo "CPF/CNPJ: 03819289/0001-63" vira "03.819.289/0001-63"). NUNCA use o CNPJ da distribuidora como cnpj_cliente, e NUNCA retorne nulo se o CNPJ/CPF estiver impresso!
-- cnpj_fornecedor: CNPJ da distribuidora emissora (ex: Comgás: "61.856.571/0006-21", Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80").
+- numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" ou "CONTA CONTRATO". NUNCA invente números.
+- vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento impresso na fatura.
+- cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). Extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente. NUNCA use o CNPJ da distribuidora como cnpj_cliente, e retorne null se não estiver impresso ou visível.
+- cnpj_fornecedor: CNPJ da distribuidora emissora (exemplo Comgás: "61.856.571/0006-21", Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80").
 
 Campos de medição e tarifas:
-- medicao_anterior: leitura anterior do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Anterior" (ex: na Comgás "75.795" significa 75795 inteiros, o ponto é separador de milhar!).
-- medicao_atual: leitura atual do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Atual" (ex: na Comgás "75.830" significa 75830 inteiros, o ponto é separador de milhar!).
-- consumo_medido: consumo medido (diferença Atual − Anterior, ou coluna "consumo medido (m³)", ex: 35).
-- consumo_corrigido: consumo faturado/corrigido por PTZ do bloco "Consumo e tarifas" (ex: 33.037).
-- tarifa: tarifa unitária aplicada. ATENÇÃO CRÍTICA em Gás (Comgás): use SEMPRE o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas" (ex: 6.392832), NUNCA a tarifa da linha "Dados tarifários"! Em faturas de Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
-- valor_fornecimento: valor monetário do fornecimento de gás (ex: linha "Fornecimento de Gás Natural", ex: 211.20)
-- valor_a_pagar: total a pagar impresso (ex: 211.20, ou 0.00 se houver devolução total)
+- medicao_anterior: leitura anterior do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Anterior" (atenção: em medidores de gás o ponto pode ser separador de milhar inteiro!).
+- medicao_atual: leitura atual do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Atual" (atenção: em medidores de gás o ponto pode ser separador de milhar inteiro!).
+- consumo_medido: consumo medido impresso (diferença Atual − Anterior, ou coluna "consumo medido (m³)").
+- consumo_corrigido: consumo faturado/corrigido por PTZ do bloco "Consumo e tarifas".
+- tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
+- valor_fornecimento: valor monetário do fornecimento (exemplo: linha "Fornecimento de Gás Natural")
+- valor_a_pagar: total a pagar impresso (ou 0.00 se houver devolução total)
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
-- REGRA CRÍTICA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
-  * Se a Classificação for do GRUPO B (B1, B2, B3, B4 ou qualquer código iniciando com B, ex: "B3", "B-B3 - CONVENCIONAL - COMERCIAL"):
-    - O consumo é SEMPRE ÚNICO (fatura convencional sem divisão por posto horário). NUNCA deixe o campo de consumo vazio ou nulo em Grupo B!
-    - Onde encontrar o Consumo Total Faturado em kWh (aparece em múltiplos locais da fatura Enel/Eletropaulo):
-      1) Na coluna "CONSUMO FATURADO (kWh)" da linha correspondente ao mês de referência no quadro histórico (ex.: "JAN/26 24.098,400" -> consumo = 24098.4);
-      2) Na coluna "Consumo kWh" da linha do medidor na tabela "DADOS DE MEDIÇÃO" (ex.: "11134555 ENRG ATV ÚNICO 58753.000 59757.100 0,02400 24.098,400" -> consumo = 24098.4);
-      3) Na tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA", na coluna "Quant. (kWh)" das linhas "USO SIST. DISTR. (TUSD)" e "ENERGIA (TE)" (ex.: 24.098,400 kWh).
+- REGRA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
+  * Se a Classificação for do GRUPO B (B1, B2, B3, B4 ou código iniciando com B):
+    - O consumo é SEMPRE ÚNICO (fatura convencional sem divisão por posto horário).
+    - Consumo Total Faturado em kWh: extraia da linha correspondente ao mês de referência no quadro histórico, da coluna "Consumo kWh" na tabela "DADOS DE MEDIÇÃO", ou da coluna "Quant. (kWh)" das linhas TUSD e TE.
     - NÃO há separação de consumo ponta/fora-ponta.
-    - Preencha SEMPRE 'consumo': número decimal do consumo total/faturado (ex: 24098.4 ou 24098.400).
-    - Também preencha 'consumo_medido' com esse mesmo valor (24098.4).
+    - Preencha 'consumo' com o valor faturado impresso e 'consumo_medido' com esse mesmo valor.
     - Deixe 'consumo_ponta' e 'consumo_fora_ponta' como null.
-    - Tarifas: há apenas TUSD e TE únicas (sem ponta/fora-ponta). Preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.55454) e 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.37539).
-  * Se a Classificação for do GRUPO A (A1, A2, A3, A4 ou qualquer código iniciando com A, estrutura horossazonal ex: Verde / Azul / A4):
-    - Há Consumo Ponta e Consumo Fora-Ponta separados com suas respectivas tarifas por posto:
-    - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' (da linha Ponta).
-    - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' (da linha Fora Ponta).
-    - Preencha 'consumo': soma do consumo ponta + fora ponta (ou total faturado).
+    - Tarifas: preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD e 'tarifa_te_ponta' com o Preço Unit com tributos de TE.
+  * Se a Classificação for do GRUPO A (A1, A2, A3, A4 ou horossazonal Verde/Azul):
+    - Consumo Ponta e Consumo Fora-Ponta separados com suas respectivas tarifas por posto:
+    - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' da linha Ponta.
+    - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' da linha Fora Ponta.
+    - Preencha 'consumo': soma do consumo ponta + fora ponta.
 
-- MAPEAMENTO DAS TARIFAS DA ENEL (ATENÇÃO CRÍTICA À NOMENCLATURA):
-  * Na fatura da Enel (tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA"), as tarifas unitárias aparecem expressamente sob o cabeçalho de coluna "Preço Unit (R$) com tributos" (ou "Preço Unit. (R$) c/ tributos", "Preço unit com tributos"). É EXATAMENTE esse valor de "Preço Unit (R$) com tributos" que deve ser lançado nos campos de tarifa!
-  * Linha "Uso Sist. Distr. (TUSD)" / "TUSD" / "Uso Sistema Distribuição":
-    - Pegue o valor da coluna "Preço Unit (R$) com tributos" (ex: 0,60978 ou 0.60978) -> 'tarifa_tusd_ponta': 0.60978 (ou 'tarifa_tusd_f_ponta' se for Fora-Ponta).
-  * Linha "Energia (TE)" / "TE" / "Consumo Energia":
-    - Pegue o valor da coluna "Preço Unit (R$) com tributos" (ex: 0,40912 ou 0.40912) -> 'tarifa_te_ponta': 0.40912 (ou 'tarifa_te_f_ponta' se for Fora-Ponta).
-  * Se a fatura tiver tarifação convencional (posto ÚNICO, B3, B1, etc.):
-    - Como o formulário possui os campos "Tarifa TUSD-Ponta", "Tarifa TE-Ponta", "Tarifa TUSD-F.Ponta", "Tarifa TE-F.Ponta":
-    - Preencha SEMPRE 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD (ex: 0.60978).
-    - Preencha SEMPRE 'tarifa_te_ponta' com o Preço Unit com tributos de TE (ex: 0.40912).
-    - Se a fatura não dividir ponta/fora-ponta, também preencha 'tarifa_tusd_f_ponta' e 'tarifa_te_f_ponta' com os mesmos valores unitários de TUSD e TE se aplicável, ou repita 'tarifa_tusd_ponta' e 'tarifa_te_ponta'.
-    - Se a tabela mostrar apenas um preço unitário combinado para o período e não puder separar TUSD e TE, lance esse preço em 'tarifa_tusd_ponta' e deixe 'tarifa_te_ponta' nulo. NUNCA invente valores.
-  * Se a fatura tiver estrutura horossazonal (Verde / Azul / A4) com divisão explícita Ponta e Fora Ponta:
-    - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' (da linha Ponta)
-    - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' (da linha Fora Ponta)
-
-- LAYOUT TÍPICO ENEL:
-  * PÁGINA 1:
-    - Cabeçalho Superior: Logotipo "enel BRASIL", Distribuidora: "Eletropaulo Metropolitana Eletricidade de São Paulo S.A. CNPJ: 61.695.227/0001-93" -> 'cnpj_fornecedor': "61.695.227/0001-93".
-    - NOTA FISCAL Nº (ex: "095039445") -> 'numero_fatura'.
-    - CLASSIFICAÇÃO DA UNIDADE CONSUMIDORA: texto ex: "B-B3 - CONVENCIONAL - COMERCIAL" ou "B3" ou "A4" -> 'classificacao_consumo': "B3".
-    - Destinatário / Pagador: ex: "COND EDIF TOWERS NACOES UNIDAS", CNPJ cliente (ex: "04.***.***/****-63" ou "04.151.776/0001-63") -> extraia EXATAMENTE no campo 'cnpj_cliente' (ex: "04.***.***/****-63" ou "04.151.776/0001-63"). Verifique tanto no bloco superior esquerdo do destinatário quanto no rodapé do comprovante de pagamento / código de barras ("PAGADOR: COND EDIF TOWERS NACOES UNIDAS - CNPJ: 04.***.***/****-63"). NUNCA deixe 'cnpj_cliente' vazio se estiver impresso mascarado ou não!
-    - Quadro "MÊS/ANO" ou "MÊS DE REFERÊNCIA": ex: "07/2026" ou "09/2026" -> 'competencia_formatada': "07/2026", 'competencia': "2026-07-01".
-    - Quadro "VENCIMENTO": ex: "27/07/2026" -> 'vencimento': "2026-07-27".
-    - Quadro "TOTAL A PAGAR": ex: "R$ 13.830,73" -> 'valor_total': 13830.73 e 'fatura_total': 13830.73.
-    - Quadro "MENSAGENS IMPORTANTES": ex: "Bandeira(s) tarifária(s) aplicada(s) no mês: AMARELA" -> 'adicional_bandeira': "Bandeira Amarela". Se não houver adicional ou for verde, informe "Bandeira Verde".
-    - Quadro histórico de consumo: coluna "CONSUMO FATURADO (kWh)" na linha do mês da fatura (ex: "JUL/26 13.713,600") -> extraia 'consumo': 13713.6.
-    - Tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA":
-      * USO SIST. DISTR. (TUSD): Quant. (kWh) ex: 13.713,600, Preço unit com tributos 0,55600, Valor 7.624,74 -> 'tarifa_tusd_ponta': 0.556.
-      * ENERGIA (TE): Quant. (kWh) ex: 13.713,600, Preço unit com tributos 0,37638, Valor 5.161,54 -> 'tarifa_te_ponta': 0.37638.
-      * A coluna "Quant. (kWh)" das linhas TUSD e TE traz o consumo faturado principal (ex: 13713.6). Preencha 'consumo': 13713.6!
-    - Tabela "DADOS DE MEDIÇÃO":
-      * Medidor: ex: 11134555 | Postos Tarifários: ÚNICO | Leitura Anterior: 64651.500 | Leitura Atual: 65222.900 | Const. Medidor: 0,02400 | Consumo kWh: 13.713,600.
-      * Extraia: 'medicao_anterior': 64651.5 (ou 64651), 'medicao_atual': 65222.9 (ou 65223), 'consumo_medido': 13713.6, 'consumo': 13713.6.
-  * PÁGINA 2:
-    - Informações adicionais de canais de atendimento, indicadores e dados complementares.
+- MAPEAMENTO DAS TARIFAS DA ENEL:
+  * Na fatura da Enel (tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA"), extraia os valores sob a coluna "Preço Unit (R$) com tributos".
+  * Linha "Uso Sist. Distr. (TUSD)": extraia a tarifa unitária com tributos em 'tarifa_tusd_ponta' (ou 'tarifa_tusd_f_ponta' se Fora-Ponta).
+  * Linha "Energia (TE)": extraia a tarifa unitária com tributos em 'tarifa_te_ponta' (ou 'tarifa_te_f_ponta' se Fora-Ponta).
+  * Se tarifação convencional (posto ÚNICO): preencha 'tarifa_tusd_ponta' e 'tarifa_te_ponta'.
 
 Para Gás Canalizado (Comgás, Naturgy, etc.):
-- REGRA CRÍTICA DO VALOR TOTAL DA FATURA (VALOR FINAL A PAGAR / CRÉDITOS E DEVOLUÇÕES):
-  * O campo 'valor_total' (e 'fatura_total') deve conter SEMPRE o VALOR FINAL A PAGAR apurado na fatura, após deduzidos todos os créditos, devoluções de faturas anteriores, compensações e saldos.
-  * Em faturas da Comgás e outras distribuidoras com devoluções/créditos (ex.: "Fornecimento de Gás Natural" R$ 698,49, "Dev. forn. faturas anteriores" −R$ 1.418,01, "Saldo a devolver NF posterior" R$ 719,52 -> "Total R$ 0,00" / "Valor a pagar (R$) 0,00"):
-    - O 'valor_total' e 'fatura_total' é 0.00 (ZERO), pois é o valor final a pagar desta fatura! Zero é um valor perfeitamente legítimo para faturas de crédito/estorno.
-    - NUNCA use o valor isolado da linha "Fornecimento de Gás Natural" como valor_total quando o Total / Valor a Pagar for 0,00 ou quando houver devoluções deduzidas.
-    - Lance o valor do fornecimento em 'valor_fornecimento' e o valor final a pagar em 'valor_total', 'fatura_total' e 'valor_a_pagar'.
-  * Se a fatura tiver valor a pagar positivo normal, extraia esse valor final a pagar em 'valor_total' e 'fatura_total'.
+- REGRA DO VALOR TOTAL DA FATURA (VALOR FINAL A PAGAR / CRÉDITOS E DEVOLUÇÕES):
+  * O campo 'valor_total' (e 'fatura_total') deve conter SEMPRE o VALOR FINAL A PAGAR impresso na fatura, após deduzidos todos os créditos, devoluções de faturas anteriores, compensações e saldos.
+  * Se o valor final a pagar for 0,00 (fatura com devoluções/créditos compensando integralmente o fornecimento):
+    - O 'valor_total' e 'fatura_total' é 0.00 (ZERO), pois é o valor final a pagar desta fatura! Zero é legítimo.
+    - NUNCA use o valor isolado de fornecimento como valor_total quando o Total / Valor a Pagar impresso for 0,00 ou quando houver devoluções deduzidas.
+    - Lance o fornecimento em 'valor_fornecimento' e o valor final em 'valor_total', 'fatura_total' e 'valor_a_pagar'.
+  * Se a fatura tiver valor a pagar positivo normal, extraia esse valor final a pagar impresso.
 
-- REGRA CRÍTICA DO CONSUMO CORRIGIDO, TARIFA E COERÊNCIA (GÁS COMGÁS):
-  * O bloco "Consumo e tarifas" traz o "Consumo Corrigido/Faturado" em m³ com casas decimais (extraia exatamente o número real do documento) -> preencha 'consumo_corrigido' e 'consumo'.
-  * TARIFA DE GÁS: extraia SEMPRE da linha "Tarifa Aplicada com ICMS" do documento real. NUNCA pegue a tarifa da linha "Dados tarifários - Variável", pois a tarifa contratual faturada inclui impostos.
-  * Conferência de coerência: consumo corrigido × tarifa aplicada com ICMS ≈ fornecimento de gás natural.
-
-- REGRA CRÍTICA DAS MEDIÇÕES ANTERIOR/ATUAL E CONSUMO MEDIDO (GÁS COMGÁS):
-  * Na linha de medição da Comgás:
-    - Medição Atual: o ponto é separador de milhar! Extraia o valor cumulativo inteiro real do documento.
-    - Medição Anterior: o ponto é separador de milhar! Extraia o valor cumulativo inteiro real do documento.
-    - Consumo Medido: é a diferença das leituras (Atual − Anterior) ou o valor da coluna "consumo medido (m³)".
-  * NUNCA considere leituras de medidor como frações decimais quando o ponto for separador de milhar.
-  * NUNCA aplique escala ou divisão ao consumo medido: ele reflete o volume físico registrado no medidor.
+- REGRA DE MEDIÇÕES E CONSUMO (GÁS COMGÁS):
+  * O bloco "Consumo e tarifas" traz o "Consumo Corrigido/Faturado" em m³ -> 'consumo_corrigido' e 'consumo'.
+  * Tarifa: extraia da linha "Tarifa Aplicada com ICMS" impressa nesta fatura.
+  * Medições Atual e Anterior: leituras inteiras do medidor.
+  * Consumo Medido: diferença Atual − Anterior ou coluna "consumo medido (m³)".
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
-- Localize a tabela de hidrômetro/leituras: Leitura Anterior, Leitura Atual, Consumo (M3).
-- Localize o quadro "DISCRIMINAÇÃO DO FATURAMENTO" / "TOTAL" / "VENCIMENTO" (valores como "R$ ************2.143,97" representam R$ 2.143,97).
-- CNPJ Sabesp é sempre 43.776.517/0001-80.
-
-IMPORTANTE: Se um campo estiver visível na imagem/texto, NUNCA retorne null. Extraia os números exatamente como aparecem (usando ponto como separador decimal).
+- Medições de hidrômetro (Anterior, Atual, Consumo m³).
+- Quadro de total a pagar e vencimento.
+- CNPJ Sabesp padrão: 43.776.517/0001-80.
 
 Retorne APENAS um objeto JSON com essa estrutura:`
 
@@ -450,46 +419,42 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           if (validImages.length > 0) {
             const visionUserText = `${instructions}
 
-INSTRUÇÕES DETALHADAS DE LEITURA VISUAL:
-Examine atentamente cada imagem da fatura, em especial a PÁGINA 2 onde estão os quadros fiscais e de faturamento:
+DIRETRIZES DE LEITURA VISUAL E ISOLAMENTO DESTA FATURA:
+Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileName}"). NUNCA complete com valores de outras faturas.
 
 1. Se for fatura Comgás (Gás):
-  - No topo superior direito (quadro do cliente):
-    * Nome do cliente e endereço.
-    * "CPF/CNPJ": extraia com pontuação ou dígitos limpos EXATAMENTE como impresso no documento, NUNCA deixe null se visível.
-    * "Código do usuário" / "CÓDIGO USUÁRIO".
-  - No topo superior esquerdo/central:
-    * Distribuidora: "Companhia de Gás de São Paulo - CNPJ 61.856.571/0006-21" -> 'cnpj_fornecedor': "61.856.571/0006-21".
-    * "NOTA FISCAL / CONTA DE GÁS Nº" -> 'numero_fatura': número exato impresso na imagem.
-  - No quadro central superior de datas e totais:
-    * "Vencimento": data da fatura em formato YYYY-MM-DD.
-    * "Valor a pagar (R$)": valor monetário impresso da fatura em decimal.
-    * "Mês de referência": mês/ano de referência da fatura (ex: mm/aaaa -> 'competencia': YYYY-MM-01, 'competencia_formatada': MM/AAAA).
-  - No quadro "Consumo e tarifas":
-    * "Consumo Corrigido/Faturado (m³)" -> 'consumo_corrigido' e 'consumo'.
-    * "Tarifa Aplicada com ICMS" -> 'tarifa'. NUNCA use a tarifa variável do bloco "Dados tarifários".
-    * "Fornecimento de gás natural (R$)" -> 'valor_fornecimento'.
-  - No quadro "Detalhamento do consumo" (linha do medidor):
-    * "Leitura Anterior": leitura anterior inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
-    * "Leitura Atual": leitura atual inteira cumulativa do medidor (atenção: ponto é separador de milhar!).
-    * "consumo medido (m³)" -> 'consumo_medido' (diferença Atual - Anterior).
-  - ATENÇÃO AO VALOR TOTAL: no campo "Valor a pagar (R$)" ou "Total R$": extraia SEMPRE o VALOR FINAL A PAGAR impresso. Se houver devolução de faturas anteriores, créditos ou estornos que resultem em Total R$ 0,00 / Valor a pagar R$ 0,00, extraia 0.00 para 'valor_total', 'fatura_total' e 'valor_a_pagar'. NUNCA substitua 0.00 pelo valor da linha "Fornecimento de Gás Natural"!
+  - No quadro do cliente / destinatário (localizado geralmente na página 2 ou cabeçalho superior):
+    * "CPF/CNPJ": extraia EXATAMENTE os dígitos impressos nesta fatura específica (se não estiver legível, retorne null). NUNCA pegue CNPJ de outra fatura!
+    * Razão social / Nome do cliente e endereço.
+  - Distribuidora Comgás: CNPJ 61.856.571/0006-21 -> 'cnpj_fornecedor'.
+  - "NOTA FISCAL / CONTA DE GÁS Nº": extraia o número exato impresso nesta imagem -> 'numero_fatura'.
+  - Datas e Totais:
+    * "Vencimento": data impressa no formato YYYY-MM-DD.
+    * "Mês de referência": mês/ano de referência impresso (ex: MM/AAAA -> 'competencia': YYYY-MM-01, 'competencia_formatada': MM/AAAA).
+    * "Valor a pagar (R$)" ou "Total R$": valor final a pagar impresso. Se houver crédito/devoluções que resultem em 0,00, use 0.00.
+  - Quadro "Consumo e tarifas":
+    * "Consumo Corrigido/Faturado (m³)" impresso nesta fatura -> 'consumo_corrigido' e 'consumo'.
+    * "Tarifa Aplicada com ICMS" impressa nesta fatura -> 'tarifa'.
+    * "Fornecimento de gás natural (R$)" impresso nesta fatura -> 'valor_fornecimento'.
+  - Quadro "Detalhamento do consumo" (linha do medidor):
+    * "Leitura Anterior": leitura inteira anterior impressa nesta fatura específica (ponto é separador de milhar).
+    * "Leitura Atual": leitura inteira atual impressa nesta fatura específica (ponto é separador de milhar).
+    * "consumo medido (m³)" -> 'consumo_medido'.
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
-- Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
-- CNPJ do cliente no quadro de destinatário da fatura ou no canhoto inferior de pagamento / PAGADOR -> 'cnpj_cliente'. NUNCA deixe vazio se estiver visível!
-- CNPJ da distribuidora: Enel SP "61.695.227/0001-93".
-- Quadro "DADOS DE MEDIÇÃO": Leitura Anterior, Leitura Atual, Constante, Consumo medido/faturado em kWh -> 'consumo'.
-- Quadro histórico de consumo: linha do mês corrente sob "CONSUMO FATURADO (kWh)" -> 'consumo'.
-- Tabela "ITENS DE FATURA" / "DESCRIÇÃO DO FATURAMENTO": coluna "Quant. (kWh)" nas linhas TUSD e TE.
-- Na Enel classe B (B1, B2, B3, B4 ou posto ÚNICO), o consumo é SEMPRE ÚNICO e NUNCA nulo.
-- "DESCRIÇÃO DO FATURAMENTO": extraia as tarifas sob a coluna "Preço Unit (R$) com tributos" para TUSD e TE.
+  - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
+  - CNPJ do cliente no quadro de destinatário ou canhoto de pagamento -> 'cnpj_cliente'.
+  - CNPJ da distribuidora -> 'cnpj_fornecedor'.
+  - "DADOS DE MEDIÇÃO" e quadro de consumo: Leitura Anterior, Leitura Atual, Consumo medido/faturado em kWh -> 'consumo'.
+  - Na Enel classe B, o consumo é SEMPRE ÚNICO.
+  - Tarifas sob coluna "Preço Unit (R$) com tributos" para TUSD e TE.
+
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Medições de hidrômetro (Anterior, Atual, Consumo m³).
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
 
-Extraia com rigor e retorne o JSON completo preenchido com todos os valores reais encontrados nas imagens.`
+Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             console.log(
               `[fatura_extract] Tentando visão multimodal com ${validImages.length} imagem(ns)...`,
               'Tamanho img 1:',

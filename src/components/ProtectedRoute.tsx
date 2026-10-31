@@ -25,9 +25,9 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     )
   }
 
-  // Só redireciona quando a sessão estiver REALMENTE ausente/revogada (sem authStore válido e sem auth local),
-  // nunca durante estados de carregamento/refresh ou falha transitória de rede.
-  if (!hasLocalAuth) {
+  // Se o usuário já estava autenticado localmente, NUNCA redirecionar para /login por oscilação momentânea
+  // de rede, 401 ou durante o fluxo de trabalho (apenas se não houver qualquer credencial salva)
+  if (!hasLocalAuth && !token && !user) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 

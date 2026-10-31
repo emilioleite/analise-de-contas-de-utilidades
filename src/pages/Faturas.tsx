@@ -1161,11 +1161,9 @@ export default function Faturas() {
         cleanDesc = 'Não foi possível concluir a extração. Preencha os campos manualmente.'
       }
 
-      // Zeramento total do estado também em caso de erro na extração
-      clearExtractionState()
-
+      // Em caso de erro na extração, mantém o usuário no modal com mensagem clara
       toast({
-        title: 'Extração assistida',
+        title: 'Extração assistida não concluída',
         description: cleanDesc,
         variant: 'destructive',
       })
@@ -1251,8 +1249,9 @@ export default function Faturas() {
     setSubmittingFatura(true)
     try {
       // Revalida a sessão com o backend antes do submit de forma não destrutiva
+      // Se safeRefreshSession falhar (ex: rede, 429, timeout), NUNCA interrompe o fluxo nem desloga
       try {
-        await safeRefreshSession()
+        await safeRefreshSession().catch(() => null)
       } catch {
         /* intentionally ignored */
       }
