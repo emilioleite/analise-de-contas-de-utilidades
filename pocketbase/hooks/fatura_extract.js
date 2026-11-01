@@ -201,8 +201,10 @@ Campos gerais:
 - unidade_consumo: "kWh" ou "m³"
 - numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" ou "CONTA CONTRATO". NUNCA invente números.
 - vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento impresso na fatura.
-- cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). Extraia EXATAMENTE os dígitos impressos sob o destinatário/cliente. NUNCA use o CNPJ da distribuidora como cnpj_cliente, e retorne null se não estiver impresso ou visível.
-- cnpj_fornecedor: CNPJ da distribuidora emissora (exemplo Comgás: "61.856.571/0006-21", Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80").
+- cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). Extraia do bloco de nome/endereço do cliente ou da seção PAGADOR (ex.: sob "COND EDIF...", "PAGADOR:").
+  * ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (que fica no cabeçalho ou seção BENEFICIÁRIO) como cnpj_cliente!
+  * Se o CNPJ do cliente vier parcialmente mascarado (exemplo: "04.***.***/****-63" ou "04***63"), retorne o valor mascarado EXATAMENTE como está ou vazio/null — NUNCA substitua pelo CNPJ do fornecedor/distribuidora!
+- cnpj_fornecedor: CNPJ da distribuidora emissora (exemplo Comgás: "61.856.571/0006-21", Enel SP: "61.695.227/0001-93", Sabesp: "43.776.517/0001-80"). Fica no cabeçalho superior ou seção BENEFICIÁRIO.
 
 Campos de medição e tarifas:
 - medicao_anterior: leitura anterior do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Anterior" (atenção: em medidores de gás o ponto pode ser separador de milhar inteiro!).
@@ -212,6 +214,7 @@ Campos de medição e tarifas:
 - tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
 - valor_fornecimento: valor monetário do fornecimento (exemplo: linha "Fornecimento de Gás Natural")
 - valor_a_pagar: total a pagar impresso (ou 0.00 se houver devolução total)
+- adicional_bandeira: bandeira tarifária aplicada. DEVE ser lida do campo impresso "Bandeira(s) tarifária(s) aplicada(s) no mês" (exemplo: "AMARELA" -> "Bandeira Amarela", "VERDE" -> "Bandeira Verde", "VERMELHA" -> "Bandeira Vermelha"). NÃO use valor padrão ou assumido!
 
 Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
 - REGRA DE CLASSIFICAÇÃO E CONSUMO (GRUPO B vs GRUPO A):
@@ -227,6 +230,11 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' da linha Ponta.
     - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' da linha Fora Ponta.
     - Preencha 'consumo': soma do consumo ponta + fora ponta.
+
+- BANDEIRA TARIFÁRIA NA ENERGIA ELÉTRICA:
+  * Procure na seção "MENSAGENS IMPORTANTES" ou cabeçalho a frase "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]".
+  * Extraia a cor exata (ex.: se estiver impresso "AMARELA" ou item "ADICIONAL BANDEIRA AMARELA", preencha "Bandeira Amarela"; se estiver "VERDE", "Bandeira Verde"; se "VERMELHA 1" / "VERMELHA 2", "Bandeira Vermelha 1" / "Bandeira Vermelha 2").
+  * NUNCA assuma Verde se houver outra cor indicada explicitamente na fatura!
 
 - MAPEAMENTO DAS TARIFAS DA ENEL:
   * Na fatura da Enel (tabela "DESCRIÇÃO DO FATURAMENTO" / "ITENS DE FATURA"), extraia os valores sob a coluna "Preço Unit (R$) com tributos".
@@ -443,11 +451,14 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
   - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
-  - CNPJ do cliente no quadro de destinatário ou canhoto de pagamento -> 'cnpj_cliente'.
-  - CNPJ da distribuidora -> 'cnpj_fornecedor'.
+  - CNPJ do cliente no quadro de destinatário (COND EDIF...) ou no canhoto de pagamento sob PAGADOR -> 'cnpj_cliente'.
+    * NUNCA use o CNPJ da distribuidora (que fica no cabeçalho ou BENEFICIÁRIO) como cnpj_cliente!
+    * Se o CNPJ do cliente vier mascarado (ex: "04.***.***/****-63"), retorne o valor mascarado como está ou null — NUNCA substitua pelo CNPJ do fornecedor.
+  - CNPJ da distribuidora emissora (ex Enel 61.695.227/0001-93) -> 'cnpj_fornecedor'.
   - "DADOS DE MEDIÇÃO" e quadro de consumo: Leitura Anterior, Leitura Atual, Consumo medido/faturado em kWh -> 'consumo'.
   - Na Enel classe B, o consumo é SEMPRE ÚNICO.
   - Tarifas sob coluna "Preço Unit (R$) com tributos" para TUSD e TE.
+  - Bandeira tarifária: leia do texto "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]" ou do item "ADICIONAL BANDEIRA [COR]" -> 'adicional_bandeira' (ex: "Bandeira Amarela", "Bandeira Verde").
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Medições de hidrômetro (Anterior, Atual, Consumo m³).
@@ -692,6 +703,22 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
         parsed.cnpj_fornecedor = sanitizeText(parsed.cnpj_fornecedor)
         parsed.classificacao_consumo = sanitizeText(parsed.classificacao_consumo)
         parsed.adicional_bandeira = sanitizeText(parsed.adicional_bandeira)
+
+        // Se CNPJ do cliente for idêntico ao CNPJ do fornecedor (distribuidora copiada no cliente por engano), anular
+        if (
+          parsed.cnpj_cliente &&
+          parsed.cnpj_fornecedor &&
+          String(parsed.cnpj_cliente).replace(/\D/g, '') !== '' &&
+          String(parsed.cnpj_cliente).replace(/\D/g, '') ===
+            String(parsed.cnpj_fornecedor).replace(/\D/g, '')
+        ) {
+          console.log(
+            '[fatura_extract] CNPJ do cliente veio igual ao CNPJ do fornecedor (' +
+              parsed.cnpj_cliente +
+              '). Limpando cnpj_cliente.',
+          )
+          parsed.cnpj_cliente = null
+        }
 
         // Normalização antecipada de tipo de utilidade para apoiar o desmascaramento e detecções
         const rawTipoEarly = String(
@@ -969,16 +996,27 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           rawText.toLowerCase().includes('enel') ||
           rawText.includes('61.695.227')
 
-        // Desmascaramento Enel: se o CNPJ veio mascarado (ex: 04.***.***/****-63 ou 04***63)
-        // Funciona tanto na via TEXTO quanto na via VISUAL!
-        if (parsed.cnpj_cliente && String(parsed.cnpj_cliente).includes('*')) {
-          const rawClient = String(parsed.cnpj_cliente).replace(/[^0-9*]/g, '')
-          if (isEnelDoc && rawClient.startsWith('04') && rawClient.endsWith('63')) {
-            console.log('[fatura_extract] Desmascarando CNPJ Enel 04...63 para 04.151.776/0001-63')
-            parsed.cnpj_cliente = '04.151.776/0001-63'
+        // Se CNPJ do cliente veio mascarado (ex: 04.***.***/****-63), preservar a máscara para o frontend sugerir por correspondência parcial
+        // ou se não houver asteriscos, manter apenas se tiver 14 dígitos válidos
+        if (parsed.cnpj_cliente) {
+          const sCli = String(parsed.cnpj_cliente).trim()
+          if (sCli.includes('*')) {
+            // Preservar o valor mascarado original para conferência parcial no frontend
+            parsed.cnpj_cliente = sCli
           } else {
-            // Em faturas de Gás, Água ou de outras distribuidoras, NUNCA aplicar desmascaramento arbitrário!
-            parsed.cnpj_cliente = null
+            const cleanCliDigits = sCli.replace(/\D/g, '')
+            if (cleanCliDigits.length === 14) {
+              parsed.cnpj_cliente = cleanCliDigits.replace(
+                /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+                '$1.$2.$3/$4-$5',
+              )
+            } else {
+              console.log(
+                '[fatura_extract] CNPJ do cliente truncado ou inválido descartado:',
+                parsed.cnpj_cliente,
+              )
+              parsed.cnpj_cliente = null
+            }
           }
         }
 
@@ -994,11 +1032,8 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             textContent.match(/CNPJ:\s*([0-9.*\/ -]{11,20})/i)
           if (cnpjMatch) {
             const matchStr = cnpjMatch[1].trim()
-            if (matchStr.includes('*') && isEnelDoc) {
-              const rawM = matchStr.replace(/[^0-9*]/g, '')
-              if (rawM.startsWith('04') && rawM.endsWith('63')) {
-                parsed.cnpj_cliente = '04.151.776/0001-63'
-              }
+            if (matchStr.includes('*')) {
+              parsed.cnpj_cliente = matchStr
             } else {
               const rawClean = matchStr.replace(/[^0-9]/g, '')
               if (rawClean.length === 14) {
@@ -1008,40 +1043,6 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
                 )
               }
             }
-          }
-        }
-
-        // Se após tudo ainda estiver vazio, mas sabemos que é documento da Enel do cliente 04...63
-        // (por exemplo, se a IA extraiu no texto bruto ou nome da unidade COND EDIF TOWERS NACOES UNIDAS)
-        if (
-          !parsed.cnpj_cliente &&
-          isEnelDoc &&
-          (rawText.includes('TOWERS NACOES') ||
-            rawText.includes('10283798') ||
-            rawText.includes('AMERICO BRASILIENSE') ||
-            rawText.includes('04.***') ||
-            rawText.includes('04***'))
-        ) {
-          console.log(
-            '[fatura_extract] CNPJ Enel inferido a partir de dados visuais do titular (TOWERS NACOES UNIDAS).',
-          )
-          parsed.cnpj_cliente = '04.151.776/0001-63'
-        }
-
-        // Sanitização estrita do CNPJ do cliente no backend: só manter se tiver 14 dígitos após limpeza
-        if (parsed.cnpj_cliente) {
-          const cleanCliDigits = String(parsed.cnpj_cliente).replace(/\D/g, '')
-          if (cleanCliDigits.length === 14) {
-            parsed.cnpj_cliente = cleanCliDigits.replace(
-              /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
-              '$1.$2.$3/$4-$5',
-            )
-          } else {
-            console.log(
-              '[fatura_extract] CNPJ do cliente truncado ou inválido descartado:',
-              parsed.cnpj_cliente,
-            )
-            parsed.cnpj_cliente = null
           }
         }
 
@@ -1405,11 +1406,26 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.cnpj_fornecedor = '61.695.227/0001-93'
           }
 
-          if (
-            !parsed.cnpj_cliente &&
-            (isEnelDoc || fileName.toLowerCase().includes('enel') || rawTipo.includes('enel'))
-          ) {
-            parsed.cnpj_cliente = '04.151.776/0001-63'
+          // Regex direta no texto para capturar a bandeira tarifária real impressa na fatura
+          if (textExtracted && textContent && typeof textContent === 'string') {
+            const bandeiraMatch =
+              textContent.match(
+                /Bandeira(?:\(s\))?\s+tarif[aá]ria(?:\(s\))?\s+aplicada(?:\(s\))?\s+no\s+m[eê]s\s*[:.]?\s*([A-Z\u00C0-\u00FF0-9 ]+)/i,
+              ) || textContent.match(/ADICIONAL\s+BANDEIRA\s+([A-Z\u00C0-\u00FF0-9 ]+)/i)
+            if (bandeiraMatch) {
+              const matchedColor = bandeiraMatch[1].trim().toUpperCase()
+              if (matchedColor.includes('AMARELA')) {
+                parsed.adicional_bandeira = 'Bandeira Amarela'
+              } else if (matchedColor.includes('VERMELHA 2')) {
+                parsed.adicional_bandeira = 'Bandeira Vermelha 2'
+              } else if (matchedColor.includes('VERMELHA')) {
+                parsed.adicional_bandeira = 'Bandeira Vermelha 1'
+              } else if (matchedColor.includes('VERDE')) {
+                parsed.adicional_bandeira = 'Bandeira Verde'
+              } else if (matchedColor.includes('ESCASSEZ')) {
+                parsed.adicional_bandeira = 'Escassez Hídrica'
+              }
+            }
           }
 
           // Normalização e correção da classificação de consumo (Grupo B vs Grupo A)

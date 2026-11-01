@@ -13,6 +13,7 @@ import {
   toSafeNumber,
   formatNumberValue,
   parseNumberValue,
+  matchMaskedCNPJ,
 } from '@/lib/cnpj'
 import { faturasService } from '@/services/faturas'
 import {
@@ -643,40 +644,23 @@ export default function Faturas() {
             ? String(rawCnpjCli).trim()
             : undefined
 
-        // Desmascaramento Enel no frontend (para via texto E via visual):
-        // Se o CNPJ veio mascarado tipo "04.***.***/****-63" ou "04***63"
+        // Se CNPJ do cliente for idêntico ao CNPJ do fornecedor (distribuidora copiada no cliente por engano),
+        // tratar como "não identificado" (limpar o campo) em vez de procurar empreendimento com CNPJ de distribuidora
+        const cleanCliRaw = cnpjCli ? cleanCNPJ(cnpjCli) : ''
+        const cleanFornRaw = cnpjForn ? cleanCNPJ(cnpjForn) : ''
+        if (cleanCliRaw && cleanFornRaw && cleanCliRaw === cleanFornRaw) {
+          console.log(
+            '[Faturas] CNPJ do cliente veio igual ao CNPJ do fornecedor (' +
+              cnpjCli +
+              '). Tratando como não identificado.',
+          )
+          cnpjCli = undefined
+        }
+
+        // Se CNPJ do cliente veio mascarado (ex: 04.***.***/****-63), preservar o valor mascarado para sugestão inteligente
         if (cnpjCli && cnpjCli.includes('*')) {
-          const rawDigits = cnpjCli.replace(/[^0-9*]/g, '')
-          if (isEnelDoc && rawDigits.startsWith('04') && rawDigits.endsWith('63')) {
-            console.log(
-              '[Faturas] Desmascarando CNPJ cliente Enel 04...63 no frontend para 04.151.776/0001-63',
-            )
-            cnpjCli = '04.151.776/0001-63'
-          } else {
-            // Em faturas de Gás, Água ou não-Enel, descartar CNPJ mascarado para não sugerir empreendimento incorreto
-            cnpjCli = undefined
-          }
-        }
-
-        // Se CNPJ do cliente continua ausente mas é Enel com indícios do titular (Chácara Santo Antônio / Towers Nações Unidas)
-        if (!cnpjCli && isEnelDoc && (uploadedFile?.name || '').toLowerCase().includes('enel')) {
-          const jsonDump = JSON.stringify(d).toLowerCase()
-          if (
-            jsonDump.includes('towers') ||
-            jsonDump.includes('nacoes') ||
-            jsonDump.includes('nações') ||
-            jsonDump.includes('10283798') ||
-            jsonDump.includes('americo') ||
-            jsonDump.includes('américo')
-          ) {
-            console.log(
-              '[Faturas] CNPJ Enel inferido a partir de dados do titular Towers Nações Unidas.',
-            )
-            cnpjCli = '04.151.776/0001-63'
-          }
-        }
-
-        if (cnpjCli) {
+          setCnpjCliente(cnpjCli.trim())
+        } else if (cnpjCli) {
           // Sanitização: só persistir se tiver formato válido (14 dígitos exatos)
           const digitsCli = cleanCNPJ(cnpjCli)
           if (digitsCli.length === 14 && isValidCNPJ(digitsCli)) {
@@ -723,8 +707,19 @@ export default function Faturas() {
           }
         }
 
-        // Sugestão automática do empreendimento por matching exato de CNPJ (14 dígitos válidos)
-        const cleanExtractedCli = cnpjCli ? cleanCNPJ(cnpjCli) : ''
+        // Reavaliar após resolução de fornecedor: se cnpj_cliente for idêntico ao fornecedor, limpar
+        if (cnpjCli && cnpjForn) {
+          const cCli = cleanCNPJ(cnpjCli)
+          const cForn = cleanCNPJ(cnpjForn)
+          if (cCli && cForn && cCli === cForn) {
+            setCnpjCliente('')
+            cnpjCli = undefined
+          }
+        }
+
+        // Sugestão automática do empreendimento:
+        // Caso 1: Matching exato de CNPJ completo (14 dígitos válidos)
+        const cleanExtractedCli = cnpjCli && !cnpjCli.includes('*') ? cleanCNPJ(cnpjCli) : ''
         if (
           cleanExtractedCli &&
           cleanExtractedCli.length === 14 &&
@@ -737,11 +732,11 @@ export default function Faturas() {
             setSelectedEmpId(matchingEmps[0].id)
             setEmpAutoSuggested(true)
           } else {
-            // Se não houver correspondência ou se houver mais de uma, NÃO sugerir automaticamente
             setSelectedEmpId('')
             setEmpAutoSuggested(false)
           }
         } else {
+          // Se for mascarado ou ausente, não auto-selecionar direto, deixar para o aviso sugerir em 1 clique
           setSelectedEmpId('')
           setEmpAutoSuggested(false)
         }
@@ -1184,6 +1179,15 @@ export default function Faturas() {
   const hasValidClienteCnpj = useMemo(() => {
     return isValidCNPJ(cnpjCliente)
   }, [cnpjCliente])
+
+  // Sugestão de empreendimento por correspondência parcial de CNPJ mascarado (ex: "04.***.***/****-63")
+  // Se exatamente UM empreendimento concordar em todas as posições visíveis, sugerir para vínculo em 1 clique
+  const suggestedEnterpriseFromMaskedCnpj = useMemo(() => {
+    if (selectedEmpId) return null
+    if (!cnpjCliente || !cnpjCliente.includes('*')) return null
+    const matches = empreendimentos.filter((emp) => matchMaskedCNPJ(cnpjCliente, emp.cnpj))
+    return matches.length === 1 ? matches[0] : null
+  }, [empreendimentos, selectedEmpId, cnpjCliente])
 
   const cnpjMismatch = useMemo(() => {
     if (!selectedEnterprise || !hasValidClienteCnpj) return false
@@ -2427,32 +2431,72 @@ export default function Faturas() {
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div>
-                          <p className="font-bold">
-                            {cnpjCliente ? (
-                              <>
-                                Nenhum empreendimento cadastrado corresponde ao CNPJ extraído da
-                                fatura ({cnpjCliente}).
-                              </>
-                            ) : (
-                              <>
-                                Nenhum empreendimento foi vinculado automaticamente (CNPJ do titular
-                                não identificado na leitura).
-                              </>
-                            )}
-                          </p>
-                          <p className="text-[11px] text-amber-700 mt-0.5">
-                            Por favor, vincule manualmente um empreendimento para salvar a fatura.
-                          </p>
+                          {suggestedEnterpriseFromMaskedCnpj ? (
+                            <>
+                              <p className="font-bold">
+                                Sugerido:{' '}
+                                <span className="underline font-semibold">
+                                  {suggestedEnterpriseFromMaskedCnpj.nome}
+                                </span>{' '}
+                                — CNPJ {formatCNPJ(suggestedEnterpriseFromMaskedCnpj.cnpj)}
+                              </p>
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                Identificado por correspondência com o CNPJ mascarado da fatura (
+                                {cnpjCliente}). Deseja vincular?
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-bold">
+                                {cnpjCliente ? (
+                                  <>
+                                    Nenhum empreendimento cadastrado corresponde ao CNPJ extraído da
+                                    fatura ({cnpjCliente}).
+                                  </>
+                                ) : (
+                                  <>CNPJ do titular não identificado na fatura — vínculo manual</>
+                                )}
+                              </p>
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                Por favor, vincule manualmente um empreendimento para salvar a
+                                fatura.
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="pt-1 pl-6 flex items-center gap-2">
+                      <div className="pt-1 pl-6 flex items-center gap-2 flex-wrap">
+                        {suggestedEnterpriseFromMaskedCnpj ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedEmpId(suggestedEnterpriseFromMaskedCnpj.id)
+                              setEmpAutoSuggested(true)
+                              toast({
+                                title: 'Empreendimento vinculado',
+                                description: `${suggestedEnterpriseFromMaskedCnpj.nome} vinculado com sucesso.`,
+                              })
+                            }}
+                            className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                            Vincular a {suggestedEnterpriseFromMaskedCnpj.nome} (1 clique)
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           size="sm"
                           onClick={() => setStep(2)}
-                          className="h-7 text-[11px] bg-amber-600 hover:bg-amber-700 text-white"
+                          className={`h-7 text-[11px] ${
+                            suggestedEnterpriseFromMaskedCnpj
+                              ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                              : 'bg-amber-600 hover:bg-amber-700 text-white'
+                          }`}
                         >
-                          Vincular Empreendimento Manualmente
+                          {suggestedEnterpriseFromMaskedCnpj
+                            ? 'Escolher Outro Manualmente'
+                            : 'Vincular Empreendimento Manualmente'}
                         </Button>
                         <Button
                           type="button"

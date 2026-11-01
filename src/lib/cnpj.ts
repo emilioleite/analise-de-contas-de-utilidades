@@ -12,6 +12,70 @@ export function formatCNPJ(value: string): string {
     .replace(/(\d{4})(\d)/, '$1-$2')
 }
 
+// Verifica se um CNPJ extraído (possivelmente mascarado com asteriscos)
+// é compatível com um CNPJ completo cadastrado.
+// Compara os dígitos visíveis nas posições da máscara ou por prefixo/sufixo.
+export function matchMaskedCNPJ(maskedValue: string, fullCnpj: string): boolean {
+  if (!maskedValue || !fullCnpj) return false
+  const cleanFull = cleanCNPJ(fullCnpj)
+  if (cleanFull.length !== 14) return false
+
+  const trimMasked = maskedValue.trim()
+  if (!trimMasked.includes('*')) {
+    // Se não tiver asterisco, deve bater exatamente os dígitos limpos
+    return cleanCNPJ(trimMasked) === cleanFull
+  }
+
+  // Se a máscara tiver formato com pontuação padrão (18 chars, ex: "04.***.***/****-63" ou "04.***.***/0001-63")
+  const formattedFull = formatCNPJ(fullCnpj) // "04.151.776/0001-63" (18 chars)
+  if (trimMasked.length === 18 && formattedFull.length === 18) {
+    for (let i = 0; i < 18; i++) {
+      const mc = trimMasked[i]
+      const fc = formattedFull[i]
+      if (mc === '*' || mc === 'X' || mc === 'x') {
+        continue
+      }
+      if (mc !== fc) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // Comparação por dígitos brutos onde asteriscos representam posições de dígitos (14 chars)
+  const rawMaskedDigits = trimMasked.replace(/[^0-9*Xx]/g, '')
+  if (rawMaskedDigits.length === 14) {
+    for (let i = 0; i < 14; i++) {
+      const mc = rawMaskedDigits[i]
+      const fc = cleanFull[i]
+      if (mc === '*' || mc === 'X' || mc === 'x') {
+        continue
+      }
+      if (mc !== fc) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // Comparação genérica por prefixo e sufixo de dígitos visíveis:
+  // Ex: "04.***-63" ou "04***63" -> prefixo "04", sufixo "63"
+  const startDigitsMatch = trimMasked.match(/^(\d+)/)
+  const endDigitsMatch = trimMasked.match(/(\d+)$/)
+  if (!startDigitsMatch && !endDigitsMatch) return false
+
+  if (startDigitsMatch) {
+    const prefix = startDigitsMatch[1]
+    if (!cleanFull.startsWith(prefix)) return false
+  }
+  if (endDigitsMatch) {
+    const suffix = endDigitsMatch[1]
+    if (!cleanFull.endsWith(suffix)) return false
+  }
+
+  return true
+}
+
 export function isValidCNPJ(cnpj: string): boolean {
   const digits = cleanCNPJ(cnpj)
   if (digits.length !== 14) return false
