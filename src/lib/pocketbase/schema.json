@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-01T03:14:47.621Z",
+  "generatedAt": "2026-11-01T21:24:33.174Z",
   "collections": [
     {
       "name": "users",
@@ -230,6 +230,12 @@
         {
           "name": "cnpj_cliente",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "lancamento_manual",
+          "type": "bool",
           "required": false,
           "system": false
         }

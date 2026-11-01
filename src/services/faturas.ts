@@ -191,6 +191,11 @@ export function sanitizeFaturaPayload(
     payload.cnpj_validado = Boolean(data.cnpj_validado)
   }
 
+  // 10.1. Lançamento Manual (bool opcional)
+  if (data.lancamento_manual !== undefined) {
+    payload.lancamento_manual = Boolean(data.lancamento_manual)
+  }
+
   // 11. Arquivo Nome (text opcional)
   if (data.arquivo_nome !== undefined) {
     const str = String(data.arquivo_nome || '').trim()

@@ -77,6 +77,7 @@ export interface FaturaRecord {
   arquivo_nome?: string | null
   vencimento?: string
   dados_especificos?: DadosEspecificos | string
+  lancamento_manual?: boolean
   owner: string
   created: string
   updated: string
