@@ -154,6 +154,12 @@ export default function Faturas() {
   const [consumoCorrigido, setConsumoCorrigido] = useState<number | string>('')
   const [tarifa, setTarifa] = useState<number | string>('')
 
+  // Lançamento manual flag
+  const [isLancamentoManual, setIsLancamentoManual] = useState<boolean>(false)
+
+  // Selector modal / dialog inline in Step 3 for enterprise binding without step change
+  const [empSelectorOpenStep3, setEmpSelectorOpenStep3] = useState<boolean>(false)
+
   // CNPJ mismatch alert state in Step 3
   const [cnpjMismatchIgnored, setCnpjMismatchIgnored] = useState(false)
   const [submittingFatura, setSubmittingFatura] = useState(false)
@@ -203,7 +209,20 @@ export default function Faturas() {
     setSelectedTipo('Energia Elétrica')
     setExtracting(false)
     setExtractingStatus('')
+    setIsLancamentoManual(false)
+    setEmpSelectorOpenStep3(false)
     clearExtractionState()
+  }
+
+  // Iniciar fluxo direto de lançamento manual (vai direto para o Passo 3 sem IA)
+  const handleStartLancamentoManual = () => {
+    extractionRequestIdRef.current += 1
+    clearExtractionState()
+    setIsLancamentoManual(true)
+    setUploadedFile(null)
+    setExtracting(false)
+    setExtractingStatus('')
+    setStep(3)
   }
 
   // Handle selected file drop or pick
@@ -1275,7 +1294,8 @@ export default function Faturas() {
         cnpj_cliente: isValidCNPJ(cnpjCliente) ? formatCNPJ(cnpjCliente) : undefined,
         cnpj_fornecedor: isValidCNPJ(cnpjFornecedor) ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: isValidated,
-        arquivo_nome: uploadedFile?.name || null,
+        arquivo_nome: isLancamentoManual ? null : uploadedFile?.name || null,
+        lancamento_manual: isLancamentoManual ? true : undefined,
         vencimento: vencimento || undefined,
         dados_especificos: JSON.stringify(dadosEsp),
       })
@@ -1966,7 +1986,17 @@ export default function Faturas() {
                     return (
                       <tr key={fat.id} className="hover:bg-slate-50/75 transition-colors group">
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-gray-900">{empName}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-gray-900">{empName}</span>
+                            {fat.lancamento_manual && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] bg-slate-50 text-slate-700 border-slate-300 font-normal px-1.5 py-0"
+                              >
+                                Lançamento manual
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-[11px] font-mono text-gray-400 mt-0.5">
                             {formatCNPJ(empCnpj)}
                           </div>
@@ -2050,7 +2080,17 @@ export default function Faturas() {
                 <Card key={fat.id} className="p-4 border-[#E5E7EB] bg-white shadow-sm space-y-3">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h4 className="font-bold text-sm text-gray-900">{empName}</h4>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="font-bold text-sm text-gray-900">{empName}</h4>
+                        {fat.lancamento_manual && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-slate-50 text-slate-700 border-slate-300 font-normal px-1.5 py-0"
+                          >
+                            Lançamento manual
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-[11px] font-mono text-gray-400 mt-0.5">
                         CNPJ: {formatCNPJ(empCnpj)}
                       </p>
@@ -2242,15 +2282,26 @@ export default function Faturas() {
                 </div>
               )}
 
-              <DialogFooter className="pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setUploadModalOpen(false)}
-                  className="text-xs"
-                >
-                  Cancelar
-                </Button>
+              <DialogFooter className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setUploadModalOpen(false)}
+                    className="text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleStartLancamentoManual}
+                    className="text-xs text-teal-700 hover:text-teal-800 hover:bg-teal-50"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 mr-1" />
+                    Lançamento manual
+                  </Button>
+                </div>
                 <Button
                   type="button"
                   disabled={!uploadedFile}
@@ -2258,6 +2309,7 @@ export default function Faturas() {
                     // Limpar seleção de empreendimento anterior antes de avançar para a extração
                     setSelectedEmpId('')
                     setEmpAutoSuggested(false)
+                    setIsLancamentoManual(false)
                     setStep(2)
                   }}
                   className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium"
@@ -2420,7 +2472,7 @@ export default function Faturas() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setStep(2)}
+                        onClick={() => setEmpSelectorOpenStep3(true)}
                         className="h-7 text-[11px] border-emerald-300 text-emerald-800 hover:bg-emerald-100 shrink-0"
                       >
                         Alterar
@@ -2443,6 +2495,17 @@ export default function Faturas() {
                               <p className="text-[11px] text-amber-700 mt-0.5">
                                 Identificado por correspondência com o CNPJ mascarado da fatura (
                                 {cnpjCliente}). Deseja vincular?
+                              </p>
+                            </>
+                          ) : cnpjCliente && cnpjCliente.includes('*') ? (
+                            <>
+                              <p className="font-bold">
+                                CNPJ do cliente veio mascarado pela concessionária ({cnpjCliente})
+                              </p>
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                A concessionária oculta dígitos do CNPJ por privacidade e a extração
+                                correta foi não identificá-lo automaticamente entre os
+                                empreendimentos. Por favor, vincule manualmente o empreendimento.
                               </p>
                             </>
                           ) : (
@@ -2487,7 +2550,7 @@ export default function Faturas() {
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setStep(2)}
+                          onClick={() => setEmpSelectorOpenStep3(true)}
                           className={`h-7 text-[11px] ${
                             suggestedEnterpriseFromMaskedCnpj
                               ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
@@ -2498,22 +2561,34 @@ export default function Faturas() {
                             ? 'Escolher Outro Manualmente'
                             : 'Vincular Empreendimento Manualmente'}
                         </Button>
+                        {!isLancamentoManual && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={extracting}
+                            onClick={handleProceedToExtract}
+                            className="h-7 text-[11px] border-amber-300 text-amber-900 hover:bg-amber-100"
+                          >
+                            {extracting ? (
+                              <>
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Extraindo...
+                              </>
+                            ) : (
+                              'Tentar extrair novamente'
+                            )}
+                          </Button>
+                        )}
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
-                          disabled={extracting}
-                          onClick={handleProceedToExtract}
-                          className="h-7 text-[11px] border-amber-300 text-amber-900 hover:bg-amber-100"
+                          onClick={handleStartLancamentoManual}
+                          className="h-7 text-[11px] text-amber-900 hover:bg-amber-100"
                         >
-                          {extracting ? (
-                            <>
-                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                              Extraindo...
-                            </>
-                          ) : (
-                            'Tentar extrair novamente'
-                          )}
+                          <Edit2 className="w-3 h-3 mr-1" />
+                          Lançamento manual
                         </Button>
                       </div>
                     </div>
@@ -2539,7 +2614,7 @@ export default function Faturas() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => setStep(2)}
+                          onClick={() => setEmpSelectorOpenStep3(true)}
                           className="h-7 text-[11px] border-amber-300 text-amber-900 hover:bg-amber-100"
                         >
                           Corrigir Empreendimento
@@ -2616,12 +2691,53 @@ export default function Faturas() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => setStep(2)}
+                        onClick={() => setEmpSelectorOpenStep3(true)}
                         className="h-7 text-xs text-teal-700 hover:text-teal-800 hover:bg-teal-50"
                       >
-                        Trocar Empreendimento
+                        {selectedEmpId ? 'Trocar Empreendimento' : 'Selecionar Empreendimento'}
                       </Button>
                     </div>
+                  </div>
+
+                  {/* Seletor Inline de Empreendimento no Passo 3 (sem mudar de passo e sem clearExtractionState) */}
+                  <div className="p-3 rounded-xl bg-teal-50/50 border border-teal-200/80 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold text-teal-950 flex items-center gap-1.5">
+                        <span>Empreendimento Associado *</span>
+                        {isLancamentoManual && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-white text-teal-800 border-teal-300"
+                          >
+                            Lançamento manual
+                          </Badge>
+                        )}
+                      </Label>
+                      {empAutoSuggested && (
+                        <span className="text-[11px] text-emerald-700 font-medium">
+                          Sugerido por CNPJ
+                        </span>
+                      )}
+                    </div>
+                    <Select
+                      value={selectedEmpId}
+                      onValueChange={(val) => {
+                        setSelectedEmpId(val)
+                        setEmpAutoSuggested(false)
+                        setCnpjMismatchIgnored(false)
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-xs sm:text-sm bg-white border-teal-300">
+                        <SelectValue placeholder="Selecione o empreendimento para esta fatura..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {empreendimentos.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {emp.nome} ({formatCNPJ(emp.cnpj)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* General Fields Grid */}
@@ -2631,6 +2747,29 @@ export default function Faturas() {
                     </span>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs font-semibold text-gray-700">
+                          Tipo de Utilidade *
+                        </Label>
+                        <Select
+                          value={selectedTipo}
+                          onValueChange={(val) => {
+                            const novoTipo = val as TipoUtilidade
+                            setSelectedTipo(novoTipo)
+                            setUnidadeConsumo(novoTipo === 'Energia Elétrica' ? 'kWh' : 'm³')
+                          }}
+                        >
+                          <SelectTrigger className="h-9 text-xs bg-white">
+                            <SelectValue placeholder="Utilidade" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Energia Elétrica">Energia Elétrica</SelectItem>
+                            <SelectItem value="Água e Esgoto">Água e Esgoto</SelectItem>
+                            <SelectItem value="Gás">Gás</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
                       <div>
                         <Label className="text-xs font-semibold text-gray-700">
                           Competência (MM/AAAA) *
@@ -3364,11 +3503,21 @@ export default function Faturas() {
                 </div>
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase">
-                    Arquivo Original
+                    Origem / Arquivo
                   </span>
-                  <span className="font-medium text-gray-700 truncate block">
-                    {selectedFatura.arquivo_nome || 'Lançamento manual / migrado'}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    {selectedFatura.lancamento_manual && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] bg-slate-50 text-slate-700 border-slate-300 font-normal px-1.5 py-0"
+                      >
+                        Lançamento manual
+                      </Badge>
+                    )}
+                    <span className="font-medium text-gray-700 truncate block">
+                      {selectedFatura.arquivo_nome || 'Sem arquivo anexado'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -4081,6 +4230,79 @@ export default function Faturas() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Modal Seletor de Empreendimento para o Passo 3 */}
+      <Dialog open={empSelectorOpenStep3} onOpenChange={setEmpSelectorOpenStep3}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-gray-900">
+              Vincular Empreendimento
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Escolha o empreendimento para associar à fatura. Todos os dados preenchidos ou
+              extraídos serão preservados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <Label className="text-xs font-semibold text-gray-700">Empreendimento</Label>
+            <Select
+              value={selectedEmpId}
+              onValueChange={(val) => {
+                setSelectedEmpId(val)
+                setEmpAutoSuggested(false)
+                setCnpjMismatchIgnored(false)
+              }}
+            >
+              <SelectTrigger className="h-10 text-xs sm:text-sm">
+                <SelectValue placeholder="Selecione um empreendimento..." />
+              </SelectTrigger>
+              <SelectContent>
+                {empreendimentos.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.nome} ({formatCNPJ(emp.cnpj)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedEnterprise && (
+              <p className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded-lg p-2.5">
+                Selecionado: <strong>{selectedEnterprise.nome}</strong> — CNPJ{' '}
+                {formatCNPJ(selectedEnterprise.cnpj)}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEmpSelectorOpenStep3(false)}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!selectedEmpId}
+              onClick={() => {
+                setEmpSelectorOpenStep3(false)
+                toast({
+                  title: 'Empreendimento vinculado',
+                  description: selectedEnterprise
+                    ? `${selectedEnterprise.nome} vinculado com sucesso.`
+                    : 'Empreendimento vinculado.',
+                })
+              }}
+              className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium"
+            >
+              Confirmar Vínculo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
