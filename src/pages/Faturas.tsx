@@ -224,6 +224,25 @@ export default function Faturas() {
     )
   }
 
+  // Helper para verificar se um elemento (ou evento) pertence a um portal/popover/select do Radix UI
+  const isRadixPortalOrLayer = (target: EventTarget | null): boolean => {
+    if (!target || !(target instanceof Element)) return false
+    return Boolean(
+      target.closest(
+        '[data-radix-popper-content-wrapper], [data-radix-select-content], [data-radix-portal], [data-radix-focus-guard], [role="listbox"], [role="combobox"], [role="option"], [data-state][role="dialog"]',
+      ),
+    )
+  }
+
+  // Helper para verificar se algum popover/select/combobox do Radix está aberto na tela no momento
+  const hasOpenRadixPopperOrSelect = (): boolean => {
+    if (typeof document === 'undefined') return false
+    const openLayer = document.querySelector(
+      '[data-radix-popper-content-wrapper], [data-radix-select-content], [role="listbox"][data-state="open"], [role="listbox"]:not([aria-hidden="true"])',
+    )
+    return Boolean(openLayer)
+  }
+
   // Tenta fechar o modal de upload com confirmação caso haja dados não salvos no Passo 3
   const requestCloseUploadModal = () => {
     if (hasUnsavedStep3Data()) {
@@ -2240,12 +2259,32 @@ export default function Faturas() {
         <DialogContent
           className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto"
           onPointerDownOutside={(e) => {
+            // Se o clique foi dentro de um portal de Select/Popover/Combobox do Radix ou em outro diálogo aninhado,
+            // previne que o diálogo principal interprete como clique fora e NUNCA dispara a guarda.
+            const target =
+              (e.detail as any)?.originalEvent?.target ||
+              (e as any).target ||
+              ((e as any).composedPath ? (e as any).composedPath()[0] : null)
+            if (isRadixPortalOrLayer(target)) {
+              e.preventDefault()
+              return
+            }
             if (hasUnsavedStep3Data()) {
               e.preventDefault()
               requestCloseUploadModal()
             }
           }}
           onEscapeKeyDown={(e) => {
+            // Se um popover de Select/Combobox estiver aberto ou se o evento foi originado dentro de uma camada do Radix,
+            // deixa o Radix fechar apenas o seletor sem acionar a guarda de descarte do diálogo principal.
+            const target =
+              (e.detail as any)?.originalEvent?.target ||
+              (e as any).target ||
+              ((e as any).composedPath ? (e as any).composedPath()[0] : null)
+            if (hasOpenRadixPopperOrSelect() || isRadixPortalOrLayer(target)) {
+              e.preventDefault()
+              return
+            }
             if (hasUnsavedStep3Data()) {
               e.preventDefault()
               requestCloseUploadModal()
@@ -4362,7 +4401,27 @@ export default function Faturas() {
 
       {/* Modal Seletor de Empreendimento para o Passo 3 */}
       <Dialog open={empSelectorOpenStep3} onOpenChange={setEmpSelectorOpenStep3}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent
+          className="sm:max-w-[480px]"
+          onPointerDownOutside={(e) => {
+            const target =
+              (e.detail as any)?.originalEvent?.target ||
+              (e as any).target ||
+              ((e as any).composedPath ? (e as any).composedPath()[0] : null)
+            if (isRadixPortalOrLayer(target)) {
+              e.preventDefault()
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            const target =
+              (e.detail as any)?.originalEvent?.target ||
+              (e as any).target ||
+              ((e as any).composedPath ? (e as any).composedPath()[0] : null)
+            if (hasOpenRadixPopperOrSelect() || isRadixPortalOrLayer(target)) {
+              e.preventDefault()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-gray-900">
               Vincular Empreendimento

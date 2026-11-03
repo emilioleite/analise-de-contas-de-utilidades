@@ -24,9 +24,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<RecordModel | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  // Inicialização síncrona imediata a partir do authStore persistido no localStorage pelo PocketBase
+  const [user, setUser] = useState<RecordModel | null>(() => pb.authStore.record)
+  const [token, setToken] = useState<string | null>(() => pb.authStore.token || null)
+  const [isLoading, setIsLoading] = useState<boolean>(
+    () => !pb.authStore.isValid && !pb.authStore.token,
+  )
 
   const ensureValidSessionRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false))
 
