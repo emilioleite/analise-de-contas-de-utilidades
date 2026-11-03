@@ -101,6 +101,7 @@ export default function Faturas() {
 
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -201,6 +202,38 @@ export default function Faturas() {
     setLastCreatedFatura(null)
   }
 
+  // Verifica se o Passo 3 possui dados extraídos/digitados não salvos
+  const hasUnsavedStep3Data = () => {
+    if (step !== 3) return false
+    return Boolean(
+      uploadedFile ||
+      selectedEmpId ||
+      competenciaInput ||
+      valorTotal !== '' ||
+      consumo !== '' ||
+      numeroFatura ||
+      cnpjCliente ||
+      cnpjFornecedor ||
+      vencimento ||
+      medicaoAnterior !== '' ||
+      medicaoAtual !== '' ||
+      consumoPonta !== '' ||
+      consumoForaPonta !== '' ||
+      consumoMedido !== '' ||
+      consumoCorrigido !== '',
+    )
+  }
+
+  // Tenta fechar o modal de upload com confirmação caso haja dados não salvos no Passo 3
+  const requestCloseUploadModal = () => {
+    if (hasUnsavedStep3Data()) {
+      setDiscardConfirmOpen(true)
+      return
+    }
+    resetUploadForm()
+    setUploadModalOpen(false)
+  }
+
   // Reset upload modal form
   const resetUploadForm = () => {
     extractionRequestIdRef.current += 1 // Invalida qualquer extração em andamento
@@ -211,6 +244,7 @@ export default function Faturas() {
     setExtractingStatus('')
     setIsLancamentoManual(false)
     setEmpSelectorOpenStep3(false)
+    setDiscardConfirmOpen(false)
     clearExtractionState()
   }
 
@@ -1300,6 +1334,20 @@ export default function Faturas() {
         dados_especificos: JSON.stringify(dadosEsp),
       })
 
+      const empVinculadoNome =
+        selectedEnterprise?.nome ||
+        empreendimentos.find((e) => e.id === selectedEmpId)?.nome ||
+        'Empreendimento vinculado'
+
+      // Toast de sucesso informando o nome do empreendimento vinculado
+      toast({
+        title: 'Fatura salva com sucesso',
+        description: `Fatura vinculada ao empreendimento ${empVinculadoNome}.`,
+      })
+
+      // Atualiza os dados no DataContext
+      await refreshData().catch(() => null)
+
       if (created) {
         setLastCreatedFatura(created)
       }
@@ -2183,12 +2231,27 @@ export default function Faturas() {
         open={uploadModalOpen}
         onOpenChange={(open) => {
           if (!open) {
-            resetUploadForm()
+            requestCloseUploadModal()
+          } else {
+            setUploadModalOpen(true)
           }
-          setUploadModalOpen(open)
         }}
       >
-        <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={(e) => {
+            if (hasUnsavedStep3Data()) {
+              e.preventDefault()
+              requestCloseUploadModal()
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            if (hasUnsavedStep3Data()) {
+              e.preventDefault()
+              requestCloseUploadModal()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-gray-900 flex items-center justify-between">
               <span>Cadastro e Extração de Fatura</span>
@@ -2287,7 +2350,7 @@ export default function Faturas() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setUploadModalOpen(false)}
+                    onClick={requestCloseUploadModal}
                     className="text-xs"
                   >
                     Cancelar
@@ -2537,8 +2600,8 @@ export default function Faturas() {
                               setSelectedEmpId(suggestedEnterpriseFromMaskedCnpj.id)
                               setEmpAutoSuggested(true)
                               toast({
-                                title: 'Empreendimento vinculado',
-                                description: `${suggestedEnterpriseFromMaskedCnpj.nome} vinculado com sucesso.`,
+                                title: 'Vínculo aplicado',
+                                description: `Empreendimento vinculado: ${suggestedEnterpriseFromMaskedCnpj.nome}. Confira os campos e clique em "Confirmar e Salvar Fatura".`,
                               })
                             }}
                             className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
@@ -2725,6 +2788,13 @@ export default function Faturas() {
                         setSelectedEmpId(val)
                         setEmpAutoSuggested(false)
                         setCnpjMismatchIgnored(false)
+                        const matched = empreendimentos.find((e) => e.id === val)
+                        if (matched) {
+                          toast({
+                            title: 'Vínculo aplicado',
+                            description: `Empreendimento vinculado: ${matched.nome}. Confira os campos e clique em "Confirmar e Salvar Fatura".`,
+                          })
+                        }
                       }}
                     >
                       <SelectTrigger className="h-9 text-xs sm:text-sm bg-white border-teal-300">
@@ -2738,6 +2808,15 @@ export default function Faturas() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {selectedEnterprise && (
+                      <p className="text-[11px] text-teal-900 bg-teal-100/70 border border-teal-300 rounded-md px-2.5 py-1.5 flex items-center gap-1.5 font-medium animate-in fade-in">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                        <span>
+                          Vínculo aplicado: <strong>{selectedEnterprise.nome}</strong> (CNPJ{' '}
+                          {formatCNPJ(selectedEnterprise.cnpj)})
+                        </span>
+                      </p>
+                    )}
                   </div>
 
                   {/* General Fields Grid */}
@@ -3311,20 +3390,30 @@ export default function Faturas() {
                     </div>
                   )}
 
-                  <DialogFooter className="pt-2 flex justify-between sm:justify-between">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        extractionRequestIdRef.current += 1
-                        clearExtractionState()
-                        setStep(2)
-                      }}
-                      className="text-xs"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5 mr-1" />
-                      Voltar
-                    </Button>
+                  <DialogFooter className="pt-2 flex flex-col sm:flex-row gap-2 justify-between sm:justify-between">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          extractionRequestIdRef.current += 1
+                          clearExtractionState()
+                          setStep(2)
+                        }}
+                        className="text-xs"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5 mr-1" />
+                        Voltar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={requestCloseUploadModal}
+                        className="text-xs text-gray-500 hover:text-gray-800"
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
                     <Button
                       type="button"
                       disabled={submittingFatura}
@@ -3999,6 +4088,46 @@ export default function Faturas() {
         </DialogContent>
       </Dialog>
 
+      {/* Discard Unsaved Step 3 Changes Confirmation Dialog */}
+      <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            </div>
+            <DialogTitle className="text-base font-bold text-gray-900">
+              Sair sem salvar?
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-600 leading-relaxed pt-1">
+              Existem dados não salvos que serão perdidos. Deseja sair sem salvar?
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2 flex flex-col sm:flex-row gap-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDiscardConfirmOpen(false)}
+              className="text-xs"
+            >
+              Continuar editando
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setDiscardConfirmOpen(false)
+                resetUploadForm()
+                setUploadModalOpen(false)
+              }}
+              className="text-xs font-medium"
+            >
+              Sair sem salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Duplicate Invoice Confirmation Dialog */}
       <Dialog
         open={duplicateConfirmOpen}
@@ -4290,15 +4419,15 @@ export default function Faturas() {
               onClick={() => {
                 setEmpSelectorOpenStep3(false)
                 toast({
-                  title: 'Empreendimento vinculado',
+                  title: 'Vínculo aplicado',
                   description: selectedEnterprise
-                    ? `${selectedEnterprise.nome} vinculado com sucesso.`
-                    : 'Empreendimento vinculado.',
+                    ? `Empreendimento vinculado: ${selectedEnterprise.nome}. Confira os campos e clique em "Confirmar e Salvar Fatura".`
+                    : 'Empreendimento vinculado com sucesso.',
                 })
               }}
               className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium"
             >
-              Confirmar Vínculo
+              Aplicar Vínculo
             </Button>
           </DialogFooter>
         </DialogContent>
