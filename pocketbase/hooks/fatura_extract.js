@@ -199,6 +199,11 @@ Campos gerais:
 - fatura_total: número decimal idêntico a valor_total
 - consumo: número decimal do consumo faturado principal impresso (kWh para energia, m³ para gás e água). Em Gás (Comgás), extraia do campo "Consumo Corrigido/Faturado" do bloco "Consumo e tarifas".
 - unidade_consumo: "kWh" ou "m³"
+- REGRA DE UNIDADE DO CONSUMO DE ENERGIA ELÉTRICA (CRÍTICA):
+  * O campo consumo (e consumo_medido) deve refletir EXATAMENTE o consumo impresso na fatura convertido para kWh.
+  * Se a fatura expressar o consumo em MWh (ex.: "20,320 MWh"), multiplique por 1000 e grave em kWh (20.320 kWh -> 20320). NUNCA divida por 1000, NUNCA grave MWh como se fosse kWh.
+  * Se a fatura já expressar em kWh (ex.: "24.098,400 kWh"), grave o valor exatamente como impresso, sem multiplicar nem dividir.
+  * Confira a coerência: consumo_kwh * (tarifa_tusd + tarifa_te) deve aproximar-se do valor de fornecimento/total da fatura. Um consumo mil vezes menor gera valores absurdos.
 - numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" ou "CONTA CONTRATO". NUNCA invente números.
 - vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento impresso na fatura.
 - cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). Extraia do bloco de nome/endereço do cliente ou da seção PAGADOR (ex.: sob "COND EDIF...", "PAGADOR:").
@@ -222,7 +227,8 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - O consumo é SEMPRE ÚNICO (fatura convencional sem divisão por posto horário).
     - Consumo Total Faturado em kWh: extraia da linha correspondente ao mês de referência no quadro histórico, da coluna "Consumo kWh" na tabela "DADOS DE MEDIÇÃO", ou da coluna "Quant. (kWh)" das linhas TUSD e TE.
     - NÃO há separação de consumo ponta/fora-ponta.
-    - Preencha 'consumo' com o valor faturado impresso e 'consumo_medido' com esse mesmo valor.
+    - ATENÇÃO À UNIDADE: algumas faturas da Enel impressas para Grupo B trazem o consumo em MWh (ex.: "20,320 MWh"). Nesse caso, multiplique por 1000 e grave em kWh (20.320 MWh equivale a 20320 kWh). O campo consumo/consumo_medido deve ficar SEMPRE em kWh — nunca divida, apenas converta MWh para kWh multiplicando por 1000. Se estiver em kWh, copie o valor como está.
+    - Preencha 'consumo' com o valor faturado impresso convertido para kWh e 'consumo_medido' com esse mesmo valor.
     - Deixe 'consumo_ponta' e 'consumo_fora_ponta' como null.
     - Tarifas: preencha 'tarifa_tusd_ponta' com o Preço Unit com tributos de TUSD e 'tarifa_te_ponta' com o Preço Unit com tributos de TE.
   * Se a Classificação for do GRUPO A (A1, A2, A3, A4 ou horossazonal Verde/Azul):
