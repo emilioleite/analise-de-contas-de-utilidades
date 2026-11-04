@@ -105,3 +105,62 @@ export function getRotuloTarifa(utilidade: TipoUtilidade | 'Total Geral'): strin
   if (utilidade === 'Gás') return 'R$/m³'
   return 'R$/un'
 }
+
+/**
+ * Retorna a tarifa média unitária efetiva de uma fatura (R$/kWh ou R$/m³).
+ * Se a fatura for de Água e Esgoto e a tarifa estiver vazia ou 0 nos dados específicos,
+ * calcula analiticamente: valor_total ÷ volume consumido (com proteção para divisão por zero).
+ */
+export function getFaturaTarifaMedia(fatura: FaturaRecord): number {
+  let de: any = fatura.dados_especificos
+  if (typeof de === 'string') {
+    try {
+      de = JSON.parse(de)
+    } catch {
+      de = {}
+    }
+  }
+  de = de || {}
+
+  const tipo = fatura.tipo_utilidade
+  const valorTotal = Number(fatura.valor_total) || 0
+  const realConsumo = getFaturaConsumoReal(fatura)
+  const consumo = realConsumo.consumo
+
+  if (tipo === 'Água e Esgoto') {
+    const tarifaInformada = Number(de.tarifa)
+    if (!isNaN(tarifaInformada) && tarifaInformada > 0) {
+      return tarifaInformada
+    }
+    // Quando tarifa vazia ou ausente para água: valor_total ÷ consumo
+    if (valorTotal > 0 && consumo > 0) {
+      return valorTotal / consumo
+    }
+    return 0
+  }
+
+  if (tipo === 'Gás') {
+    const tarifaInformada = Number(de.tarifa)
+    if (!isNaN(tarifaInformada) && tarifaInformada > 0) {
+      return tarifaInformada
+    }
+    if (valorTotal > 0 && consumo > 0) {
+      return valorTotal / consumo
+    }
+    return 0
+  }
+
+  // Energia Elétrica
+  const tTusd = Number(de.tarifa_tusd_ponta || de.tarifa_tusd_f_ponta) || 0
+  const tTe = Number(de.tarifa_te_ponta || de.tarifa_te_f_ponta) || 0
+  const somaT = tTusd + tTe
+  if (somaT > 0) {
+    return somaT
+  }
+
+  if (valorTotal > 0 && consumo > 0) {
+    return valorTotal / consumo
+  }
+
+  return 0
+}

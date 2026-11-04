@@ -1218,12 +1218,20 @@ export default function Faturas() {
 
         if (tar !== undefined) {
           setTarifa(formatNumberValue(tar, 6))
+        } else if (detectedTipo === 'Água e Esgoto') {
+          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido
+          const vTotPositive = parsePositiveNumber(vTotal)
+          const volCons = Number(cConsumo || cMedido || cCorrigido || 0)
+          if (vTotPositive && volCons > 0) {
+            tar = Number((vTotPositive / volCons).toFixed(6))
+            setTarifa(formatNumberValue(tar, 6))
+          }
         } else if (detectedTipo !== 'Energia Elétrica') {
           const vTotPositive = parsePositiveNumber(vTotal)
           const divCons = Number(cCorrigido || cMedido || cConsumo)
           if (vTotPositive && divCons > 0) {
             tar = Number((vTotPositive / divCons).toFixed(4))
-            setTarifa(tar)
+            setTarifa(formatNumberValue(tar, 4))
           }
         }
 

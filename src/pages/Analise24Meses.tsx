@@ -2,7 +2,12 @@ import React, { useState, useMemo } from 'react'
 import { useData } from '@/context/DataContext'
 import { TipoUtilidade } from '@/types/entities'
 import { formatCurrencyBRL, formatNumberBR, toSafeNumber } from '@/lib/cnpj'
-import { getFaturaConsumoReal, getUnidadePorUtilidade, getRotuloTarifa } from '@/lib/consumoTarifa'
+import {
+  getFaturaConsumoReal,
+  getFaturaTarifaMedia,
+  getUnidadePorUtilidade,
+  getRotuloTarifa,
+} from '@/lib/consumoTarifa'
 import {
   TrendingUp,
   TrendingDown,
@@ -218,9 +223,23 @@ export default function Analise24Meses() {
     // Compute monthly average tariff (R$ / unidade)
     slots.forEach((s) => {
       if (s.consumo > 0 && s.valor > 0) {
+        // Para faturas individuais ou soma mensal, a tarifa média analítica é s.valor / s.consumo
         s.tarifa = s.valor / s.consumo
       } else {
-        s.tarifa = 0
+        // Fallback: se houver faturas para este mês com tarifa unitária informada ou calculada
+        const faturasDoMes = relevantFaturas.filter((fat) => {
+          if (!fat || !fat.competencia) return false
+          const d = new Date(fat.competencia)
+          if (isNaN(d.getTime())) return false
+          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+          return k === s.key
+        })
+        if (faturasDoMes.length > 0) {
+          const tMedia = getFaturaTarifaMedia(faturasDoMes[0])
+          s.tarifa = tMedia > 0 ? tMedia : 0
+        } else {
+          s.tarifa = 0
+        }
       }
     })
 

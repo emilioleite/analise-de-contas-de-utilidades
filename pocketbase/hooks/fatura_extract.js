@@ -264,7 +264,9 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
   * Consumo Medido: diferença Atual − Anterior ou coluna "consumo medido (m³)".
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
-- Medições de hidrômetro (Anterior, Atual, Consumo m³).
+- Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição!
+- Consumo m³: extraia o volume faturado impresso (exemplo: 985 m³).
+- Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor_total / consumo] — o sistema calcula a tarifa média analítica automaticamente como valor_total ÷ consumo.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
 
@@ -470,7 +472,9 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
   - Bandeira tarifária: leia do texto "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]" ou do item "ADICIONAL BANDEIRA [COR]" -> 'adicional_bandeira' (ex: "Bandeira Amarela", "Bandeira Verde").
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
-  - Medições de hidrômetro (Anterior, Atual, Consumo m³).
+  - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições.
+  - Consumo faturado em m³ (ex: 985 m³).
+  - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular valor_total / consumo.
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
 
@@ -1391,12 +1395,11 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             }
           }
 
-          if (
-            (!parsed.tarifa || Number(parsed.tarifa) === 0) &&
-            parsed.fatura_total > 0 &&
-            parsed.consumo > 0
-          ) {
-            parsed.tarifa = Number((parsed.fatura_total / parsed.consumo).toFixed(4))
+          // Tarifa média de água: se vazia ou 0, calcular valor total / consumo (com proteção contra divisão por zero)
+          const valorAgua = Number(parsed.valor_total || parsed.fatura_total || 0)
+          const consumoAgua = Number(parsed.consumo || parsed.consumo_medido || 0)
+          if ((!parsed.tarifa || Number(parsed.tarifa) === 0) && valorAgua > 0 && consumoAgua > 0) {
+            parsed.tarifa = Number((valorAgua / consumoAgua).toFixed(6))
           }
         }
 
