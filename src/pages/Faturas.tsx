@@ -649,7 +649,50 @@ export default function Faturas() {
           'volume',
         )
         const cConsumo = parsePositiveNumber(rawCConsumo)
-        if (cConsumo !== undefined) setConsumo(formatNumberValue(cConsumo, 3))
+        // TRAVA DE ESCALA (espelho da trava do hook): se o consumo veio 1000x menor do que
+        // o que a fatura fatura, corrige (defesa contra "20,160"/"20,160.000" mal parseados
+        // por qualquer caminho que escape do parseBrazilianNumber). Contra-prova: consumo ×
+        // (TUSD + TE) deve reproduzir o valor_total na ordem de grandeza correta.
+        const travaEscalaConsumo = (val: number | undefined, energia: boolean) => {
+          if (!energia || val === undefined || !(val > 0) || !(val < 1000)) return val
+          const vRefPos = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
+          const tTusdRaw = parsePositiveNumber(
+            getField(
+              'tarifa_tusd_ponta',
+              'tarifaTusdPonta',
+              'preco_unit_tusd',
+              'preco_unitario_tusd',
+              'tusd_com_tributos',
+              'Preço Unit (R$) com tributos - TUSD',
+              'Preço Unit TUSD',
+              'tusd',
+            ),
+          )
+          const tTeRaw = parsePositiveNumber(
+            getField(
+              'tarifa_te_ponta',
+              'tarifaTePonta',
+              'preco_unit_te',
+              'preco_unitario_te',
+              'te_com_tributos',
+              'Preço Unit (R$) com tributos - TE',
+              'Preço Unit TE',
+              'te',
+            ),
+          )
+          const somaT = (tTusdRaw || 0) + (tTeRaw || 0)
+          const previstoCorrigido = val * 1000 * somaT
+          const previstoAtual = val * somaT
+          let corrigir = false
+          if (vRefPos && somaT > 0) {
+            corrigir = previstoCorrigido > vRefPos * 0.6 && previstoAtual < vRefPos * 0.2
+          } else if (vRefPos) {
+            corrigir = vRefPos > val * 300
+          }
+          return corrigir ? Number((val * 1000).toFixed(3)) : val
+        }
+        const cConsumoFinal = travaEscalaConsumo(cConsumo, detectedTipo === 'Energia Elétrica')
+        if (cConsumoFinal !== undefined) setConsumo(formatNumberValue(cConsumoFinal, 3))
 
         const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
         if (uConsumo && uConsumo !== 'null' && uConsumo !== '') {

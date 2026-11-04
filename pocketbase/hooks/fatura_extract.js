@@ -667,7 +667,15 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             s = s.replace(/[\*]+/g, '').trim()
           }
           if (s.includes(',') && s.includes('.')) {
-            s = s.replace(/\./g, '').replace(',', '.')
+            // "20,160.000": vírgula como MILHAR (estilo en-US transposto do pt-BR "20.160,000")
+            // com parte decimal toda em zeros — caso da Enel Grupo B. Sem esta regra,
+            // o parser trunca após a vírgula (20,160 -> 20.16) e o consumo sai dividido por 1000.
+            const mSwap = s.match(/^(\d{1,3}(?:,\d{3})+)\.(\d{3})$/)
+            if (mSwap && /^0+$/.test(mSwap[2])) {
+              s = mSwap[1].replace(/,/g, '')
+            } else {
+              s = s.replace(/\./g, '').replace(',', '.')
+            }
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
           } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
@@ -1740,6 +1748,86 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
                 (Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)).toFixed(3),
               )
               parsed.consumo = parsed.consumo_medido
+            }
+          }
+
+          // TRAVA DE ESCALA (defesa final): se o consumo veio 1000x menor do que o que a
+          // própria fatura imprime, é o caso clássico de número pt-BR mal interpretado
+          // ("20,160" ou "20,160.000" lidos como decimal). Contra-prova com o CONTRASTE
+          // entre consumo e faturamento: consumo × (TUSD + TE) deve reproduzir o valor de
+          // fornecimento/total na ordem de grandeza correta. Se o valor atual ficar
+          // ~1000x abaixo do esperado, corrige multiplicando por 1000.
+          {
+            const consAtual = Number(parsed.consumo) || 0
+            if (consAtual > 0 && consAtual < 1000) {
+              const vRef = Number(parsed.valor_total) || Number(parsed.fatura_total) || 0
+              const tTusd =
+                Number(parsed.tarifa_tusd_ponta) || Number(parsed.tarifa_tusd_f_ponta) || 0
+              const tTe = Number(parsed.tarifa_te_ponta) || Number(parsed.tarifa_te_f_ponta) || 0
+              const somaT = tTusd + tTe
+              // Consumo esperado pela linha do medidor (diferença de leituras), quando disponível
+              let esperado = 0
+              if (
+                parsed.medicao_atual !== undefined &&
+                parsed.medicao_anterior !== undefined &&
+                Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
+              ) {
+                esperado = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
+              }
+              const previstoAtual = consAtual * somaT
+              const previstoCorrigido = consAtual * 1000 * somaT
+              let corrigirPor1000 = false
+              if (somaT > 0 && vRef > 0) {
+                // Com tarifas: o consumo atual não pode faturar o valor_total; o corrigido sim
+                if (previstoCorrigido > vRef * 0.6 && previstoAtual < vRef * 0.2) {
+                  corrigirPor1000 = true
+                }
+              } else if (esperado > 0) {
+                // Sem tarifas: compara com a diferença de leituras do medidor
+                if (esperado > consAtual * 300) {
+                  corrigirPor1000 = true
+                }
+              } else if (vRef > 0) {
+                // Sem tarifas nem leituras: ordem de grandeza pelo valor (Enel B3: ~R$0,9–1,4/kWh)
+                if (vRef > consAtual * 300) {
+                  corrigirPor1000 = true
+                }
+              }
+              if (corrigirPor1000) {
+                console.log(
+                  `[fatura_extract] Trava de escala: consumo ${consAtual} kWh 1000x menor que o esperado (valor_total=${vRef}, TUSD+TE=${somaT}). Corrigindo para ${Number(
+                    (consAtual * 1000).toFixed(3),
+                  )} kWh.`,
+                )
+                const fixado = Number((consAtual * 1000).toFixed(3))
+                parsed.consumo = fixado
+                if (parsed.consumo_medido !== undefined && Number(parsed.consumo_medido) > 0) {
+                  parsed.consumo_medido = fixado
+                }
+                if (
+                  parsed.consumo_corrigido !== undefined &&
+                  Number(parsed.consumo_corrigido) > 0
+                ) {
+                  parsed.consumo_corrigido = fixado
+                }
+                // Leituras de medidor de energia também podem ter vindo divididas (ex: 84.938)
+                if (
+                  parsed.medicao_atual !== undefined &&
+                  Number(parsed.medicao_atual) > 0 &&
+                  Number(parsed.medicao_atual) < 10000
+                ) {
+                  parsed.medicao_atual = Number((Number(parsed.medicao_atual) * 1000).toFixed(0))
+                }
+                if (
+                  parsed.medicao_anterior !== undefined &&
+                  Number(parsed.medicao_anterior) > 0 &&
+                  Number(parsed.medicao_anterior) < 10000
+                ) {
+                  parsed.medicao_anterior = Number(
+                    (Number(parsed.medicao_anterior) * 1000).toFixed(0),
+                  )
+                }
+              }
             }
           }
 
