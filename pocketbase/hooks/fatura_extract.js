@@ -321,6 +321,9 @@ Retorne APENAS um objeto JSON com essa estrutura:`
           s = s.replace(/\./g, '').replace(',', '.')
         } else if (s.includes(',')) {
           s = s.replace(',', '.')
+        } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+          // Ponto como separador de MILHAR pt-BR sem parte decimal (ex: "24.320").
+          s = s.replace(/\./g, '')
         }
         const num = Number(s.replace(/[^0-9.]/g, ''))
         return !isNaN(num) && (allowZero ? num >= 0 : num > 0)
@@ -667,6 +670,10 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             s = s.replace(/\./g, '').replace(',', '.')
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
+          } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+            // Ponto como separador de MILHAR pt-BR sem parte decimal (ex: "24.320" ou "1.146.303").
+            // Sem esta regra, "24.320" virava 24,32 (divisão por 1000 disfarçada).
+            s = s.replace(/\./g, '')
           }
           const cleanedStr = s.replace(/[^0-9.]/g, '')
           if (cleanedStr === '') return null

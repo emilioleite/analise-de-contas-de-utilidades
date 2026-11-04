@@ -533,6 +533,10 @@ export default function Faturas() {
             s = s.replace(/\./g, '').replace(',', '.')
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
+          } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+            // Ponto como separador de MILHAR pt-BR sem parte decimal (ex: "24.320").
+            // Sem esta regra, "24.320" era lido como 24,32 (divisão por 1000 disfarçada).
+            s = s.replace(/\./g, '')
           }
           const cleanStr = s.replace(/[^0-9.]/g, '')
           if (cleanStr === '') return undefined
