@@ -266,8 +266,8 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Múltiplas ligações e hidrômetro: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
 - Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição!
-- Consumo m³: extraia apenas o volume medido pelo hidrômetro (exemplo: se houver ligação medida de 1.278 m³ e estimada de 600 m³, extraia APENAS 1278, NUNCA 1878).
-- Números em padrão pt-BR: o PONTO é separador de MILHAR e a VÍRGULA é decimal ("1.278" m³ = 1278; "120.086" = 120086; "121.364" = 121364; "10.481,96" = 10481.96). Retorne sempre o valor numérico real — NUNCA interprete o ponto de milhar como parte decimal (1.278 NÃO é 1,278).
+- Consumo m³: extraia apenas o volume medido pelo hidrômetro (exemplo: se houver ligação medida de 1.278 m³ e estimada de 600 m³, extraia APENAS 1278, NUNCA 1878; se houver 1.531 m³, extraia 1531).
+- Números em padrão pt-BR: o PONTO é separador de MILHAR e a VÍRGULA é decimal. Transcreva números inteiros de medição e consumo na sua escala real inteira (ex: "1.531" m³ = 1531, NUNCA 1.531; "118.555" = 118555, NUNCA 118.555; "120.086" = 120086; "121.364" = 121364; "10.481,96" = 10481.96). NUNCA converta ponto de milhar para ponto decimal; preserve o valor inteiro real.
 - Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor_total / consumo] — o sistema calcula a tarifa média analítica automaticamente como valor_total ÷ consumo.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
@@ -475,8 +475,8 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
-  - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições.
-  - Consumo faturado em m³: apenas o medido pelo hidrômetro (NUNCA somar com ligações estimadas).
+  - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições. Em leituras com separador de milhar (ex: 118.555 -> 118555, 120.086 -> 120086), retorne o inteiro sem ponto decimal.
+  - Consumo faturado em m³: apenas o medido pelo hidrômetro (NUNCA somar com ligações estimadas; ex: 1.531 -> 1531, nunca 1.531 decimal).
   - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular valor_total / consumo.
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
@@ -1377,17 +1377,24 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.cnpj_fornecedor = '43.776.517/0001-80'
           }
 
-          // Parser numérico robusto pt-BR/en-US — o mesmo tratamento já usado no caminho de energia:
-          // "1.278"->1278, "120.086"->120086, "10.481,96"->10481.96, "20,160.000"->20160
+          // Parser numérico robusto pt-BR/en-US — cobre strings e valores numéricos JSON:
+          // "1.278"->1278, "120.086"->120086, 1.531->1531, 118.555->118555, "10.481,96"->10481.96
           function parseAguaNumero(val) {
             if (val === undefined || val === null || val === '') return null
             if (typeof val === 'number') {
               if (isNaN(val) || val <= 0) return null
+              // Número chegando como JSON number com parte decimal:
+              // ex: 1.531, 118.555, 120.086 (número < 1000 com fração decimal).
+              // Em hidrômetros e faturas de água Sabesp, leituras e consumos medidos são inteiros
+              // ou foram gravados a partir de separador de milhar pt-BR convertido para float.
               const parts = String(val).split('.')
-              // Decimal com EXATAMENTE 3 casas e < 1000 veio de um pt-BR de ponto de milhar
-              // interpretado como decimal (ex.: 1.278, 120.086, 121.364) -> voltar à escala inteira
-              if (parts.length === 2 && parts[1].length === 3 && val < 1000) {
-                return Math.round(val * 1000)
+              if (parts.length === 2 && val < 1000) {
+                // Se tem exatamente 3 casas (ex.: 1.531, 118.555, 120.086) ou fração de 1 a 3 casas
+                // resultante de representação float de milhar (ex.: 1.531 -> 1531)
+                const frac = parts[1]
+                if (frac.length === 3 || (frac.length < 3 && val < 10)) {
+                  return Math.round(val * 1000)
+                }
               }
               return val
             }
@@ -1402,11 +1409,23 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             } else if (s.includes(',')) {
               s = s.replace(',', '.')
             } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-              // Ponto de milhar pt-BR sem parte decimal (ex.: "1.278", "120.086")
+              // Ponto de milhar pt-BR sem parte decimal (ex.: "1.278", "120.086", "1.531")
               s = s.replace(/\./g, '')
+            } else if (/^\d{1,3}\.\d{1,3}$/.test(s)) {
+              // String como "1.53" ou "1.531" que veio de transcrição com ponto
+              const p = s.split('.')
+              if (p[1].length === 3 && Number(p[0]) < 1000) {
+                return Number(p[0] + p[1])
+              }
             }
             const n = Number(s.replace(/[^0-9.]/g, ''))
-            return !isNaN(n) && n > 0 ? n : null
+            if (isNaN(n) || n <= 0) return null
+            // Heurística secundária para número vindo de string parseada para float com 3 casas
+            const pStr = String(n).split('.')
+            if (pStr.length === 2 && pStr[1].length === 3 && n < 1000) {
+              return Math.round(n * 1000)
+            }
+            return n
           }
 
           if (parsed.consumo_medido !== undefined && parsed.consumo_medido !== null) {
@@ -1427,6 +1446,27 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           }
           if (parsed.consumo && !parsed.consumo_medido) {
             parsed.consumo_medido = parsed.consumo
+          }
+
+          // Se medições foram extraídas, garantir que estão na mesma escala entre si
+          if (
+            parsed.medicao_atual !== undefined &&
+            parsed.medicao_anterior !== undefined &&
+            Number(parsed.medicao_atual) > 0 &&
+            Number(parsed.medicao_anterior) > 0
+          ) {
+            let mAtu = Number(parsed.medicao_atual)
+            let mAnt = Number(parsed.medicao_anterior)
+            // Se medições vieram em escala decimal < 1000 (ex.: 118.555, 120.086 ou 118, 120)
+            if (mAtu < 1000 && mAnt < 1000) {
+              // Se tiver fração decimal com até 3 casas, escala inteira ×1000
+              const fAtu = String(mAtu).split('.')[1]
+              const fAnt = String(mAnt).split('.')[1]
+              if ((fAtu && fAtu.length === 3) || (fAnt && fAnt.length === 3)) {
+                parsed.medicao_atual = Math.round(mAtu * 1000)
+                parsed.medicao_anterior = Math.round(mAnt * 1000)
+              }
+            }
           }
 
           if (
@@ -1453,16 +1493,66 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           ) {
             const diffLeituras = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
             const consAtual = Number(parsed.consumo_medido) || 0
-            if (consAtual > 0 && consAtual < 10 && diffLeituras >= 10) {
+            if (consAtual > 0 && consAtual < 100 && diffLeituras >= 10) {
+              // Se diffLeituras ≈ consAtual * 1000 (ex: diff=1531, consAtual=1.531)
               parsed.consumo_medido = diffLeituras
-            }
-            if (!parsed.consumo || Number(parsed.consumo) < 10) {
-              parsed.consumo = parsed.consumo_medido
+              parsed.consumo = diffLeituras
             }
           }
 
-          // Tarifa média de água: se vazia ou 0, calcular valor total / consumo (com proteção contra divisão por zero)
-          // Normaliza AMBOS os números pelo parser robusto antes de dividir, evitando NaN ou concatenação de strings
+          // TRAVA DE ESCALA PARA ÁGUA E ESGOTO (espelho do caminho de energia):
+          // Se o consumo veio minúsculo (< 100 m³) e o valor_total da fatura é alto (> R$ 1.000,00),
+          // confere a ordem de grandeza da tarifa implícita (R$/m³).
+          // Em faturas da Sabesp e de saneamento no Brasil, tarifas comerciais/residenciais típicas
+          // ficam entre R$ 5,00 e R$ 40,00 por m³.
+          // Uma fatura de R$ 13.748,46 com consumo de 1,53 m³ geraria tarifa absurda de ~R$ 8.985/m³.
+          // Multiplicando por 1000, o consumo vira 1531 m³ e a tarifa vira ~R$ 8,98/m³ (perfeitamente plausível).
+          {
+            const vRefAgua =
+              sanitizeMonetary(parsed.valor_total) ||
+              sanitizeMonetary(parsed.fatura_total) ||
+              sanitizeMonetary(parsed.valor_a_pagar) ||
+              0
+            const consAguaAtual = Number(parsed.consumo) || Number(parsed.consumo_medido) || 0
+            if (vRefAgua > 1000 && consAguaAtual > 0 && consAguaAtual < 100) {
+              const tarifaImplicitaAtual = vRefAgua / consAguaAtual
+              const consCorrigido = Number((consAguaAtual * 1000).toFixed(3))
+              const tarifaImplicitaCorrigida = vRefAgua / consCorrigido
+              // Se tarifa atual é > R$ 100/m³ e a tarifa corrigida fica entre R$ 2/m³ e R$ 50/m³
+              if (
+                tarifaImplicitaAtual > 100 &&
+                tarifaImplicitaCorrigida >= 2 &&
+                tarifaImplicitaCorrigida <= 100
+              ) {
+                console.log(
+                  `[fatura_extract] Trava de escala Água: consumo ${consAguaAtual} m³ 1000x menor que o esperado (valor_total=${vRefAgua}, tarifa implícita=${tarifaImplicitaAtual.toFixed(2)}). Corrigindo para ${consCorrigido} m³.`,
+                )
+                parsed.consumo = consCorrigido
+                parsed.consumo_medido = consCorrigido
+
+                // Se as medições também vieram 1000x menores (ex: 118.555 -> 118 ou 118.555, 120.086 -> 120 ou 120.086)
+                if (
+                  parsed.medicao_atual !== undefined &&
+                  Number(parsed.medicao_atual) > 0 &&
+                  Number(parsed.medicao_atual) < 1000
+                ) {
+                  parsed.medicao_atual = Math.round(Number(parsed.medicao_atual) * 1000)
+                }
+                if (
+                  parsed.medicao_anterior !== undefined &&
+                  Number(parsed.medicao_anterior) > 0 &&
+                  Number(parsed.medicao_anterior) < 1000
+                ) {
+                  parsed.medicao_anterior = Math.round(Number(parsed.medicao_anterior) * 1000)
+                }
+              }
+            }
+          }
+
+          // Tarifa média de água: se vazia ou 0 (ou se veio calculada sobre a escala errada),
+          // calcular valor total / consumo com até 6 casas decimais.
+          // NUNCA sobrescrever tarifa digitada manualmente; mas na extração automática,
+          // quando não há tarifa unitária impressa no documento Sabesp, calcula analiticamente.
           const valorAgua =
             sanitizeMonetary(parsed.valor_total) ||
             sanitizeMonetary(parsed.fatura_total) ||
@@ -1471,14 +1561,21 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           const consumoAgua =
             sanitizeNumeric(parsed.consumo) || sanitizeNumeric(parsed.consumo_medido) || 0
           const tarifaExistente = sanitizeNumeric(parsed.tarifa)
-          if (
-            (tarifaExistente === null || tarifaExistente === 0) &&
-            valorAgua > 0 &&
-            consumoAgua > 0
-          ) {
-            parsed.tarifa = Number((valorAgua / consumoAgua).toFixed(6))
-          } else if (tarifaExistente !== null && tarifaExistente > 0) {
-            parsed.tarifa = tarifaExistente
+          if (valorAgua > 0 && consumoAgua > 0) {
+            // Se tarifa não existe, é zero, ou se a tarifa existente for absurda (> R$ 100/m³ com fatura alta)
+            if (
+              tarifaExistente === null ||
+              tarifaExistente === 0 ||
+              (tarifaExistente > 100 && valorAgua / consumoAgua < 50)
+            ) {
+              parsed.tarifa = Number((valorAgua / consumoAgua).toFixed(6))
+            } else if (tarifaExistente !== null && tarifaExistente > 0) {
+              // Se já é plausível, mantém ou garante precisão de até 6 casas se for divisão exata
+              parsed.tarifa = tarifaExistente
+            }
+          } else if (consumoAgua === 0) {
+            // Regra: consumo zero -> tarifa vazia
+            parsed.tarifa = null
           }
         }
 

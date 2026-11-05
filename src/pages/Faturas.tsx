@@ -557,15 +557,19 @@ export default function Faturas() {
           return parseBrazilianNumber(val, true)
         }
 
-        // Helper para medições cumulativas de medidor (especialmente Gás Comgás onde ponto é milhar, ex: "75.795" -> 75795)
+        // Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar, ex: "75.795" -> 75795, 118.555 -> 118555)
         const parseCumulativeMeterReading = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
             if (val <= 0 || isNaN(val)) return undefined
             const strVal = String(val)
             const parts = strVal.split('.')
-            if (parts.length === 2 && parts[1].length === 3 && val < 1000 && val > 10) {
-              return Math.round(val * 1000)
+            // Se veio como float com parte decimal e valor < 1000 (ex: 118.555, 120.086, 75.795):
+            // em hidrômetros e medidores de gás, medições cumulativas são inteiros de milhar.
+            if (parts.length === 2 && val < 1000) {
+              if (parts[1].length === 3 || (parts[1].length < 3 && val < 10)) {
+                return Math.round(val * 1000)
+              }
             }
             return Math.round(val)
           }
@@ -695,18 +699,23 @@ export default function Faturas() {
           return corrigir ? Number((val * 1000).toFixed(3)) : val
         }
         let cConsumoFinal = travaEscalaConsumo(cConsumo, detectedTipo === 'Energia Elétrica')
-        if (
-          detectedTipo === 'Água e Esgoto' &&
-          cConsumoFinal !== undefined &&
-          cConsumoFinal > 0 &&
-          cConsumoFinal < 10
-        ) {
-          // Hidrômetro de água imprime inteiros com ponto de milhar pt-BR: "1.278" chega como
-          // 1.278 (decimal) pelo caminho da IA. Fração com EXATAMENTE 3 casas (< 10) só ocorre
-          // nesse erro de escala -> voltar à escala inteira (1278).
-          const fracC = String(cConsumoFinal).split('.')[1]
-          if (fracC && fracC.length === 3) {
-            cConsumoFinal = Math.round(cConsumoFinal * 1000)
+        if (detectedTipo === 'Água e Esgoto' && cConsumoFinal !== undefined && cConsumoFinal > 0) {
+          // Hidrômetro de água imprime inteiros com ponto de milhar pt-BR: "1.278" ou "1.531" chega como
+          // 1.278 ou 1.531 (decimal) pelo caminho da IA.
+          if (cConsumoFinal < 100) {
+            const fracC = String(cConsumoFinal).split('.')[1]
+            const vRefAguaForm = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
+            // Se tem fração decimal com até 3 casas E (consumo < 10 OU valor_total > 1000 que tornaria tarifa exorbitante)
+            if (fracC && (fracC.length === 3 || fracC.length < 3)) {
+              if (cConsumoFinal < 10 || (vRefAguaForm && vRefAguaForm / cConsumoFinal > 100)) {
+                cConsumoFinal = Math.round(cConsumoFinal * 1000)
+              }
+            } else if (vRefAguaForm && vRefAguaForm / cConsumoFinal > 100) {
+              const tarifaCom1000 = vRefAguaForm / (cConsumoFinal * 1000)
+              if (tarifaCom1000 >= 2 && tarifaCom1000 <= 100) {
+                cConsumoFinal = Math.round(cConsumoFinal * 1000)
+              }
+            }
           }
         }
         if (cConsumoFinal !== undefined) setConsumo(formatNumberValue(cConsumoFinal, 3))
@@ -1217,10 +1226,16 @@ export default function Faturas() {
         // milhar pt-BR ("1.278" = 1278 m³). Número < 10 com exatamente 3 casas decimais é o
         // erro de escala; em caso de ambiguidade, valida pela diferença das leituras.
         if (detectedTipo === 'Água e Esgoto') {
-          if (cMedido !== undefined && cMedido > 0 && cMedido < 10) {
+          if (cMedido !== undefined && cMedido > 0 && cMedido < 100) {
             const fracM = String(cMedido).split('.')[1]
-            if (fracM && fracM.length === 3 && Number.isInteger(Math.round(cMedido * 1000))) {
+            const vRefAguaMed = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
+            if (fracM && (fracM.length === 3 || (cMedido < 10 && fracM.length < 3))) {
               cMedido = Math.round(cMedido * 1000)
+            } else if (vRefAguaMed && vRefAguaMed / cMedido > 100) {
+              const tarTeste = vRefAguaMed / (cMedido * 1000)
+              if (tarTeste >= 2 && tarTeste <= 100) {
+                cMedido = Math.round(cMedido * 1000)
+              }
             }
           }
           const diffLeiturasAgua =
