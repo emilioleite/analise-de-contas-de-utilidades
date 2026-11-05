@@ -694,7 +694,21 @@ export default function Faturas() {
           }
           return corrigir ? Number((val * 1000).toFixed(3)) : val
         }
-        const cConsumoFinal = travaEscalaConsumo(cConsumo, detectedTipo === 'Energia Elétrica')
+        let cConsumoFinal = travaEscalaConsumo(cConsumo, detectedTipo === 'Energia Elétrica')
+        if (
+          detectedTipo === 'Água e Esgoto' &&
+          cConsumoFinal !== undefined &&
+          cConsumoFinal > 0 &&
+          cConsumoFinal < 10
+        ) {
+          // Hidrômetro de água imprime inteiros com ponto de milhar pt-BR: "1.278" chega como
+          // 1.278 (decimal) pelo caminho da IA. Fração com EXATAMENTE 3 casas (< 10) só ocorre
+          // nesse erro de escala -> voltar à escala inteira (1278).
+          const fracC = String(cConsumoFinal).split('.')[1]
+          if (fracC && fracC.length === 3) {
+            cConsumoFinal = Math.round(cConsumoFinal * 1000)
+          }
+        }
         if (cConsumoFinal !== undefined) setConsumo(formatNumberValue(cConsumoFinal, 3))
 
         const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
@@ -894,7 +908,7 @@ export default function Faturas() {
         const rawMedAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
 
         const medAnt =
-          detectedTipo === 'Gás'
+          detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
             ? parseCumulativeMeterReading(rawMedAnt)
             : parsePositiveNumber(rawMedAnt)
         if (medAnt !== undefined) {
@@ -902,7 +916,7 @@ export default function Faturas() {
         }
 
         const medAtu =
-          detectedTipo === 'Gás'
+          detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
             ? parseCumulativeMeterReading(rawMedAtu)
             : parsePositiveNumber(rawMedAtu)
         if (medAtu !== undefined) {
@@ -1199,6 +1213,27 @@ export default function Faturas() {
           }
         }
 
+        // Se for ÁGUA E ESGOTO: hidrômetro imprime leituras/consumo inteiros com ponto de
+        // milhar pt-BR ("1.278" = 1278 m³). Número < 10 com exatamente 3 casas decimais é o
+        // erro de escala; em caso de ambiguidade, valida pela diferença das leituras.
+        if (detectedTipo === 'Água e Esgoto') {
+          if (cMedido !== undefined && cMedido > 0 && cMedido < 10) {
+            const fracM = String(cMedido).split('.')[1]
+            if (fracM && fracM.length === 3 && Number.isInteger(Math.round(cMedido * 1000))) {
+              cMedido = Math.round(cMedido * 1000)
+            }
+          }
+          const diffLeiturasAgua =
+            medAtu !== undefined && medAnt !== undefined ? medAtu - medAnt : undefined
+          if (
+            (cMedido === undefined || cMedido < 10) &&
+            diffLeiturasAgua !== undefined &&
+            diffLeiturasAgua >= 10
+          ) {
+            cMedido = diffLeiturasAgua
+          }
+        }
+
         if (cMedido !== undefined) {
           // Em gás, medição pode ser medido inteiro ou decimal, mas se tiver casas decimais ou for medido
           // se for inteiro (ex: 35), exibe "35"; se vier decimal (ex: 35.037), exibe "35,037"
@@ -1226,7 +1261,7 @@ export default function Faturas() {
           // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido (normalizado)
           const vTotPositive = parsePositiveNumber(vTotal)
           const volCons =
-            parsePositiveNumber(cConsumo) ||
+            parsePositiveNumber(cConsumoFinal) ||
             parsePositiveNumber(cMedido) ||
             parsePositiveNumber(cCorrigido) ||
             0

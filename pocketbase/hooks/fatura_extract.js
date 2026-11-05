@@ -267,6 +267,7 @@ Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Múltiplas ligações e hidrômetro: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
 - Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição!
 - Consumo m³: extraia apenas o volume medido pelo hidrômetro (exemplo: se houver ligação medida de 1.278 m³ e estimada de 600 m³, extraia APENAS 1278, NUNCA 1878).
+- Números em padrão pt-BR: o PONTO é separador de MILHAR e a VÍRGULA é decimal ("1.278" m³ = 1278; "120.086" = 120086; "121.364" = 121364; "10.481,96" = 10481.96). Retorne sempre o valor numérico real — NUNCA interprete o ponto de milhar como parte decimal (1.278 NÃO é 1,278).
 - Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor_total / consumo] — o sistema calcula a tarifa média analítica automaticamente como valor_total ÷ consumo.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
@@ -1376,10 +1377,55 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.cnpj_fornecedor = '43.776.517/0001-80'
           }
 
-          if (parsed.consumo_medido !== undefined && !parsed.consumo) {
+          // Parser numérico robusto pt-BR/en-US — o mesmo tratamento já usado no caminho de energia:
+          // "1.278"->1278, "120.086"->120086, "10.481,96"->10481.96, "20,160.000"->20160
+          function parseAguaNumero(val) {
+            if (val === undefined || val === null || val === '') return null
+            if (typeof val === 'number') {
+              if (isNaN(val) || val <= 0) return null
+              const parts = String(val).split('.')
+              // Decimal com EXATAMENTE 3 casas e < 1000 veio de um pt-BR de ponto de milhar
+              // interpretado como decimal (ex.: 1.278, 120.086, 121.364) -> voltar à escala inteira
+              if (parts.length === 2 && parts[1].length === 3 && val < 1000) {
+                return Math.round(val * 1000)
+              }
+              return val
+            }
+            let s = String(val)
+              .trim()
+              .replace(/^R\$\s*/i, '')
+            if (s.includes('*')) s = s.replace(/\*+/g, '').trim()
+            if (!s || s === 'null' || s === 'undefined') return null
+            if (s.includes(',') && s.includes('.')) {
+              // pt-BR completo: ponto = milhar, vírgula = decimal
+              s = s.replace(/\./g, '').replace(',', '.')
+            } else if (s.includes(',')) {
+              s = s.replace(',', '.')
+            } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+              // Ponto de milhar pt-BR sem parte decimal (ex.: "1.278", "120.086")
+              s = s.replace(/\./g, '')
+            }
+            const n = Number(s.replace(/[^0-9.]/g, ''))
+            return !isNaN(n) && n > 0 ? n : null
+          }
+
+          if (parsed.consumo_medido !== undefined && parsed.consumo_medido !== null) {
+            parsed.consumo_medido = parseAguaNumero(parsed.consumo_medido)
+          }
+          if (parsed.consumo !== undefined && parsed.consumo !== null) {
+            parsed.consumo = parseAguaNumero(parsed.consumo)
+          }
+          if (parsed.medicao_anterior !== undefined && parsed.medicao_anterior !== null) {
+            parsed.medicao_anterior = parseAguaNumero(parsed.medicao_anterior)
+          }
+          if (parsed.medicao_atual !== undefined && parsed.medicao_atual !== null) {
+            parsed.medicao_atual = parseAguaNumero(parsed.medicao_atual)
+          }
+
+          if (parsed.consumo_medido && !parsed.consumo) {
             parsed.consumo = parsed.consumo_medido
           }
-          if (parsed.consumo !== undefined && !parsed.consumo_medido) {
+          if (parsed.consumo && !parsed.consumo_medido) {
             parsed.consumo_medido = parsed.consumo
           }
 
@@ -1393,6 +1439,24 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
               (Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)).toFixed(3),
             )
             if (!parsed.consumo) {
+              parsed.consumo = parsed.consumo_medido
+            }
+          }
+
+          // Heurística de segurança (validação pelo próprio documento): com leituras coerentes
+          // em escala inteira, consumo medido minúsculo é resíduo de erro de milhar -> adotar a
+          // diferença exata leitura_atual − leitura_anterior
+          if (
+            parsed.medicao_atual &&
+            parsed.medicao_anterior &&
+            Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
+          ) {
+            const diffLeituras = Number(parsed.medicao_atual) - Number(parsed.medicao_anterior)
+            const consAtual = Number(parsed.consumo_medido) || 0
+            if (consAtual > 0 && consAtual < 10 && diffLeituras >= 10) {
+              parsed.consumo_medido = diffLeituras
+            }
+            if (!parsed.consumo || Number(parsed.consumo) < 10) {
               parsed.consumo = parsed.consumo_medido
             }
           }
