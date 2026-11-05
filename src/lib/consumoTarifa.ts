@@ -1,4 +1,5 @@
 import { FaturaRecord, TipoUtilidade } from '@/types/entities'
+import { parseNumberValue } from '@/lib/cnpj'
 
 export interface FaturaConsumoTarifa {
   consumo: number
@@ -128,8 +129,9 @@ export function getFaturaTarifaMedia(fatura: FaturaRecord): number {
   const consumo = realConsumo.consumo
 
   if (tipo === 'Água e Esgoto') {
-    const tarifaInformada = Number(de.tarifa)
-    if (!isNaN(tarifaInformada) && tarifaInformada > 0) {
+    const tarifaInformada =
+      typeof de.tarifa === 'string' ? parseNumberValue(de.tarifa) : Number(de.tarifa)
+    if (tarifaInformada !== undefined && !isNaN(tarifaInformada) && tarifaInformada > 0) {
       return tarifaInformada
     }
     // Quando tarifa vazia ou ausente para água: valor_total ÷ consumo

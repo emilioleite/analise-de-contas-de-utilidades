@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-05T17:57:56.252Z",
+  "generatedAt": "2026-11-05T18:35:30.651Z",
   "collections": [
     {
       "name": "users",
@@ -29,40 +29,28 @@
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate"
-          ]
+          "autodateTriggers": ["onCreate"]
         },
         {
           "name": "updated",
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate",
-            "onUpdate"
-          ]
+          "autodateTriggers": ["onCreate", "onUpdate"]
         },
         {
           "name": "role",
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": [
-            "admin",
-            "user"
-          ]
+          "selectValues": ["admin", "user"]
         },
         {
           "name": "status",
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": [
-            "active",
-            "inactive",
-            "pending"
-          ]
+          "selectValues": ["active", "inactive", "pending"]
         }
       ],
       "indexes": [
@@ -104,12 +92,7 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": [
-            "Comercial",
-            "Industrial",
-            "Residencial",
-            "Misto"
-          ]
+          "selectValues": ["Comercial", "Industrial", "Residencial", "Misto"]
         },
         {
           "name": "owner",
@@ -123,19 +106,14 @@
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate"
-          ]
+          "autodateTriggers": ["onCreate"]
         },
         {
           "name": "updated",
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate",
-            "onUpdate"
-          ]
+          "autodateTriggers": ["onCreate", "onUpdate"]
         }
       ],
       "indexes": [
@@ -166,11 +144,7 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": [
-            "Energia Elétrica",
-            "Água e Esgoto",
-            "Gás"
-          ]
+          "selectValues": ["Energia Elétrica", "Água e Esgoto", "Gás"]
         },
         {
           "name": "competencia",
@@ -244,19 +218,14 @@
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate"
-          ]
+          "autodateTriggers": ["onCreate"]
         },
         {
           "name": "updated",
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate",
-            "onUpdate"
-          ]
+          "autodateTriggers": ["onCreate", "onUpdate"]
         },
         {
           "name": "cnpj_cliente",
@@ -355,19 +324,14 @@
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate"
-          ]
+          "autodateTriggers": ["onCreate"]
         },
         {
           "name": "updated",
           "type": "autodate",
           "required": false,
           "system": false,
-          "autodateTriggers": [
-            "onCreate",
-            "onUpdate"
-          ]
+          "autodateTriggers": ["onCreate", "onUpdate"]
         }
       ],
       "indexes": [

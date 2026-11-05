@@ -154,6 +154,8 @@ export default function Faturas() {
   const [consumoMedido, setConsumoMedido] = useState<number | string>('')
   const [consumoCorrigido, setConsumoCorrigido] = useState<number | string>('')
   const [tarifa, setTarifa] = useState<number | string>('')
+  // Rastreador se o usuário digitou a tarifa manualmente (para não sobrescrever)
+  const [tarifaManual, setTarifaManual] = useState<boolean>(false)
 
   // Lançamento manual flag
   const [isLancamentoManual, setIsLancamentoManual] = useState<boolean>(false)
@@ -198,6 +200,7 @@ export default function Faturas() {
     setConsumoMedido('')
     setConsumoCorrigido('')
     setTarifa('')
+    setTarifaManual(false)
     setCnpjMismatchIgnored(false)
     setLastCreatedFatura(null)
   }
@@ -1218,20 +1221,31 @@ export default function Faturas() {
 
         if (tar !== undefined) {
           setTarifa(formatNumberValue(tar, 6))
+          setTarifaManual(false)
         } else if (detectedTipo === 'Água e Esgoto') {
-          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido
+          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido (normalizado)
           const vTotPositive = parsePositiveNumber(vTotal)
-          const volCons = Number(cConsumo || cMedido || cCorrigido || 0)
+          const volCons =
+            parsePositiveNumber(cConsumo) ||
+            parsePositiveNumber(cMedido) ||
+            parsePositiveNumber(cCorrigido) ||
+            0
           if (vTotPositive && volCons > 0) {
             tar = Number((vTotPositive / volCons).toFixed(6))
             setTarifa(formatNumberValue(tar, 6))
+            setTarifaManual(false)
           }
         } else if (detectedTipo !== 'Energia Elétrica') {
           const vTotPositive = parsePositiveNumber(vTotal)
-          const divCons = Number(cCorrigido || cMedido || cConsumo)
+          const divCons =
+            parsePositiveNumber(cCorrigido) ||
+            parsePositiveNumber(cMedido) ||
+            parsePositiveNumber(cConsumo) ||
+            0
           if (vTotPositive && divCons > 0) {
             tar = Number((vTotPositive / divCons).toFixed(4))
             setTarifa(formatNumberValue(tar, 4))
+            setTarifaManual(false)
           }
         }
 
@@ -1323,6 +1337,32 @@ export default function Faturas() {
     if (!clienteCnpjDigits || clienteCnpjDigits.length !== 14) return false
     return empCnpjDigits !== clienteCnpjDigits
   }, [selectedEnterprise, cnpjCliente, hasValidClienteCnpj])
+
+  // Efeito de recálculo/autopreenchimento de tarifa média de Água e Esgoto quando valor_total ou consumo mudam
+  // Regras:
+  // 1. Só atua se selectedTipo === 'Água e Esgoto'
+  // 2. Não sobrescreve se o usuário tiver digitado a tarifa manualmente (tarifaManual === true)
+  // 3. Se tarifa estiver vazia (ou '0' / '0,00' / '0,000000'), calcula valorTotal / consumoMedidoOuConsumo
+  // 4. Se consumo for zero ou ausente, deixa vazio (sem divisão por zero)
+  // 5. Formata com até 6 casas decimais
+  useEffect(() => {
+    if (selectedTipo !== 'Água e Esgoto') return
+    if (tarifaManual) return // usuário digitou manualmente; respeitar decisão
+
+    const strTarifa = String(tarifa ?? '').trim()
+    const tarifaNumerica = parseNumberValue(strTarifa)
+    const isTarifaVaziaOuZero =
+      strTarifa === '' || tarifaNumerica === 0 || tarifaNumerica === undefined
+
+    if (isTarifaVaziaOuZero) {
+      const vTot = parseNumberValue(valorTotal)
+      const cons = parseNumberValue(consumo) || parseNumberValue(consumoMedido)
+      if (vTot !== undefined && vTot > 0 && cons !== undefined && cons > 0) {
+        const novaTarifa = Number((vTot / cons).toFixed(6))
+        setTarifa(formatNumberValue(novaTarifa, 6))
+      }
+    }
+  }, [selectedTipo, valorTotal, consumo, consumoMedido, tarifa, tarifaManual])
 
   // Execução final da criação da fatura
   const executeSaveNewInvoice = async () => {
@@ -3401,7 +3441,10 @@ export default function Faturas() {
                                 : 'bg-gray-50/50'
                             }`}
                             value={tarifa}
-                            onChange={(e) => setTarifa(e.target.value)}
+                            onChange={(e) => {
+                              setTarifa(e.target.value)
+                              setTarifaManual(e.target.value.trim() !== '')
+                            }}
                           />
                         </div>
                       </div>
@@ -3477,7 +3520,10 @@ export default function Faturas() {
                                 : 'bg-gray-50/50'
                             }`}
                             value={tarifa}
-                            onChange={(e) => setTarifa(e.target.value)}
+                            onChange={(e) => {
+                              setTarifa(e.target.value)
+                              setTarifaManual(e.target.value.trim() !== '')
+                            }}
                           />
                         </div>
                       </div>
@@ -4058,7 +4104,10 @@ export default function Faturas() {
                       placeholder="Ex: 0,000000"
                       className="h-8 text-xs"
                       value={tarifa}
-                      onChange={(e) => setTarifa(e.target.value)}
+                      onChange={(e) => {
+                        setTarifa(e.target.value)
+                        setTarifaManual(e.target.value.trim() !== '')
+                      }}
                     />
                   </div>
                 </div>
@@ -4103,7 +4152,10 @@ export default function Faturas() {
                       step="0.0001"
                       className="h-8 text-xs"
                       value={tarifa}
-                      onChange={(e) => setTarifa(e.target.value)}
+                      onChange={(e) => {
+                        setTarifa(e.target.value)
+                        setTarifaManual(e.target.value.trim() !== '')
+                      }}
                     />
                   </div>
                 </div>

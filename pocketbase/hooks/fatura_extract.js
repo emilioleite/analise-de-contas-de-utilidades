@@ -264,8 +264,9 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
   * Consumo Medido: diferença Atual − Anterior ou coluna "consumo medido (m³)".
 
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
+- Múltiplas ligações e hidrômetro: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
 - Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição!
-- Consumo m³: extraia o volume faturado impresso (exemplo: 985 m³).
+- Consumo m³: extraia apenas o volume medido pelo hidrômetro (exemplo: se houver ligação medida de 1.278 m³ e estimada de 600 m³, extraia APENAS 1278, NUNCA 1878).
 - Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor_total / consumo] — o sistema calcula a tarifa média analítica automaticamente como valor_total ÷ consumo.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
@@ -472,8 +473,9 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
   - Bandeira tarifária: leia do texto "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]" ou do item "ADICIONAL BANDEIRA [COR]" -> 'adicional_bandeira' (ex: "Bandeira Amarela", "Bandeira Verde").
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
+  - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
   - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições.
-  - Consumo faturado em m³ (ex: 985 m³).
+  - Consumo faturado em m³: apenas o medido pelo hidrômetro (NUNCA somar com ligações estimadas).
   - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular valor_total / consumo.
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
@@ -1396,10 +1398,23 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           }
 
           // Tarifa média de água: se vazia ou 0, calcular valor total / consumo (com proteção contra divisão por zero)
-          const valorAgua = Number(parsed.valor_total || parsed.fatura_total || 0)
-          const consumoAgua = Number(parsed.consumo || parsed.consumo_medido || 0)
-          if ((!parsed.tarifa || Number(parsed.tarifa) === 0) && valorAgua > 0 && consumoAgua > 0) {
+          // Normaliza AMBOS os números pelo parser robusto antes de dividir, evitando NaN ou concatenação de strings
+          const valorAgua =
+            sanitizeMonetary(parsed.valor_total) ||
+            sanitizeMonetary(parsed.fatura_total) ||
+            sanitizeMonetary(parsed.valor_a_pagar) ||
+            0
+          const consumoAgua =
+            sanitizeNumeric(parsed.consumo) || sanitizeNumeric(parsed.consumo_medido) || 0
+          const tarifaExistente = sanitizeNumeric(parsed.tarifa)
+          if (
+            (tarifaExistente === null || tarifaExistente === 0) &&
+            valorAgua > 0 &&
+            consumoAgua > 0
+          ) {
             parsed.tarifa = Number((valorAgua / consumoAgua).toFixed(6))
+          } else if (tarifaExistente !== null && tarifaExistente > 0) {
+            parsed.tarifa = tarifaExistente
           }
         }
 
