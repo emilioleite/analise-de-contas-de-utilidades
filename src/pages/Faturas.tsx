@@ -557,17 +557,18 @@ export default function Faturas() {
           return parseBrazilianNumber(val, true)
         }
 
-        // Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar, ex: "75.795" -> 75795, 118.555 -> 118555)
+        // Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar, ex: "75.795" -> 75795, 117.047 -> 117047, 118.555 -> 118555)
         const parseCumulativeMeterReading = (val: any) => {
           if (val === undefined || val === null || val === '') return undefined
           if (typeof val === 'number') {
             if (val <= 0 || isNaN(val)) return undefined
             const strVal = String(val)
             const parts = strVal.split('.')
-            // Se veio como float com parte decimal e valor < 1000 (ex: 118.555, 120.086, 75.795):
+            // Se veio como float com parte decimal (ex: 117.047, 118.555, 120.086, 75.795):
             // em hidrômetros e medidores de gás, medições cumulativas são inteiros de milhar.
-            if (parts.length === 2 && val < 1000) {
-              if (parts[1].length === 3 || (parts[1].length < 3 && val < 10)) {
+            if (parts.length === 2) {
+              const frac = parts[1]
+              if (frac.length === 3 || (frac.length < 3 && val < 10)) {
                 return Math.round(val * 1000)
               }
             }
@@ -578,6 +579,18 @@ export default function Faturas() {
             .replace(/^R\$\s*/i, '')
           if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
           if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
+          if (s.includes(',') && !s.includes('.')) {
+            // Se veio formatado como "117,047" (vírgula decimal que era milhar no papel)
+            const pVirg = s.split(',')
+            if (pVirg.length === 2 && pVirg[1].length === 3) {
+              const intV = Number(pVirg[0] + pVirg[1])
+              if (!isNaN(intV) && intV > 0) return intV
+            }
+          }
+          if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+            const intVal = Number(s.replace(/\./g, ''))
+            return !isNaN(intVal) && intVal > 0 ? intVal : undefined
+          }
           if (/^\d{1,3}\.\d{3}$/.test(s)) {
             const intVal = Number(s.replace(/\./g, ''))
             return !isNaN(intVal) && intVal > 0 ? intVal : undefined
@@ -1223,9 +1236,16 @@ export default function Faturas() {
         }
 
         // Se for ÁGUA E ESGOTO: hidrômetro imprime leituras/consumo inteiros com ponto de
-        // milhar pt-BR ("1.278" = 1278 m³). Número < 10 com exatamente 3 casas decimais é o
-        // erro de escala; em caso de ambiguidade, valida pela diferença das leituras.
+        // milhar pt-BR ("1.278" = 1278 m³, "1.508" = 1508 m³).
+        // VALIDAÇÃO CRUZADA OBRIGATÓRIA: quando leitura anterior e atual estiverem presentes,
+        // o consumo medido DEVE ser medAtu - medAnt. Se houver divergência (ex.: IA leu média 1.206 m³
+        // em vez do medido 1.508 m³), prevalece a diferença das leituras.
         if (detectedTipo === 'Água e Esgoto') {
+          const diffLeiturasAgua =
+            medAtu !== undefined && medAnt !== undefined && medAtu > medAnt
+              ? medAtu - medAnt
+              : undefined
+
           if (cMedido !== undefined && cMedido > 0 && cMedido < 100) {
             const fracM = String(cMedido).split('.')[1]
             const vRefAguaMed = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
@@ -1238,14 +1258,16 @@ export default function Faturas() {
               }
             }
           }
-          const diffLeiturasAgua =
-            medAtu !== undefined && medAnt !== undefined ? medAtu - medAnt : undefined
-          if (
-            (cMedido === undefined || cMedido < 10) &&
-            diffLeiturasAgua !== undefined &&
-            diffLeiturasAgua >= 10
-          ) {
-            cMedido = diffLeiturasAgua
+
+          if (diffLeiturasAgua !== undefined && diffLeiturasAgua > 0) {
+            // Se o consumo medido não bate com a diferença das leituras, prevalece a diferença
+            if (cMedido === undefined || Math.abs(cMedido - diffLeiturasAgua) > 0) {
+              cMedido = diffLeiturasAgua
+            }
+            if (cConsumoFinal === undefined || Math.abs(cConsumoFinal - diffLeiturasAgua) > 0) {
+              cConsumoFinal = diffLeiturasAgua
+              setConsumo(formatNumberValue(diffLeiturasAgua, 3))
+            }
           }
         }
 
@@ -1269,22 +1291,29 @@ export default function Faturas() {
           setConsumoCorrigido(formatNumberValue(cMedido, 3))
         }
 
-        if (tar !== undefined) {
-          setTarifa(formatNumberValue(tar, 6))
-          setTarifaManual(false)
-        } else if (detectedTipo === 'Água e Esgoto') {
-          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido (normalizado)
+        if (detectedTipo === 'Água e Esgoto') {
+          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido (normalizado).
+          // Se a tarifa extraída for nula, 0, ou se for incoerente (> 100 com valor_total / volCons na faixa de saneamento),
+          // calcula valor_total ÷ volCons com até 6 casas decimais.
           const vTotPositive = parsePositiveNumber(vTotal)
           const volCons =
-            parsePositiveNumber(cConsumoFinal) ||
             parsePositiveNumber(cMedido) ||
+            parsePositiveNumber(cConsumoFinal) ||
             parsePositiveNumber(cCorrigido) ||
             0
           if (vTotPositive && volCons > 0) {
-            tar = Number((vTotPositive / volCons).toFixed(6))
+            const tarifaAnalitica = Number((vTotPositive / volCons).toFixed(6))
+            if (tar === undefined || tar === 0 || (tar > 100 && tarifaAnalitica <= 100)) {
+              tar = tarifaAnalitica
+            }
+          }
+          if (tar !== undefined && tar > 0) {
             setTarifa(formatNumberValue(tar, 6))
             setTarifaManual(false)
           }
+        } else if (tar !== undefined) {
+          setTarifa(formatNumberValue(tar, 6))
+          setTarifaManual(false)
         } else if (detectedTipo !== 'Energia Elétrica') {
           const vTotPositive = parsePositiveNumber(vTotal)
           const divCons =
