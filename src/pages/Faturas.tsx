@@ -59,6 +59,54 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 
+/**
+ * Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar,
+ * ex: "75.795" -> 75795, 117.047 -> 117047, 118.555 -> 118555, "1.254" -> 1254, 1.258 -> 1258).
+ * Garante retorno de número INTEIRO em escala real, tratando separadores pt-BR e floats JSON.
+ */
+function parseCumulativeMeterReading(val: any): number | undefined {
+  if (val === undefined || val === null || val === '') return undefined
+  if (typeof val === 'number') {
+    if (val <= 0 || isNaN(val)) return undefined
+    const strVal = String(val)
+    const parts = strVal.split('.')
+    // Se veio como float com parte decimal (ex: 117.047, 118.555, 120.086, 75.795, 1.254):
+    // em hidrômetros e medidores de gás, medições cumulativas são inteiros de milhar.
+    if (parts.length === 2) {
+      const frac = parts[1]
+      if (frac.length === 3 || (frac.length < 3 && val < 10)) {
+        return Math.round(val * 1000)
+      }
+    }
+    return Math.round(val)
+  }
+  let s = String(val)
+    .trim()
+    .replace(/^R\$\s*/i, '')
+  if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
+  if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
+  if (s.includes(',') && !s.includes('.')) {
+    // Se veio formatado como "117,047" ou "1,254" (vírgula decimal que era milhar no papel)
+    const pVirg = s.split(',')
+    if (pVirg.length === 2 && pVirg[1].length === 3) {
+      const intV = Number(pVirg[0] + pVirg[1])
+      if (!isNaN(intV) && intV > 0) return intV
+    }
+  }
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    const intVal = Number(s.replace(/\./g, ''))
+    return !isNaN(intVal) && intVal > 0 ? intVal : undefined
+  }
+  if (/^\d{1,3}\.\d{3}$/.test(s)) {
+    const intVal = Number(s.replace(/\./g, ''))
+    return !isNaN(intVal) && intVal > 0 ? intVal : undefined
+  }
+  const cleaned = s.replace(/\D/g, '')
+  const n = Number(cleaned)
+  if (isNaN(n) || n <= 0) return undefined
+  return n
+}
+
 export default function Faturas() {
   const [searchParams] = useSearchParams()
   const enterpriseQuery = searchParams.get('enterprise') || 'Todos'
@@ -557,49 +605,7 @@ export default function Faturas() {
           return parseBrazilianNumber(val, true)
         }
 
-        // Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar, ex: "75.795" -> 75795, 117.047 -> 117047, 118.555 -> 118555)
-        const parseCumulativeMeterReading = (val: any) => {
-          if (val === undefined || val === null || val === '') return undefined
-          if (typeof val === 'number') {
-            if (val <= 0 || isNaN(val)) return undefined
-            const strVal = String(val)
-            const parts = strVal.split('.')
-            // Se veio como float com parte decimal (ex: 117.047, 118.555, 120.086, 75.795):
-            // em hidrômetros e medidores de gás, medições cumulativas são inteiros de milhar.
-            if (parts.length === 2) {
-              const frac = parts[1]
-              if (frac.length === 3 || (frac.length < 3 && val < 10)) {
-                return Math.round(val * 1000)
-              }
-            }
-            return Math.round(val)
-          }
-          let s = String(val)
-            .trim()
-            .replace(/^R\$\s*/i, '')
-          if (s.includes('*')) s = s.replace(/[*]+/g, '').trim()
-          if (!s || s === 'null' || s === 'undefined' || s === '0') return undefined
-          if (s.includes(',') && !s.includes('.')) {
-            // Se veio formatado como "117,047" (vírgula decimal que era milhar no papel)
-            const pVirg = s.split(',')
-            if (pVirg.length === 2 && pVirg[1].length === 3) {
-              const intV = Number(pVirg[0] + pVirg[1])
-              if (!isNaN(intV) && intV > 0) return intV
-            }
-          }
-          if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-            const intVal = Number(s.replace(/\./g, ''))
-            return !isNaN(intVal) && intVal > 0 ? intVal : undefined
-          }
-          if (/^\d{1,3}\.\d{3}$/.test(s)) {
-            const intVal = Number(s.replace(/\./g, ''))
-            return !isNaN(intVal) && intVal > 0 ? intVal : undefined
-          }
-          const cleaned = s.replace(/\D/g, '')
-          const n = Number(cleaned)
-          if (isNaN(n) || n <= 0) return undefined
-          return n
-        }
+        // Helper parseCumulativeMeterReading agora está disponível em escopo de módulo
 
         // Competência
         const compFmt = getField(
@@ -929,20 +935,21 @@ export default function Faturas() {
         )
         const rawMedAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
 
-        const medAnt =
-          detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
-            ? parseCumulativeMeterReading(rawMedAnt)
-            : parsePositiveNumber(rawMedAnt)
+        const isCumulativo = detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
+        const medAnt = isCumulativo
+          ? parseCumulativeMeterReading(rawMedAnt)
+          : parsePositiveNumber(rawMedAnt)
         if (medAnt !== undefined) {
-          setMedicaoAnterior(formatNumberValue(medAnt, 0))
+          setMedicaoAnterior(
+            isCumulativo ? String(Math.round(medAnt)) : formatNumberValue(medAnt, 0),
+          )
         }
 
-        const medAtu =
-          detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
-            ? parseCumulativeMeterReading(rawMedAtu)
-            : parsePositiveNumber(rawMedAtu)
+        const medAtu = isCumulativo
+          ? parseCumulativeMeterReading(rawMedAtu)
+          : parsePositiveNumber(rawMedAtu)
         if (medAtu !== undefined) {
-          setMedicaoAtual(formatNumberValue(medAtu, 0))
+          setMedicaoAtual(isCumulativo ? String(Math.round(medAtu)) : formatNumberValue(medAtu, 0))
         }
 
         // Campos específicos de Energia Elétrica
@@ -1479,19 +1486,33 @@ export default function Faturas() {
       }
     } else if (selectedTipo === 'Gás') {
       dadosEsp = {
-        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
-        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
+        medicao_atual: parseCumulativeMeterReading(medicaoAtual),
         consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
         consumo_corrigido: parseNumberValue(consumoCorrigido) || undefined,
         tarifa: parseNumberValue(tarifa) || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else {
+      // Água e Esgoto
+      let tarifaSalvar = parseNumberValue(tarifa)
+      const vTotParaTarifa = parseNumberValue(valorTotal)
+      const consParaTarifa = parseNumberValue(consumoMedido || consumo)
+      if (
+        (tarifaSalvar === undefined || tarifaSalvar === 0) &&
+        vTotParaTarifa !== undefined &&
+        vTotParaTarifa > 0 &&
+        consParaTarifa !== undefined &&
+        consParaTarifa > 0
+      ) {
+        tarifaSalvar = Number((vTotParaTarifa / consParaTarifa).toFixed(6))
+      }
+
       dadosEsp = {
-        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
-        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
+        medicao_atual: parseCumulativeMeterReading(medicaoAtual),
         consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
-        tarifa: parseNumberValue(tarifa) || undefined,
+        tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
     }
@@ -1697,14 +1718,20 @@ export default function Faturas() {
     }
 
     const isGas = fat.tipo_utilidade === 'Gás'
+    const isAgua = fat.tipo_utilidade === 'Água e Esgoto'
+    const isCumulativo = isGas || isAgua
     setMedicaoAnterior(
       d.medicao_anterior !== undefined && d.medicao_anterior !== null
-        ? formatNumberValue(d.medicao_anterior, isGas ? 0 : 2)
+        ? isCumulativo
+          ? String(Math.round(Number(d.medicao_anterior)))
+          : formatNumberValue(d.medicao_anterior, 2)
         : '',
     )
     setMedicaoAtual(
       d.medicao_atual !== undefined && d.medicao_atual !== null
-        ? formatNumberValue(d.medicao_atual, isGas ? 0 : 2)
+        ? isCumulativo
+          ? String(Math.round(Number(d.medicao_atual)))
+          : formatNumberValue(d.medicao_atual, 2)
         : '',
     )
     setClassificacaoConsumo(d.classificacao_consumo ?? 'A4')
@@ -1772,19 +1799,33 @@ export default function Faturas() {
       }
     } else if (selectedTipo === 'Gás') {
       dadosEsp = {
-        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
-        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
+        medicao_atual: parseCumulativeMeterReading(medicaoAtual),
         consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
         consumo_corrigido: parseNumberValue(consumoCorrigido) || undefined,
         tarifa: parseNumberValue(tarifa) || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
     } else {
+      // Água e Esgoto
+      let tarifaSalvar = parseNumberValue(tarifa)
+      const vTotParaTarifa = parseNumberValue(valorTotal)
+      const consParaTarifa = parseNumberValue(consumoMedido || consumo)
+      if (
+        (tarifaSalvar === undefined || tarifaSalvar === 0) &&
+        vTotParaTarifa !== undefined &&
+        vTotParaTarifa > 0 &&
+        consParaTarifa !== undefined &&
+        consParaTarifa > 0
+      ) {
+        tarifaSalvar = Number((vTotParaTarifa / consParaTarifa).toFixed(6))
+      }
+
       dadosEsp = {
-        medicao_anterior: parseNumberValue(medicaoAnterior) || undefined,
-        medicao_atual: parseNumberValue(medicaoAtual) || undefined,
+        medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
+        medicao_atual: parseCumulativeMeterReading(medicaoAtual),
         consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
-        tarifa: parseNumberValue(tarifa) || undefined,
+        tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
     }
