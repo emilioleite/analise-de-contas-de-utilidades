@@ -17,6 +17,12 @@ import {
 } from '@/lib/cnpj'
 import { faturasService } from '@/services/faturas'
 import {
+  getFaturaIdentificacao,
+  getFaturaRotulo,
+  getFaturaTipoEnergia,
+  TIPOS_FATURA_ENERGIA,
+} from '@/lib/faturaIdentificacao'
+import {
   FileText,
   Plus,
   Search,
@@ -36,6 +42,8 @@ import {
   X,
   FileSpreadsheet,
   FileCheck,
+  Building2,
+  GitBranch,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -160,6 +168,7 @@ export default function Faturas() {
     tipo: string
     competenciaFormatada: string
     empreendimentoNome: string
+    identificacaoNova?: string
   } | null>(null)
   const pendingSaveActionRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -208,6 +217,10 @@ export default function Faturas() {
   // Lançamento manual flag
   const [isLancamentoManual, setIsLancamentoManual] = useState<boolean>(false)
 
+  // Identificação complementar da fatura (gás: destino/medidor; energia: tipo Concessionária/Mercado Livre)
+  const [identificacao, setIdentificacao] = useState<string>('')
+  const [tipoFaturaEnergia, setTipoFaturaEnergia] = useState<string>('concessionaria')
+
   // Selector modal / dialog inline in Step 3 for enterprise binding without step change
   const [empSelectorOpenStep3, setEmpSelectorOpenStep3] = useState<boolean>(false)
 
@@ -250,6 +263,8 @@ export default function Faturas() {
     setTarifa('')
     setTarifaManual(false)
     setCnpjMismatchIgnored(false)
+    setIdentificacao('')
+    setTipoFaturaEnergia('concessionaria')
     setLastCreatedFatura(null)
   }
 
@@ -1213,6 +1228,32 @@ export default function Faturas() {
           setAdicionalBandeira(adicBandeira)
         }
 
+        // Identificação complementar (gás: destino/medidor; energia: Concessionária × Mercado Livre)
+        const rawIdent = getField(
+          'identificacao',
+          'identificacao_fatura',
+          'destino',
+          'destino_consumo',
+          'setor',
+          'medidor',
+          'identificacao_medidor',
+        )
+        if (rawIdent && rawIdent !== 'null' && rawIdent !== '0') {
+          setIdentificacao(String(rawIdent).trim())
+        }
+
+        const rawTipoFatura = getField('tipo_fatura_energia', 'tipoFaturaEnergia', 'origem_fatura')
+        const strTipoFatura = rawTipoFatura ? String(rawTipoFatura).trim().toLowerCase() : ''
+        if (
+          strTipoFatura.includes('livre') ||
+          strTipoFatura.includes('comercializadora') ||
+          strTipoFatura.includes('mercado_livre')
+        ) {
+          setTipoFaturaEnergia('mercado_livre')
+        } else if (detectedTipo === 'Energia Elétrica' && strTipoFatura.includes('concession')) {
+          setTipoFaturaEnergia('concessionaria')
+        }
+
         // Campos específicos de GÁS e Água
         let cMedido = parsePositiveNumber(
           getField('consumo_medido', 'consumoMedido', 'consumo_apurado', 'volume_medido'),
@@ -1450,6 +1491,15 @@ export default function Faturas() {
     }
   }, [selectedTipo, valorTotal, consumo, consumoMedido, tarifa, tarifaManual])
 
+  // Rótulo curto da identificação para a mensagem do aviso de duplicidade
+  const duplicidadeIdentLabel = (): string => {
+    if (selectedTipo === 'Energia Elétrica') {
+      return tipoFaturaEnergia === 'mercado_livre' ? 'Mercado Livre' : 'Concessionária'
+    }
+    if (selectedTipo === 'Gás') return identificacao.trim() || 'Geral'
+    return ''
+  }
+
   // Execução final da criação da fatura
   const executeSaveNewInvoice = async () => {
     // Format ISO date for first day of month from MM/AAAA
@@ -1545,6 +1595,11 @@ export default function Faturas() {
         arquivo_nome: isLancamentoManual ? null : uploadedFile?.name || null,
         lancamento_manual: isLancamentoManual ? true : undefined,
         vencimento: vencimento || undefined,
+        identificacao: selectedTipo === 'Gás' ? identificacao.trim() || undefined : undefined,
+        tipo_fatura_energia:
+          selectedTipo === 'Energia Elétrica'
+            ? (tipoFaturaEnergia as 'concessionaria' | 'mercado_livre')
+            : undefined,
         dados_especificos: JSON.stringify(dadosEsp),
       })
 
@@ -1616,7 +1671,10 @@ export default function Faturas() {
     }
   }
 
-  // Save new invoice from Step 3 com verificação de duplicidade
+  // Save new invoice from Step 3 com verificação de duplicidade.
+  // O aviso de fatura existente para a mesma utilidade/competência é agora INFORMATIVO NÃO-BLOQUEANTE:
+  // é legítimo ter 2+ faturas da mesma utilidade no mês (ex.: GLP em várias NFe, gás por destino,
+  // ou Concessionária + Mercado Livre). O modal continua aparecendo, mas o fluxo nunca é interrompido.
   const handleSaveInvoice = async () => {
     if (!selectedEmpId) {
       toast({
@@ -1675,6 +1733,7 @@ export default function Faturas() {
           tipo: selectedTipo,
           competenciaFormatada: compFmt,
           empreendimentoNome: empNome,
+          identificacaoNova: duplicidadeIdentLabel() || undefined,
         })
         pendingSaveActionRef.current = executeSaveNewInvoice
         setDuplicateConfirmOpen(true)
@@ -1757,6 +1816,10 @@ export default function Faturas() {
         : '',
     )
     setTarifa(d.tarifa !== undefined && d.tarifa !== null ? formatNumberValue(d.tarifa, 6) : '')
+
+    // Identificação complementar (gás: destino/medidor; energia: Concessionária × Mercado Livre)
+    setIdentificacao(getFaturaIdentificacao(fat))
+    setTipoFaturaEnergia(getFaturaTipoEnergia(fat))
 
     setEditModalOpen(true)
   }
@@ -1850,6 +1913,11 @@ export default function Faturas() {
         cnpj_fornecedor: isValidCNPJ(cnpjFornecedor) ? formatCNPJ(cnpjFornecedor) : undefined,
         cnpj_validado: isMatched,
         vencimento: vencimento || undefined,
+        identificacao: selectedTipo === 'Gás' ? identificacao.trim() || null : null,
+        tipo_fatura_energia:
+          selectedTipo === 'Energia Elétrica'
+            ? (tipoFaturaEnergia as 'concessionaria' | 'mercado_livre')
+            : null,
         dados_especificos: JSON.stringify(dadosEsp),
       })
       toast({
@@ -1943,6 +2011,7 @@ export default function Faturas() {
           tipo: selectedTipo,
           competenciaFormatada: compFmt,
           empreendimentoNome: empNome,
+          identificacaoNova: duplicidadeIdentLabel() || undefined,
         })
         pendingSaveActionRef.current = executeUpdateInvoice
         setDuplicateConfirmOpen(true)
@@ -2084,7 +2153,8 @@ export default function Faturas() {
             !empCnpj.includes(query) &&
             !cliCnpj.includes(query) &&
             !fornCnpj.includes(query) &&
-            !numFatura.includes(query)
+            !numFatura.includes(query) &&
+            !getFaturaIdentificacao(fat).toLowerCase().includes(query)
           ) {
             return false
           }
@@ -2283,7 +2353,10 @@ export default function Faturas() {
                             {formatCNPJ(empCnpj)}
                           </div>
                         </td>
-                        <td className="py-3 px-4">{getUtilityBadge(fat.tipo_utilidade)}</td>
+                        <td className="py-3 px-4">
+                          {getUtilityBadge(fat.tipo_utilidade)}
+                          <div className="mt-1">{getFaturaIdentBadge(fat)}</div>
+                        </td>
                         <td className="py-3 px-4 font-medium text-gray-700 tabular-nums">
                           {formatCompetencia(fat.competencia)}
                         </td>
@@ -2386,6 +2459,7 @@ export default function Faturas() {
                       <span className="font-semibold text-gray-800 tabular-nums">
                         {formatCompetencia(fat.competencia)}
                       </span>
+                      <div className="mt-1">{getFaturaIdentBadge(fat)}</div>
                     </div>
                     <div>
                       <span className="text-gray-400 text-[10px] uppercase block">Consumo</span>
@@ -3228,6 +3302,35 @@ export default function Faturas() {
                         Campos Específicos: Energia Elétrica
                       </span>
 
+                      {/* Tipo de fatura: Concessionária (distribuidora) × Mercado Livre (comercializadora) */}
+                      <div className="grid grid-cols-1 gap-3">
+                        <div>
+                          <Label className="text-xs font-semibold text-gray-700">
+                            Tipo de fatura *
+                          </Label>
+                          <Select
+                            value={tipoFaturaEnergia}
+                            onValueChange={(v) => setTipoFaturaEnergia(v)}
+                          >
+                            <SelectTrigger className="h-9 text-xs bg-white border-amber-300">
+                              <SelectValue placeholder="Selecione o tipo de fatura" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TIPOS_FATURA_ENERGIA.map((t) => (
+                                <SelectItem key={t.value} value={t.value} className="text-xs">
+                                  {t.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-[10px] text-amber-700 block mt-0.5">
+                            Concessionária = distribuidora (uso da rede). Mercado Livre =
+                            comercializadora (energia consumida). Cada tipo vira uma série separada
+                            na Análise 24 Meses.
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <div>
                           <Label className="text-xs font-medium text-gray-700">
@@ -3489,6 +3592,30 @@ export default function Faturas() {
                         <Flame className="w-3.5 h-3.5 text-teal-600 fill-teal-600" />
                         Campos Específicos: Gás
                       </span>
+
+                      {/* Identificação (destino/medidor) — permite várias faturas de gás no mesmo mês */}
+                      <div className="grid grid-cols-1 gap-3">
+                        <div>
+                          <Label className="text-xs font-semibold text-gray-700">
+                            Identificação (destino/medidor)
+                          </Label>
+                          <Input
+                            placeholder="Ex: Caldeira, Piscina, Cozinha, NFe 12345"
+                            className={`h-9 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
+                              identificacao
+                                ? 'text-gray-900 font-semibold bg-white border-teal-500/50'
+                                : 'bg-gray-50/50'
+                            }`}
+                            value={identificacao}
+                            onChange={(e) => setIdentificacao(e.target.value)}
+                          />
+                          <span className="text-[10px] text-teal-700 block mt-0.5">
+                            Opcional. Diferencia faturas de gás do mesmo mês (GLP com várias NFe ou
+                            GN setorizado) — cada destino vira uma linha separada na Análise 24
+                            Meses.
+                          </span>
+                        </div>
+                      </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <div>
@@ -3767,6 +3894,7 @@ export default function Faturas() {
           <DialogHeader>
             <div className="flex items-center gap-2">
               {selectedFatura && getUtilityBadge(selectedFatura.tipo_utilidade)}
+              {selectedFatura && <div className="mt-1">{getFaturaIdentBadge(selectedFatura)}</div>}
               <DialogTitle className="text-base font-bold text-gray-900">
                 Detalhes da Fatura
               </DialogTitle>
@@ -3814,6 +3942,12 @@ export default function Faturas() {
                     </span>
                   </div>
                 )}
+                <div>
+                  <span className="text-gray-400 block text-[10px] uppercase">Identificação</span>
+                  <span className="font-medium text-gray-700">
+                    {getFaturaIdentificacao(selectedFatura) || '—'}
+                  </span>
+                </div>
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase">Valor Total</span>
                   <span className="font-bold text-teal-800 text-sm tabular-nums">
@@ -4028,6 +4162,21 @@ export default function Faturas() {
                         : ''}
                   </span>
                 </div>
+                <div>
+                  <Label className="text-[11px] text-gray-700 font-semibold">Tipo de fatura</Label>
+                  <Select value={tipoFaturaEnergia} onValueChange={(v) => setTipoFaturaEnergia(v)}>
+                    <SelectTrigger className="h-8 text-xs bg-white border-amber-300">
+                      <SelectValue placeholder="Selecione o tipo de fatura" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIPOS_FATURA_ENERGIA.map((t) => (
+                        <SelectItem key={t.value} value={t.value} className="text-xs">
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
@@ -4181,6 +4330,17 @@ export default function Faturas() {
             {selectedTipo === 'Gás' && (
               <div className="p-3 rounded-xl bg-teal-50/50 border border-teal-200 space-y-2">
                 <span className="text-[11px] font-bold text-teal-900 block">Gás</span>
+                <div>
+                  <Label className="text-[11px] text-gray-700 font-semibold">
+                    Identificação (destino/medidor)
+                  </Label>
+                  <Input
+                    placeholder="Ex: Caldeira, Piscina, Cozinha, NFe 12345"
+                    className="h-8 text-xs"
+                    value={identificacao}
+                    onChange={(e) => setIdentificacao(e.target.value)}
+                  />
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div>
                     <Label className="text-[11px] text-gray-700">Medição Anterior</Label>
@@ -4406,18 +4566,28 @@ export default function Faturas() {
       >
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+              <AlertTriangle className="w-5 h-5 text-blue-600" />
             </div>
             <DialogTitle className="text-base font-bold text-gray-900">
-              Fatura possivelmente duplicada
+              Já existe fatura desta utilidade na competência
             </DialogTitle>
             <DialogDescription className="text-xs text-gray-600 leading-relaxed pt-1">
               {duplicateInfo && (
                 <>
                   Já existe uma fatura de {duplicateInfo.tipo} ({duplicateInfo.competenciaFormatada}
-                  ) para o empreendimento {duplicateInfo.empreendimentoNome}. Deseja salvar mesmo
-                  assim? Isso criará um registro duplicado.
+                  ) para o empreendimento {duplicateInfo.empreendimentoNome}.
+                  {duplicateInfo.identificacaoNova && (
+                    <>
+                      {' '}
+                      A nova fatura será registrada como{' '}
+                      <span className="font-semibold">{duplicateInfo.identificacaoNova}</span> e
+                      ficará como linha/série separada na Análise 24 Meses.
+                    </>
+                  )}{' '}
+                  É legítimo ter 2+ faturas da mesma utilidade no mês (ex.: gás por destino, ou
+                  Concessionária + Mercado Livre) — continuar apenas se for uma fatura realmente
+                  diferente.
                 </>
               )}
             </DialogDescription>
@@ -4433,7 +4603,7 @@ export default function Faturas() {
               }}
               className="text-xs"
             >
-              Cancelar
+              Voltar e revisar
             </Button>
             <Button
               type="button"
@@ -4446,9 +4616,9 @@ export default function Faturas() {
                   await action()
                 }
               }}
-              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
             >
-              Salvar mesmo assim
+              Continuar salvamento
             </Button>
           </DialogFooter>
         </DialogContent>

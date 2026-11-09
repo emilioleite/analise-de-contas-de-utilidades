@@ -174,6 +174,19 @@ export function sanitizeFaturaPayload(
     payload.numero_fatura = str || null
   }
 
+  // 7.1 Identificação (texto livre: destino/medidor para gás; rótulo complementar)
+  if (data.identificacao !== undefined) {
+    const str = String(data.identificacao || '').trim()
+    payload.identificacao = str || null
+  }
+
+  // 7.2 Tipo de fatura de energia (select: concessionaria | mercado_livre)
+  if (data.tipo_fatura_energia !== undefined) {
+    const str = String(data.tipo_fatura_energia || '').trim()
+    payload.tipo_fatura_energia =
+      str === 'mercado_livre' ? 'mercado_livre' : str === 'concessionaria' ? 'concessionaria' : null
+  }
+
   // 8. CNPJ Fornecedor (text opcional)
   if (data.cnpj_fornecedor !== undefined) {
     const str = String(data.cnpj_fornecedor || '').trim()
