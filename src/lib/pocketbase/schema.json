@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-06T00:22:51.754Z",
+  "generatedAt": "2026-11-09T13:54:08.596Z",
   "collections": [
     {
       "name": "users",
@@ -236,6 +236,18 @@
         {
           "name": "lancamento_manual",
           "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "identificacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tipo_fatura_energia",
+          "type": "text",
           "required": false,
           "system": false
         }

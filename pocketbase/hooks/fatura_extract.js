@@ -205,6 +205,8 @@ Campos gerais:
   * Se a fatura já expressar em kWh (ex.: "24.098,400 kWh"), grave o valor exatamente como impresso, sem multiplicar nem dividir.
   * Confira a coerência: consumo_kwh * (tarifa_tusd + tarifa_te) deve aproximar-se do valor de fornecimento/total da fatura. Um consumo mil vezes menor gera valores absurdos.
 - numero_fatura: número impresso sob "NOTA FISCAL / CONTA DE GÁS Nº" ou "NOTA FISCAL Nº" ou "CONTA CONTRATO". NUNCA invente números.
+- identificacao: identificador de destino/medidor da fatura, para permitir várias faturas da mesma utilidade no mesmo mês. Em GÁS (GLP com várias NFe ou GN setorizado), extraia o nome do destino/setor de consumo impresso (ex.: "Caldeira", "Piscina", "Cozinha", "Aquecimento") ou, se não houver destino impresso, o número do medidor/da NFe (ex.: "NFe 12345", "Medidor 401571"). Em ENERGIA ELÉTRICA, NÃO preencha (use 'tipo_fatura_energia'). Em ÁGUA E ESGOTO, NÃO preencha. Se não houver identificador legível, retorne null. NUNCA invente.
+- tipo_fatura_energia (SOMENTE Energia Elétrica): "concessionaria" quando a fatura é da distribuidora/concessionária (Enel, CPFL, Light, CEMIG, Equatorial...) cobrando o uso da rede de distribuição (TUSD, consumo de referência) ou fatura convencional; "mercado_livre" quando a fatura é de comercializadora de energia do Mercado Livre/ACL (ex.: CCEE, Comerc, Matery, Watt, Enel X não-distribuidora...) cobrando pela energia consumida (TE/energia). Se não houver indicação clara, retorne null.
 - vencimento: data no formato "YYYY-MM-DD" correspondente ao Vencimento impresso na fatura.
 - cnpj_cliente: CNPJ ou CPF do destinatário/cliente (titular da unidade consumidora). Extraia do bloco de nome/endereço do cliente ou da seção PAGADOR (ex.: sob "COND EDIF...", "PAGADOR:").
   * ATENÇÃO CRÍTICA: NUNCA use o CNPJ da distribuidora (que fica no cabeçalho ou seção BENEFICIÁRIO) como cnpj_cliente!
@@ -461,6 +463,9 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
     * "Leitura Anterior": leitura inteira anterior impressa nesta fatura específica (ponto é separador de milhar).
     * "Leitura Atual": leitura inteira atual impressa nesta fatura específica (ponto é separador de milhar).
     * "consumo medido (m³)" -> 'consumo_medido'.
+  - IDENTIFICAÇÃO DA FATURA DE GÁS ('identificacao'):
+    * Se o documento identificar o destino/setor de consumo (ex.: "Caldeira", "Piscina", "Cozinha", "Aquecimento", nome do setor impresso na fatura), use esse nome.
+    * Caso contrário, use a numeração impressa do medidor ou da NFe (ex.: "NFe 12345", "Medidor 401571"). NUNCA invente.
 
 2. Se for Energia Elétrica (Enel, CPFL, Light, CEMIG):
   - Quadro "TOTAL A PAGAR" / "VALOR TOTAL" -> 'valor_total'.
@@ -472,6 +477,10 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
   - Na Enel classe B, o consumo é SEMPRE ÚNICO.
   - Tarifas sob coluna "Preço Unit (R$) com tributos" para TUSD e TE.
   - Bandeira tarifária: leia do texto "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]" ou do item "ADICIONAL BANDEIRA [COR]" -> 'adicional_bandeira' (ex: "Bandeira Amarela", "Bandeira Verde").
+  - TIPO DE FATURA DE ENERGIA ('tipo_fatura_energia'):
+    * Se a fatura é emitida por uma DISTRIBUIDORA/CONCESsionária (Enel, CPFL, Light, CEMIG, Equatorial...) -> 'concessionaria'.
+    * Se a fatura é emitida por uma COMERCIALIZADORA do Mercado Livre/ACL (CCEE, Comerc, Matery, Watt...) -> 'mercado_livre'.
+    * Na dúvida, 'concessionaria'.
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
@@ -727,6 +736,8 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
 
         // Sanitizar strings de identificação
         parsed.numero_fatura = sanitizeText(parsed.numero_fatura)
+        parsed.identificacao = sanitizeText(parsed.identificacao)
+        parsed.tipo_fatura_energia = sanitizeText(parsed.tipo_fatura_energia)
         parsed.cnpj_cliente = sanitizeText(parsed.cnpj_cliente)
         parsed.cnpj_fornecedor = sanitizeText(parsed.cnpj_fornecedor)
         parsed.classificacao_consumo = sanitizeText(parsed.classificacao_consumo)
@@ -1127,6 +1138,15 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
 
         if (parsed.numeroFatura !== undefined && parsed.numero_fatura === undefined) {
           parsed.numero_fatura = parsed.numeroFatura
+        }
+        if (parsed.tipoFaturaEnergia !== undefined && parsed.tipo_fatura_energia === undefined) {
+          parsed.tipo_fatura_energia = parsed.tipoFaturaEnergia
+        }
+        if (parsed.identificador !== undefined && parsed.identificacao === undefined) {
+          parsed.identificacao = parsed.identificador
+        }
+        if (parsed.destino !== undefined && parsed.identificacao === undefined) {
+          parsed.identificacao = parsed.destino
         }
         if (parsed.unidadeConsumo !== undefined && parsed.unidade_consumo === undefined) {
           parsed.unidade_consumo = parsed.unidadeConsumo

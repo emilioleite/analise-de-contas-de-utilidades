@@ -78,6 +78,8 @@ export interface FaturaRecord {
   vencimento?: string
   dados_especificos?: DadosEspecificos | string
   lancamento_manual?: boolean
+  identificacao?: string
+  tipo_fatura_energia?: 'concessionaria' | 'mercado_livre'
   owner: string
   created: string
   updated: string
