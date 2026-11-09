@@ -2207,6 +2207,39 @@ export default function Faturas() {
     }
   }
 
+  /**
+   * Badge de identificação da fatura (múltiplas faturas por mês):
+   * - Energia Elétrica: Concessionária (padrão) ou Mercado Livre.
+   * - Gás: destino/medidor quando informado (ex.: "Caldeira", "NFe 123").
+   * - Água e Esgoto / sem marcação: nada exibido.
+   */
+  const getFaturaIdentBadge = (fat: FaturaRecord) => {
+    if (fat.tipo_utilidade === 'Energia Elétrica') {
+      const isML = getFaturaTipoEnergia(fat) === 'mercado_livre'
+      return (
+        <span
+          className={
+            isML
+              ? 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-50 text-violet-800 border border-violet-200'
+              : 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-normal bg-amber-50/60 text-amber-700 border border-amber-100'
+          }
+        >
+          {isML ? 'Mercado Livre' : 'Concessionária'}
+        </span>
+      )
+    }
+    if (fat.tipo_utilidade === 'Gás') {
+      const ident = getFaturaIdentificacao(fat)
+      if (!ident) return null
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200">
+          {ident}
+        </span>
+      )
+    }
+    return null
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
