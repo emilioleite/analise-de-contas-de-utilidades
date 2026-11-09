@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select'
 import { formatCurrencyBRL, toSafeNumber } from '@/lib/cnpj'
 import { getFaturaConsumoReal } from '@/lib/consumoTarifa'
+import { getFaturaTipoEnergia } from '@/lib/faturaIdentificacao'
 import { useCountUp } from '@/hooks/use-count-up'
 import { useToast } from '@/hooks/use-toast'
 import { gerarRelatorioDashboardPDF } from '@/services/relatorioDashboardPdf'
@@ -268,6 +269,10 @@ export default function Index() {
         consumo: 0,
         valor: 0,
         tarifa: 0,
+        consumoConcessionaria: 0,
+        consumoMercadoLivre: 0,
+        valorConcessionaria: 0,
+        valorMercadoLivre: 0,
       }
     }
 
@@ -283,6 +288,12 @@ export default function Index() {
     let countAgua = 0
     let countGas = 0
     let countEnergia = 0
+
+    let temMercadoLivreEnergia = false
+    let energiaConcValorTotal = 0
+    let energiaConcConsumoTotal = 0
+    let energiaMLValorTotal = 0
+    let energiaMLConsumoTotal = 0
 
     // Preencher com faturas válidas
     validFaturas.forEach((fat) => {
@@ -300,6 +311,16 @@ export default function Index() {
           energia += val
           cEnergiaTotal += consumoFisico
           countEnergia++
+
+          const tipoEnergia = getFaturaTipoEnergia(fat)
+          if (tipoEnergia === 'mercado_livre') {
+            temMercadoLivreEnergia = true
+            energiaMLValorTotal += val
+            energiaMLConsumoTotal += consumoFisico
+          } else {
+            energiaConcValorTotal += val
+            energiaConcConsumoTotal += consumoFisico
+          }
         } else if (fat.tipo_utilidade === 'Água e Esgoto') {
           agua += val
           cAguaTotal += consumoFisico
@@ -333,6 +354,20 @@ export default function Index() {
       } else if (fat.tipo_utilidade === 'Energia Elétrica' && energiaMonthlyMap[key]) {
         energiaMonthlyMap[key].valor += val
         energiaMonthlyMap[key].consumo += consumoFisico
+
+        const tipoEnergia = getFaturaTipoEnergia(fat)
+        if (tipoEnergia === 'mercado_livre') {
+          temMercadoLivreEnergia = true
+          energiaMonthlyMap[key].valorMercadoLivre =
+            (energiaMonthlyMap[key].valorMercadoLivre || 0) + val
+          energiaMonthlyMap[key].consumoMercadoLivre =
+            (energiaMonthlyMap[key].consumoMercadoLivre || 0) + consumoFisico
+        } else {
+          energiaMonthlyMap[key].valorConcessionaria =
+            (energiaMonthlyMap[key].valorConcessionaria || 0) + val
+          energiaMonthlyMap[key].consumoConcessionaria =
+            (energiaMonthlyMap[key].consumoConcessionaria || 0) + consumoFisico
+        }
       }
     })
 
@@ -387,7 +422,9 @@ export default function Index() {
     const secaoEnergiaData: UtilidadeSectionData = {
       tipoUtilidade: 'Energia Elétrica',
       titulo: 'Energia Elétrica',
-      subtitulo: 'Fornecimento elétrico de concessionária (kWh e R$)',
+      subtitulo: temMercadoLivreEnergia
+        ? 'Concessionária (distribuição) + Mercado Livre (comercializadora) (kWh e R$)'
+        : 'Fornecimento elétrico de concessionária (kWh e R$)',
       icon: Zap,
       corTema: '#F59E0B',
       corFundoIcone: 'bg-amber-50',
@@ -400,6 +437,19 @@ export default function Index() {
       tarifaMedia: cEnergiaTotal > 0 ? toSafeNumber(energia / cEnergiaTotal, 0) : 0,
       faturasCount: countEnergia,
       meses: Object.values(energiaMonthlyMap),
+      temMercadoLivre: temMercadoLivreEnergia,
+      totaisSeries: temMercadoLivreEnergia
+        ? {
+            concessionaria: {
+              consumo: energiaConcConsumoTotal,
+              valor: energiaConcValorTotal,
+            },
+            mercadoLivre: {
+              consumo: energiaMLConsumoTotal,
+              valor: energiaMLValorTotal,
+            },
+          }
+        : undefined,
     }
 
     const donut = [

@@ -9,6 +9,12 @@ import {
   getRotuloTarifa,
 } from '@/lib/consumoTarifa'
 import {
+  agruparFaturasPorSerie,
+  getFaturaTipoEnergia,
+  TipoFaturaEnergia,
+} from '@/lib/faturaIdentificacao'
+import { buildLinhasDetalhamento } from '@/lib/analiseSeries'
+import {
   TrendingUp,
   TrendingDown,
   Activity,
@@ -88,6 +94,8 @@ export default function Analise24Meses() {
     // Tabela
     tableRows,
     accentColor,
+    temMercadoLivreEnergia,
+    statsEnergiaSeries,
   } = useMemo(() => {
     if (!faturas || faturas.length === 0) {
       return {
@@ -108,6 +116,8 @@ export default function Analise24Meses() {
         mediaTarifaPeriodo: 0,
         tableRows: [],
         accentColor: '#0F766E',
+        temMercadoLivreEnergia: false,
+        statsEnergiaSeries: null,
       }
     }
 
@@ -136,6 +146,8 @@ export default function Analise24Meses() {
         mediaTarifaPeriodo: 0,
         tableRows: [],
         accentColor: '#0F766E',
+        temMercadoLivreEnergia: false,
+        statsEnergiaSeries: null,
       }
     }
 
@@ -178,6 +190,11 @@ export default function Analise24Meses() {
       monthNames[Number.isFinite(newestDate.getMonth()) ? newestDate.getMonth() : 0] || ''
     } ${newestDate.getFullYear()}`
 
+    // Verifica se há faturas de Mercado Livre em Energia Elétrica
+    const temMercadoLivreEnergia =
+      activeTab === 'Energia Elétrica' &&
+      relevantFaturas.some((f) => getFaturaTipoEnergia(f) === 'mercado_livre')
+
     // Build exactly 24 monthly slots leading up to newestDate
     const slots: {
       key: string
@@ -187,6 +204,11 @@ export default function Analise24Meses() {
       valor: number
       consumo: number
       tarifa: number // R$ por unidade do mês
+      // Sub-séries para Energia Elétrica quando houver Mercado Livre
+      valorConcessionaria: number
+      consumoConcessionaria: number
+      valorMercadoLivre: number
+      consumoMercadoLivre: number
     }[] = []
 
     for (let i = 23; i >= 0; i--) {
@@ -203,6 +225,10 @@ export default function Analise24Meses() {
         valor: 0,
         consumo: 0,
         tarifa: 0,
+        valorConcessionaria: 0,
+        consumoConcessionaria: 0,
+        valorMercadoLivre: 0,
+        consumoMercadoLivre: 0,
       })
     }
 
@@ -214,9 +240,23 @@ export default function Analise24Meses() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       const found = slots.find((s) => s.key === key)
       if (found) {
-        found.valor += toSafeNumber(fat.valor_total, 0)
+        const valFat = toSafeNumber(fat.valor_total, 0)
         const real = getFaturaConsumoReal(fat)
-        found.consumo += toSafeNumber(real?.consumo, 0)
+        const consFat = toSafeNumber(real?.consumo, 0)
+
+        found.valor += valFat
+        found.consumo += consFat
+
+        if (activeTab === 'Energia Elétrica') {
+          const tipo = getFaturaTipoEnergia(fat)
+          if (tipo === 'mercado_livre') {
+            found.valorMercadoLivre += valFat
+            found.consumoMercadoLivre += consFat
+          } else {
+            found.valorConcessionaria += valFat
+            found.consumoConcessionaria += consFat
+          }
+        }
       }
     })
 
@@ -319,35 +359,111 @@ export default function Analise24Meses() {
     })
 
     // Monthly table rows with % variations (newest first)
+    // Se for Gás com múltiplas faturas no mesmo mês OU Energia com Mercado Livre,
+    // usamos buildLinhasDetalhamento para linhas separadas.
+    const linhasCustomizadas = buildLinhasDetalhamento(slots, relevantFaturas, activeTab)
+
     const reversedSlots = [...slots].reverse()
-    const tableData = reversedSlots.map((item, index) => {
-      const prev = reversedSlots[index + 1]
+    const tableData =
+      linhasCustomizadas.length > 0
+        ? linhasCustomizadas
+        : reversedSlots.map((item, index) => {
+            const prev = reversedSlots[index + 1]
 
-      let variacaoPct = 0
-      if (prev && prev.valor > 0) {
-        variacaoPct = ((item.valor - prev.valor) / prev.valor) * 100
+            let variacaoPct = 0
+            if (prev && prev.valor > 0) {
+              variacaoPct = ((item.valor - prev.valor) / prev.valor) * 100
+            }
+
+            let variacaoConsumoPct = 0
+            if (prev && prev.consumo > 0) {
+              variacaoConsumoPct = ((item.consumo - prev.consumo) / prev.consumo) * 100
+            }
+
+            const isMax = item.key === maxFinanceiro?.key && item.valor > 0
+            const isMin = item.key === minFinanceiro?.key && item.valor > 0
+            const isMaxConsumo = item.key === maxConsumo?.key && item.consumo > 0
+            const isMinConsumo = item.key === minConsumo?.key && item.consumo > 0
+
+            return {
+              ...item,
+              variacaoPct,
+              variacaoConsumoPct,
+              isMax,
+              isMin,
+              isMaxConsumo,
+              isMinConsumo,
+            }
+          })
+
+    // Estatísticas específicas por série para Energia Elétrica com Mercado Livre
+    let statsEnergiaSeries: {
+      concessionaria: {
+        totalValor: number
+        totalConsumo: number
+        maxValor: { label: string; valor: number } | null
+        minValor: { label: string; valor: number } | null
+        maxConsumo: { label: string; consumo: number } | null
+        minConsumo: { label: string; consumo: number } | null
       }
-
-      let variacaoConsumoPct = 0
-      if (prev && prev.consumo > 0) {
-        variacaoConsumoPct = ((item.consumo - prev.consumo) / prev.consumo) * 100
+      mercadoLivre: {
+        totalValor: number
+        totalConsumo: number
+        maxValor: { label: string; valor: number } | null
+        minValor: { label: string; valor: number } | null
+        maxConsumo: { label: string; consumo: number } | null
+        minConsumo: { label: string; consumo: number } | null
       }
+    } | null = null
 
-      const isMax = item.key === maxFinanceiro?.key && item.valor > 0
-      const isMin = item.key === minFinanceiro?.key && item.valor > 0
-      const isMaxConsumo = item.key === maxConsumo?.key && item.consumo > 0
-      const isMinConsumo = item.key === minConsumo?.key && item.consumo > 0
+    if (temMercadoLivreEnergia) {
+      const concVals = slots
+        .filter((s) => s.valorConcessionaria > 0)
+        .map((s) => ({ label: s.label, valor: s.valorConcessionaria }))
+      const concCons = slots
+        .filter((s) => s.consumoConcessionaria > 0)
+        .map((s) => ({ label: s.label, consumo: s.consumoConcessionaria }))
 
-      return {
-        ...item,
-        variacaoPct,
-        variacaoConsumoPct,
-        isMax,
-        isMin,
-        isMaxConsumo,
-        isMinConsumo,
+      const mlVals = slots
+        .filter((s) => s.valorMercadoLivre > 0)
+        .map((s) => ({ label: s.label, valor: s.valorMercadoLivre }))
+      const mlCons = slots
+        .filter((s) => s.consumoMercadoLivre > 0)
+        .map((s) => ({ label: s.label, consumo: s.consumoMercadoLivre }))
+
+      const maxConcVal = concVals.length ? [...concVals].sort((a, b) => b.valor - a.valor)[0] : null
+      const minConcVal = concVals.length ? [...concVals].sort((a, b) => a.valor - b.valor)[0] : null
+      const maxConcCons = concCons.length
+        ? [...concCons].sort((a, b) => b.consumo - a.consumo)[0]
+        : null
+      const minConcCons = concCons.length
+        ? [...concCons].sort((a, b) => a.consumo - b.consumo)[0]
+        : null
+
+      const maxMlVal = mlVals.length ? [...mlVals].sort((a, b) => b.valor - a.valor)[0] : null
+      const minMlVal = mlVals.length ? [...mlVals].sort((a, b) => a.valor - b.valor)[0] : null
+      const maxMlCons = mlCons.length ? [...mlCons].sort((a, b) => b.consumo - a.consumo)[0] : null
+      const minMlCons = mlCons.length ? [...mlCons].sort((a, b) => a.consumo - b.consumo)[0] : null
+
+      statsEnergiaSeries = {
+        concessionaria: {
+          totalValor: slots.reduce((acc, s) => acc + s.valorConcessionaria, 0),
+          totalConsumo: slots.reduce((acc, s) => acc + s.consumoConcessionaria, 0),
+          maxValor: maxConcVal,
+          minValor: minConcVal,
+          maxConsumo: maxConcCons,
+          minConsumo: minConcCons,
+        },
+        mercadoLivre: {
+          totalValor: slots.reduce((acc, s) => acc + s.valorMercadoLivre, 0),
+          totalConsumo: slots.reduce((acc, s) => acc + s.consumoMercadoLivre, 0),
+          maxValor: maxMlVal,
+          minValor: minMlVal,
+          maxConsumo: maxMlCons,
+          minConsumo: minMlCons,
+        },
       }
-    })
+    }
 
     // Pick accent color for the utility
     let color = '#0F766E'
@@ -380,6 +496,8 @@ export default function Analise24Meses() {
       // Tabela
       tableRows: tableData,
       accentColor: color,
+      temMercadoLivreEnergia,
+      statsEnergiaSeries,
     }
   }, [faturas, selectedEmpreendimento, activeTab])
 
@@ -724,6 +842,26 @@ export default function Analise24Meses() {
                 <span className="font-semibold text-red-700">Mês de pico:</span>
                 <span>{maxConsumoPoint?.label || '-'}</span>
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Pico Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.concessionaria.maxConsumo
+                        ? `${formatNumberBR(statsEnergiaSeries.concessionaria.maxConsumo.consumo)} ${unidadeConsumo} (${statsEnergiaSeries.concessionaria.maxConsumo.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Pico Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.mercadoLivre.maxConsumo
+                        ? `${formatNumberBR(statsEnergiaSeries.mercadoLivre.maxConsumo.consumo)} ${unidadeConsumo} (${statsEnergiaSeries.mercadoLivre.maxConsumo.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -749,6 +887,26 @@ export default function Analise24Meses() {
                 <span className="font-semibold text-green-700">Mês de menor consumo:</span>
                 <span>{minConsumoPoint?.label || '-'}</span>
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Mín. Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.concessionaria.minConsumo
+                        ? `${formatNumberBR(statsEnergiaSeries.concessionaria.minConsumo.consumo)} ${unidadeConsumo} (${statsEnergiaSeries.concessionaria.minConsumo.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Mín. Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.mercadoLivre.minConsumo
+                        ? `${formatNumberBR(statsEnergiaSeries.mercadoLivre.minConsumo.consumo)} ${unidadeConsumo} (${statsEnergiaSeries.mercadoLivre.minConsumo.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -773,6 +931,24 @@ export default function Analise24Meses() {
               <p className="text-xs text-gray-500 mt-1">
                 Total 24m: {formatNumberBR(totalConsumoPeriodo)} {unidadeConsumo}
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Total Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {formatNumberBR(statsEnergiaSeries.concessionaria.totalConsumo)}{' '}
+                      {unidadeConsumo}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Total Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {formatNumberBR(statsEnergiaSeries.mercadoLivre.totalConsumo)}{' '}
+                      {unidadeConsumo}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -790,6 +966,18 @@ export default function Analise24Meses() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
+              {temMercadoLivreEnergia && (
+                <>
+                  <span className="flex items-center gap-1 text-amber-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
+                    Concessionária
+                  </span>
+                  <span className="flex items-center gap-1 text-purple-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#7C3AED]" />
+                    Mercado Livre
+                  </span>
+                </>
+              )}
               <span className="flex items-center gap-1 text-red-600">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626]" />
                 Pico
@@ -808,6 +996,14 @@ export default function Analise24Meses() {
                   <linearGradient id="colorConsumoArea" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={accentColor} stopOpacity={0.3} />
                     <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="colorConsumoConc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="colorConsumoML" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#7C3AED" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
@@ -847,8 +1043,24 @@ export default function Analise24Meses() {
                             )}
                           </div>
                           <p className="font-bold tabular-nums text-white text-sm">
-                            {formatNumberBR(row.consumo)} {unidadeConsumo}
+                            Total: {formatNumberBR(row.consumo)} {unidadeConsumo}
                           </p>
+                          {temMercadoLivreEnergia && (
+                            <div className="pt-1 border-t border-gray-800 space-y-1 text-[11px]">
+                              <div className="flex justify-between items-center text-amber-300">
+                                <span>Concessionária:</span>
+                                <span className="font-semibold tabular-nums">
+                                  {formatNumberBR(row.consumoConcessionaria || 0)} {unidadeConsumo}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-purple-300">
+                                <span>Mercado Livre:</span>
+                                <span className="font-semibold tabular-nums">
+                                  {formatNumberBR(row.consumoMercadoLivre || 0)} {unidadeConsumo}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {row.valor > 0 && (
                             <p className="text-gray-400 text-[11px]">
                               Valor: {formatCurrencyBRL(row.valor)}
@@ -865,17 +1077,42 @@ export default function Analise24Meses() {
                     return null
                   }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="consumo"
-                  name="Consumo"
-                  stroke={accentColor}
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#colorConsumoArea)"
-                  dot={<RenderCustomDotConsumo />}
-                  activeDot={{ r: 6, stroke: '#FFFFFF', strokeWidth: 2 }}
-                />
+                {temMercadoLivreEnergia ? (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="consumoConcessionaria"
+                      name="Concessionária"
+                      stroke="#F59E0B"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#colorConsumoConc)"
+                      activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="consumoMercadoLivre"
+                      name="Mercado Livre"
+                      stroke="#7C3AED"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#colorConsumoML)"
+                      activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2 }}
+                    />
+                  </>
+                ) : (
+                  <Area
+                    type="monotone"
+                    dataKey="consumo"
+                    name="Consumo"
+                    stroke={accentColor}
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#colorConsumoArea)"
+                    dot={<RenderCustomDotConsumo />}
+                    activeDot={{ r: 6, stroke: '#FFFFFF', strokeWidth: 2 }}
+                  />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1198,6 +1435,26 @@ export default function Analise24Meses() {
                 <span className="font-semibold text-red-700">Pico histórico:</span>
                 <span>{maxPoint?.label || '-'}</span>
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Pico Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.concessionaria.maxValor
+                        ? `${formatCurrencyBRL(statsEnergiaSeries.concessionaria.maxValor.valor)} (${statsEnergiaSeries.concessionaria.maxValor.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Pico Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.mercadoLivre.maxValor
+                        ? `${formatCurrencyBRL(statsEnergiaSeries.mercadoLivre.maxValor.valor)} (${statsEnergiaSeries.mercadoLivre.maxValor.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -1222,6 +1479,26 @@ export default function Analise24Meses() {
                 <span className="font-semibold text-green-700">Mínimo apurado:</span>
                 <span>{minPoint?.label || '-'}</span>
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Mín. Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.concessionaria.minValor
+                        ? `${formatCurrencyBRL(statsEnergiaSeries.concessionaria.minValor.valor)} (${statsEnergiaSeries.concessionaria.minValor.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Mín. Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {statsEnergiaSeries.mercadoLivre.minValor
+                        ? `${formatCurrencyBRL(statsEnergiaSeries.mercadoLivre.minValor.valor)} (${statsEnergiaSeries.mercadoLivre.minValor.label})`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -1245,6 +1522,22 @@ export default function Analise24Meses() {
               <p className="text-xs text-gray-500 mt-1">
                 Total acumulado 24m: {formatCurrencyBRL(totalPeriodo)}
               </p>
+              {temMercadoLivreEnergia && statsEnergiaSeries && (
+                <div className="mt-2.5 pt-2 border-t border-gray-100 text-[11px] space-y-0.5">
+                  <div className="flex justify-between items-center text-amber-800">
+                    <span className="font-medium">Total Concessionária:</span>
+                    <span className="font-bold tabular-nums">
+                      {formatCurrencyBRL(statsEnergiaSeries.concessionaria.totalValor)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-purple-800">
+                    <span className="font-medium">Total Mercado Livre:</span>
+                    <span className="font-bold tabular-nums">
+                      {formatCurrencyBRL(statsEnergiaSeries.mercadoLivre.totalValor)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -1261,6 +1554,18 @@ export default function Analise24Meses() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-4 text-xs font-medium">
+              {temMercadoLivreEnergia && (
+                <>
+                  <span className="flex items-center gap-1 text-amber-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
+                    Concessionária
+                  </span>
+                  <span className="flex items-center gap-1 text-purple-700">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#7C3AED]" />
+                    Mercado Livre
+                  </span>
+                </>
+              )}
               <span className="flex items-center gap-1 text-red-600">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626]" />
                 Máxima
@@ -1279,6 +1584,14 @@ export default function Analise24Meses() {
                   <linearGradient id="colorUtility" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={accentColor} stopOpacity={0.25} />
                     <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="colorValorConc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="colorValorML" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#7C3AED" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
@@ -1318,8 +1631,24 @@ export default function Analise24Meses() {
                             )}
                           </div>
                           <p className="font-bold tabular-nums text-white text-sm">
-                            {formatCurrencyBRL(row.valor)}
+                            Total: {formatCurrencyBRL(row.valor)}
                           </p>
+                          {temMercadoLivreEnergia && (
+                            <div className="pt-1 border-t border-gray-800 space-y-1 text-[11px]">
+                              <div className="flex justify-between items-center text-amber-300">
+                                <span>Concessionária:</span>
+                                <span className="font-semibold tabular-nums">
+                                  {formatCurrencyBRL(row.valorConcessionaria || 0)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-purple-300">
+                                <span>Mercado Livre:</span>
+                                <span className="font-semibold tabular-nums">
+                                  {formatCurrencyBRL(row.valorMercadoLivre || 0)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {row.consumo > 0 && (
                             <p className="text-gray-400 text-[11px]">
                               Consumo: {formatNumberBR(row.consumo)} {unidadeConsumo}
@@ -1336,17 +1665,42 @@ export default function Analise24Meses() {
                     return null
                   }}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="valor"
-                  name="Gasto Total"
-                  stroke={accentColor}
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#colorUtility)"
-                  dot={<RenderCustomDotFinanceiro />}
-                  activeDot={{ r: 6, stroke: '#FFFFFF', strokeWidth: 2 }}
-                />
+                {temMercadoLivreEnergia ? (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="valorConcessionaria"
+                      name="Concessionária"
+                      stroke="#F59E0B"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#colorValorConc)"
+                      activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="valorMercadoLivre"
+                      name="Mercado Livre"
+                      stroke="#7C3AED"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#colorValorML)"
+                      activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2 }}
+                    />
+                  </>
+                ) : (
+                  <Area
+                    type="monotone"
+                    dataKey="valor"
+                    name="Gasto Total"
+                    stroke={accentColor}
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#colorUtility)"
+                    dot={<RenderCustomDotFinanceiro />}
+                    activeDot={{ r: 6, stroke: '#FFFFFF', strokeWidth: 2 }}
+                  />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1469,7 +1823,24 @@ export default function Analise24Meses() {
 
                 return (
                   <tr key={row.key} className={rowBgClass}>
-                    <td className="py-3 px-4 font-semibold text-gray-900">{row.label}</td>
+                    <td className="py-3 px-4 font-semibold text-gray-900">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{row.label}</span>
+                        {(row as any).rotuloIdentificacao && (
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                              (row as any).tipoEnergia === 'mercado_livre'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : (row as any).tipoEnergia === 'concessionaria'
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : 'bg-teal-100 text-teal-800 border border-teal-200'
+                            }`}
+                          >
+                            {(row as any).rotuloIdentificacao}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-right font-medium text-gray-700 tabular-nums">
                       {row.consumo > 0 ? formatNumberBR(row.consumo) : '-'}
                     </td>

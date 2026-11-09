@@ -25,6 +25,10 @@ export interface MonthDataPoint {
   consumo: number
   valor: number
   tarifa: number
+  consumoConcessionaria?: number
+  consumoMercadoLivre?: number
+  valorConcessionaria?: number
+  valorMercadoLivre?: number
 }
 
 export interface UtilidadeSectionData {
@@ -43,6 +47,11 @@ export interface UtilidadeSectionData {
   tarifaMedia: number
   faturasCount: number
   meses: MonthDataPoint[]
+  temMercadoLivre?: boolean
+  totaisSeries?: {
+    concessionaria: { consumo: number; valor: number }
+    mercadoLivre: { consumo: number; valor: number }
+  }
 }
 
 interface UtilidadeSectionProps {
@@ -109,24 +118,48 @@ export function UtilidadeSection({
     }
   }
 
+  const temMercadoLivre = Boolean(data.temMercadoLivre)
+
   // Tooltip customizada para gráfico de Consumo Físico
   const CustomConsumoTooltip = ({ active, payload, label }: any) => {
     if (active && Array.isArray(payload) && payload.length && payload[0]) {
-      const val = toSafeNumber(payload[0].value, 0)
+      const row = payload[0].payload
       return (
-        <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1 border border-gray-800">
+        <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 border border-gray-800">
           <p className="font-semibold text-gray-200 border-b border-gray-700 pb-1">
             Competência: {label || 'Período'}
           </p>
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-1.5 text-gray-300">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: corTema }} />
-              Consumo Físico:
+              Consumo Total:
             </span>
             <span className="font-bold tabular-nums text-white">
-              {formatNumberBR(val, 2)} {unidadeConsumo}
+              {formatNumberBR(row.consumo, 2)} {unidadeConsumo}
             </span>
           </div>
+          {temMercadoLivre && (
+            <div className="pt-1 border-t border-gray-800 space-y-1 text-[11px]">
+              <div className="flex justify-between items-center text-amber-300">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                  Concessionária:
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {formatNumberBR(row.consumoConcessionaria || 0, 2)} {unidadeConsumo}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-purple-300">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />
+                  Mercado Livre:
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {formatNumberBR(row.consumoMercadoLivre || 0, 2)} {unidadeConsumo}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )
     }
@@ -136,21 +169,43 @@ export function UtilidadeSection({
   // Tooltip customizada para gráfico de Gasto em R$
   const CustomGastoTooltip = ({ active, payload, label }: any) => {
     if (active && Array.isArray(payload) && payload.length && payload[0]) {
-      const val = toSafeNumber(payload[0].value, 0)
+      const row = payload[0].payload
       return (
-        <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1 border border-gray-800">
+        <div className="bg-[#111827] text-white p-2.5 rounded-lg shadow-xl text-xs space-y-1.5 border border-gray-800">
           <p className="font-semibold text-gray-200 border-b border-gray-700 pb-1">
             Competência: {label || 'Período'}
           </p>
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-1.5 text-gray-300">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: corTema }} />
-              Gasto no Mês:
+              Gasto Total:
             </span>
             <span className="font-bold tabular-nums text-emerald-400">
-              {formatCurrencyBRL(val)}
+              {formatCurrencyBRL(row.valor)}
             </span>
           </div>
+          {temMercadoLivre && (
+            <div className="pt-1 border-t border-gray-800 space-y-1 text-[11px]">
+              <div className="flex justify-between items-center text-amber-300">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                  Concessionária:
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {formatCurrencyBRL(row.valorConcessionaria || 0)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-purple-300">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />
+                  Mercado Livre:
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {formatCurrencyBRL(row.valorMercadoLivre || 0)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )
     }
@@ -218,6 +273,22 @@ export function UtilidadeSection({
               <TrendingUp className="w-3 h-3 text-gray-400 inline" />
               Desembolso financeiro no período
             </p>
+            {temMercadoLivre && data.totaisSeries && (
+              <div className="mt-2 pt-2 border-t border-gray-200/70 text-[11px] space-y-0.5">
+                <div className="flex justify-between items-center text-amber-800">
+                  <span>Concessionária:</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatCurrencyBRL(data.totaisSeries.concessionaria.valor)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-purple-800">
+                  <span>Mercado Livre:</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatCurrencyBRL(data.totaisSeries.mercadoLivre.valor)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -237,6 +308,22 @@ export function UtilidadeSection({
             <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
               Volume total apurado
             </p>
+            {temMercadoLivre && data.totaisSeries && (
+              <div className="mt-2 pt-2 border-t border-gray-200/70 text-[11px] space-y-0.5">
+                <div className="flex justify-between items-center text-amber-800">
+                  <span>Concessionária:</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatNumberBR(data.totaisSeries.concessionaria.consumo, 0)} {unidadeConsumo}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-purple-800">
+                  <span>Mercado Livre:</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatNumberBR(data.totaisSeries.mercadoLivre.consumo, 0)} {unidadeConsumo}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -270,7 +357,7 @@ export function UtilidadeSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Gráfico 1: Consumo Físico (m³ ou kWh) */}
         <div className="p-4 rounded-xl border border-gray-150 bg-white">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: corTema }} />
@@ -278,9 +365,23 @@ export function UtilidadeSection({
               </h4>
               <p className="text-[11px] text-gray-500">Quantidade física consumida mês a mês</p>
             </div>
-            <span className="text-xs font-semibold tabular-nums text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
-              {formatNumberBR(consumoTotal, 0)} {unidadeConsumo}
-            </span>
+            <div className="flex items-center gap-2 text-xs">
+              {temMercadoLivre && (
+                <div className="flex items-center gap-2.5 text-[11px] font-medium mr-1">
+                  <span className="flex items-center gap-1 text-amber-700">
+                    <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                    Conc.
+                  </span>
+                  <span className="flex items-center gap-1 text-purple-700">
+                    <span className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+                    M. Livre
+                  </span>
+                </div>
+              )}
+              <span className="font-semibold tabular-nums text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                {formatNumberBR(consumoTotal, 0)} {unidadeConsumo}
+              </span>
+            </div>
           </div>
 
           <div className="h-56 w-full">
@@ -296,6 +397,14 @@ export function UtilidadeSection({
                   >
                     <stop offset="5%" stopColor={corTema} stopOpacity={0.25} />
                     <stop offset="95%" stopColor={corTema} stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="gradient-consumo-conc-dash" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#F59E0B" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="gradient-consumo-ml-dash" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#7C3AED" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
@@ -316,16 +425,43 @@ export function UtilidadeSection({
                   }
                 />
                 <RechartsTooltip content={<CustomConsumoTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="consumo"
-                  stroke={corTema}
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill={`url(#gradient-consumo-${tipoUtilidade})`}
-                  dot={{ r: 3, fill: corTema }}
-                  activeDot={{ r: 5 }}
-                />
+                {temMercadoLivre ? (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="consumoConcessionaria"
+                      name="Concessionária"
+                      stroke="#F59E0B"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#gradient-consumo-conc-dash)"
+                      dot={{ r: 2.5, fill: '#F59E0B' }}
+                      activeDot={{ r: 4 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="consumoMercadoLivre"
+                      name="Mercado Livre"
+                      stroke="#7C3AED"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#gradient-consumo-ml-dash)"
+                      dot={{ r: 2.5, fill: '#7C3AED' }}
+                      activeDot={{ r: 4 }}
+                    />
+                  </>
+                ) : (
+                  <Area
+                    type="monotone"
+                    dataKey="consumo"
+                    stroke={corTema}
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill={`url(#gradient-consumo-${tipoUtilidade})`}
+                    dot={{ r: 3, fill: corTema }}
+                    activeDot={{ r: 5 }}
+                  />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -333,7 +469,7 @@ export function UtilidadeSection({
 
         {/* Gráfico 2: Gasto em R$ */}
         <div className="p-4 rounded-xl border border-gray-150 bg-white">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: corTema }} />
@@ -341,9 +477,23 @@ export function UtilidadeSection({
               </h4>
               <p className="text-[11px] text-gray-500">Desembolso financeiro faturado mês a mês</p>
             </div>
-            <span className="text-xs font-semibold tabular-nums text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
-              {formatCurrencyBRL(gastoTotal)}
-            </span>
+            <div className="flex items-center gap-2 text-xs">
+              {temMercadoLivre && (
+                <div className="flex items-center gap-2.5 text-[11px] font-medium mr-1">
+                  <span className="flex items-center gap-1 text-amber-700">
+                    <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                    Conc.
+                  </span>
+                  <span className="flex items-center gap-1 text-purple-700">
+                    <span className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+                    M. Livre
+                  </span>
+                </div>
+              )}
+              <span className="font-semibold tabular-nums text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                {formatCurrencyBRL(gastoTotal)}
+              </span>
+            </div>
           </div>
 
           <div className="h-56 w-full">
@@ -365,7 +515,24 @@ export function UtilidadeSection({
                   tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`}
                 />
                 <RechartsTooltip content={<CustomGastoTooltip />} />
-                <Bar dataKey="valor" fill={corTema} radius={[4, 4, 0, 0]} name="Gasto (R$)" />
+                {temMercadoLivre ? (
+                  <>
+                    <Bar
+                      dataKey="valorConcessionaria"
+                      fill="#F59E0B"
+                      radius={[3, 3, 0, 0]}
+                      name="Concessionária (R$)"
+                    />
+                    <Bar
+                      dataKey="valorMercadoLivre"
+                      fill="#7C3AED"
+                      radius={[3, 3, 0, 0]}
+                      name="Mercado Livre (R$)"
+                    />
+                  </>
+                ) : (
+                  <Bar dataKey="valor" fill={corTema} radius={[4, 4, 0, 0]} name="Gasto (R$)" />
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>

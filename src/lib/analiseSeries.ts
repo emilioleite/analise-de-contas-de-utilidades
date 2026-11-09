@@ -54,8 +54,13 @@ export function buildLinhasDetalhamento(
   if (activeTab !== 'Gás' && activeTab !== 'Energia Elétrica') return []
 
   const reversed = [...slots].reverse()
-  const rows: Array<{ key: string; label: string; valor: number; consumo: number; tarifa: number }> =
-    []
+  const rows: Array<{
+    key: string
+    label: string
+    valor: number
+    consumo: number
+    tarifa: number
+  }> = []
 
   if (activeTab === 'Gás') {
     const porMes = new Map<string, FaturaRecord[]>()
