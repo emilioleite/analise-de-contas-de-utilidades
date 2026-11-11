@@ -40,3 +40,8 @@ test("denies mismatched or inactive profile", () => {
   expect(run({ 3: [{ id: "legacy", email: "other@example.com", status: "ativo" }] }).result).toBeNull()
   expect(run({ 3: [{ id: "legacy", email: "u@example.com", status: "inativo" }] }).result).toBeNull()
 })
+
+test("denies malformed HTTP responses without status code", () => {
+  const http = { send() { return { raw: JSON.stringify({ access_token: "token", user: { id: "uid", email: "u@example.com" } }) } } }
+  expect(verify({ http, url: "https://example.test", publishableKey: "public", email: "u@example.com", password: "password" })).toBeNull()
+})
