@@ -33,7 +33,7 @@ module.exports = function verifyCentralCredentials(options) {
   const headers = { apikey: key, Authorization: 'Bearer ' + auth.access_token }
   const filter = '?user_uid=eq.' + encodeURIComponent(uid)
   const links = request(base + '/rest/v1/ceq_account_links' + filter + '&select=profile_id', 'GET', headers)
-  const grants = request(base + '/rest/v1/ceq_user_modules' + filter + '&select=modules,active', 'GET', headers)
+  const grants = request(base + '/rest/v1/ceq_effective_access' + filter + '&select=modules,active', 'GET', headers)
   if (!Array.isArray(links) || links.length !== 1 || !links[0].profile_id ||
       !Array.isArray(grants) || grants.length !== 1 || grants[0].active !== true ||
       !Array.isArray(grants[0].modules) || grants[0].modules.indexOf('analise_contas') === -1) return null
