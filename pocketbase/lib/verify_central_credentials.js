@@ -13,8 +13,8 @@ module.exports = function verifyCentralCredentials(options) {
   function request(url, method, headers, body) {
     try {
       const result = http.send({ url, method, headers, body, timeout: 10 })
-      if (!result || result.statusCode < 200 || result.statusCode >= 300) return null
-      return JSON.parse(result.raw)
+      if (!result || typeof result.statusCode !== 'number' || result.statusCode < 200 || result.statusCode >= 300) return null
+      return typeof result.raw === 'string' ? JSON.parse(result.raw) : result.json || null
     } catch (_) {
       return null
     }
