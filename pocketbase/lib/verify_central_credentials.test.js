@@ -23,6 +23,8 @@ test("accepts central identity with active module and legacy profile", () => {
   const { result, calls } = run()
   expect(result).toEqual({ userId: "uid", profileId: "legacy", email: "u@example.com" })
   expect(calls[1].headers.Authorization).toBe("Bearer token")
+  expect(calls[1].url).toContain("/ceq_account_links?user_uid=eq.uid")
+  expect(calls[2].url).toContain("/ceq_effective_access?user_uid=eq.uid")
 })
 test("denies failed authentication and transport failure", () => {
   expect(run({ fail: 0 }).result).toBeNull()
