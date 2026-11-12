@@ -4,7 +4,9 @@ migrate(
       const rec = app.findRecordById('faturas', '39dokv0aezvsvuz')
       const existing = JSON.parse(rec.getString('dados_especificos') || '{}')
       existing.t3_err = existing.t3_fast_detail ? existing.t3_fast_detail.err || 'ok' : 'missing'
-      existing.t4_err = existing.t4_reas_nodetail ? existing.t4_reas_nodetail.err || 'ok' : 'missing'
+      existing.t4_err = existing.t4_reas_nodetail
+        ? existing.t4_reas_nodetail.err || 'ok'
+        : 'missing'
       existing.t4_ok = existing.t4_reas_nodetail?.ok
       existing.t4_reply = existing.t4_reas_nodetail?.reply
       existing.t5_err = existing.t5_reas_detail ? existing.t5_reas_detail.err || 'ok' : 'missing'
@@ -19,5 +21,5 @@ migrate(
       app.save(rec)
     } catch (_) {}
   },
-  (app) => {}
+  (app) => {},
 )

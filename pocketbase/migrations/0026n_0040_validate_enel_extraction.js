@@ -6,7 +6,8 @@ migrate(
       console.log('[test_enel_validation] Running validation...')
 
       // Dummy 10x10 base64 jpeg image to simulate client-rendered scanned PDF page
-      const sampleJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAAKAAoBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+      const sampleJpeg =
+        'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAAKAAoBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 
       // We send a request to /backend/v1/faturas/extract with images
       const resp = $http.send({
@@ -14,12 +15,12 @@ migrate(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           tipo_utilidade: 'Energia Elétrica',
-          images: [sampleJpeg, sampleJpeg]
-        })
+          images: [sampleJpeg, sampleJpeg],
+        }),
       })
 
       const rec = app.findRecordById('faturas', '39dokv0aezvsvuz')
@@ -36,5 +37,5 @@ migrate(
       app.save(rec)
     }
   },
-  (app) => {}
+  (app) => {},
 )

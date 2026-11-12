@@ -30,5 +30,5 @@ migrate(
       } catch (_) {}
     }
   },
-  (app) => {}
+  (app) => {},
 )

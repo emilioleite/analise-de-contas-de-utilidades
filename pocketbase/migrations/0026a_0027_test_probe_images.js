@@ -6,7 +6,8 @@ migrate(
       const cleanUrl = `${gwUrl.replace(/\/+$/, '')}/chat/completions`
 
       // 10x10 white jpeg
-      const sampleJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAAKAAoBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
+      const sampleJpeg =
+        'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAAKAAoBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 
       // Test A: with detail: "high"
       const resA = $http.send({
@@ -20,11 +21,11 @@ migrate(
               role: 'user',
               content: [
                 { type: 'text', text: 'Color in 1 word:' },
-                { type: 'image_url', image_url: { url: sampleJpeg, detail: 'high' } }
-              ]
-            }
-          ]
-        })
+                { type: 'image_url', image_url: { url: sampleJpeg, detail: 'high' } },
+              ],
+            },
+          ],
+        }),
       })
 
       // Test B: with image_url as string or without detail
@@ -39,11 +40,11 @@ migrate(
               role: 'user',
               content: [
                 { type: 'text', text: 'Color in 1 word:' },
-                { type: 'image_url', image_url: { url: sampleJpeg } }
-              ]
-            }
-          ]
-        })
+                { type: 'image_url', image_url: { url: sampleJpeg } },
+              ],
+            },
+          ],
+        }),
       })
 
       // Test C: via $ai.chat directly
@@ -57,10 +58,10 @@ migrate(
               role: 'user',
               content: [
                 { type: 'text', text: 'Color in 1 word:' },
-                { type: 'image_url', image_url: { url: sampleJpeg, detail: 'high' } }
-              ]
-            }
-          ]
+                { type: 'image_url', image_url: { url: sampleJpeg, detail: 'high' } },
+              ],
+            },
+          ],
         })
         resCRaw = c.choices[0].message.content
       } catch (errC) {
@@ -72,7 +73,7 @@ migrate(
       existing.__probe_test = {
         testA_high: { status: resA.statusCode, raw: resA.raw ? resA.raw.slice(0, 200) : '' },
         testB_nodetail: { status: resB.statusCode, raw: resB.raw ? resB.raw.slice(0, 200) : '' },
-        testC_ai_chat: { status: resCStatus, raw: resCRaw }
+        testC_ai_chat: { status: resCStatus, raw: resCRaw },
       }
       rec.set('dados_especificos', existing)
       app.save(rec)
@@ -84,5 +85,5 @@ migrate(
       app.save(rec)
     }
   },
-  (app) => {}
+  (app) => {},
 )

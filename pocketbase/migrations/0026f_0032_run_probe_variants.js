@@ -25,5 +25,5 @@ migrate(
       app.save(rec)
     }
   },
-  (app) => {}
+  (app) => {},
 )

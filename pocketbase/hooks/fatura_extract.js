@@ -238,6 +238,11 @@ Para Energia Elétrica (Enel, CPFL, Light, CEMIG, etc.):
     - Preencha 'consumo_ponta', 'tarifa_tusd_ponta', 'tarifa_te_ponta' da linha Ponta.
     - Preencha 'consumo_fora_ponta', 'tarifa_tusd_f_ponta', 'tarifa_te_f_ponta' da linha Fora Ponta.
     - Preencha 'consumo': soma do consumo ponta + fora ponta.
+  * FATURAS DE MERCADO LIVRE (ACL / comercializadora, tipo_fatura_energia = "mercado_livre"):
+    - NUNCA classifique como Grupo B (B1–B4) e NUNCA sugira B3 "por ser Enel" — a comercializadora NÃO informa grupo/subclasse na NFe.
+    - Se o consumo faturado for >= 10.000 kWh/mês, retorne 'classificacao_consumo' = "A" (GRUPO A, alta tensão). Só devolva A1–A4 se a subclasse estiver REALMENTE impressa no documento; caso contrário retorne "A". Se o consumo for menor que isso ou não der para inferir, retorne null e deixe o usuário preencher.
+    - Tarifa: o preço unitário da NFe (item "ENERGIA: FORNECIMENTO LIVRE...") é a TARIFA TE — preencha 'tarifa_te_ponta' com ele. NÃO preencha TUSD ('tarifa_tusd_ponta' = null): a TUSD vem na fatura da concessionária, não na NFe do mercado livre.
+    - CONVERSÃO DE UNIDADE DA TARIFA: preço unitário em R$/MWh deve ser convertido para R$/kWh dividindo por 1000 (ex.: 186,53 R$/MWh -> 0.18653 R$/kWh). NUNCA grave R$/MWh direto no campo de tarifa.
 
 - BANDEIRA TARIFÁRIA NA ENERGIA ELÉTRICA:
   * Procure na seção "MENSAGENS IMPORTANTES" ou cabeçalho a frase "Bandeira(s) tarifária(s) aplicada(s) no mês: [COR]".
@@ -481,6 +486,7 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
     * Se a fatura é emitida por uma DISTRIBUIDORA/CONCESsionária (Enel, CPFL, Light, CEMIG, Equatorial...) -> 'concessionaria'.
     * Se a fatura é emitida por uma COMERCIALIZADORA do Mercado Livre/ACL (CCEE, Comerc, Matery, Watt...) -> 'mercado_livre'.
     * Na dúvida, 'concessionaria'.
+  - FATURA DE MERCADO LIVRE/ACL (comercializadora, NFe de venda de energia): NUNCA classifique como B1–B4; consumo >= 10.000 kWh/mês -> 'classificacao_consumo' = "A" (subclasse A1–A4 apenas se impressa, senão "A"; sem base, null). O preço unitário em R$/MWh é TARIFA TE: divida por 1000 e preencha 'tarifa_te_ponta' em R$/kWh; deixe TUSD null.
 
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
@@ -1665,7 +1671,87 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             }
           } else if (isEnelDoc) {
             // Se for Enel e não informada, assumir B3 (comum para essas contas comerciais)
-            parsed.classificacao_consumo = 'B3'
+            if (!isMercadoLivreFatura) {
+              parsed.classificacao_consumo = 'B3'
+            } else {
+              parsed.classificacao_consumo = null
+            }
+          }
+
+          // FATURAS DE MERCADO LIVRE (ACL / comercializadora): regras próprias.
+          // (1) NUNCA sugerir Grupo B (B1–B4): a comercializadora não informa grupo na NFe.
+          // Consumo >= 10.000 kWh/mês indica GRUPO A (alta tensão) -> sugere "A" (a subclasse
+          // A1–A4 o usuário confirma; nunca inventar subclasse).
+          // (2) O preço unitário da NFe (R$/MWh) é a TARIFA TE: converter para R$/kWh
+          // (dividir por 1000) e gravar em 'tarifa_te_ponta'. TUSD fica vazia — vem na
+          // fatura da concessionária.
+          const isMercadoLivreFatura =
+            String(parsed.tipo_fatura_energia || '')
+              .toLowerCase()
+              .includes('mercado_livre') ||
+            String(parsed.tipoFaturaEnergia || '')
+              .toLowerCase()
+              .includes('mercado_livre') ||
+            rawTipo.includes('trading') ||
+            rawTipo.includes('comercializadora') ||
+            fileName.toLowerCase().includes('trading')
+          if (isMercadoLivreFatura) {
+            if (
+              parsed.classificacao_consumo &&
+              !/^A/i.test(String(parsed.classificacao_consumo).trim())
+            ) {
+              console.log(
+                '[fatura_extract] Mercado Livre: descartando classificação Grupo B/imprecisa ("' +
+                  parsed.classificacao_consumo +
+                  '").',
+              )
+              parsed.classificacao_consumo = null
+            }
+            const consMl = Number(parsed.consumo) || Number(parsed.consumo_medido) || 0
+            if (
+              consMl >= 10000 &&
+              (!parsed.classificacao_consumo ||
+                !/^A/i.test(String(parsed.classificacao_consumo).trim()))
+            ) {
+              parsed.classificacao_consumo = 'A'
+              console.log(
+                '[fatura_extract] Mercado Livre: consumo ' + consMl + ' kWh/mês indica GRUPO A.',
+              )
+            }
+
+            let precoUnitMl = 0
+            for (const k of [
+              'valor_unitario',
+              'valorUnitario',
+              'preco_unitario',
+              'precoUnitario',
+              'tarifa',
+            ]) {
+              const v = Number(parsed[k])
+              if (!isNaN(v) && v > 0) {
+                precoUnitMl = v
+                break
+              }
+            }
+            if (precoUnitMl > 0) {
+              // Tarifa em R$/MWh (centenas) vira R$/kWh dividindo por 1000; já em R$/kWh (< 2) fica como está.
+              const teKwh =
+                precoUnitMl >= 20 ? Number((precoUnitMl / 1000).toFixed(6)) : precoUnitMl
+              parsed.tarifa_te_ponta = teKwh
+              parsed.tarifa = teKwh
+              console.log(
+                '[fatura_extract] Mercado Livre: preço unitário ' +
+                  precoUnitMl +
+                  ' -> tarifa TE ' +
+                  teKwh +
+                  ' R$/kWh (TUSD vazia).',
+              )
+            }
+            parsed.tarifa_tusd_ponta = null
+            parsed.tarifa_tusd_f_ponta = null
+            if (parsed.tarifa_te_ponta && !parsed.tarifa_te_f_ponta) {
+              parsed.tarifa_te_f_ponta = parsed.tarifa_te_ponta
+            }
           }
 
           // Detectar grupo de consumo da energia elétrica (A vs B)
@@ -2032,6 +2118,24 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             }
           }
 
+          // MERCADO LIVRE: reclassificação tardia — após a trava de escala o consumo está
+          // na escala correta (kWh). Consumo >= 10.000 kWh/mês indica GRUPO A (alta tensão).
+          if (isMercadoLivreFatura) {
+            const consMlFinal = Number(parsed.consumo) || Number(parsed.consumo_medido) || 0
+            if (
+              consMlFinal >= 10000 &&
+              (!parsed.classificacao_consumo ||
+                !/^A/i.test(String(parsed.classificacao_consumo).trim()))
+            ) {
+              parsed.classificacao_consumo = 'A'
+              console.log(
+                '[fatura_extract] Mercado Livre: consumo ' +
+                  consMlFinal +
+                  ' kWh/mês indica GRUPO A.',
+              )
+            }
+          }
+
           // Tratamento para faturas convencionais (posto único / Classe B) ou tarifas não divididas:
           // Se tarifa_tusd_ponta foi identificada e tarifa_tusd_f_ponta não, e não há consumo fora de ponta distinto,
           // espelhar para fora-ponta se aplicável para garantir que as tarifas fiquem preenchidas se o consumidor opera em tarifa convencional
@@ -2055,9 +2159,13 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.tarifa &&
             Number(parsed.tarifa) > 0
           ) {
-            parsed.tarifa_tusd_ponta = parsed.tarifa
-            if (!parsed.consumo_fora_ponta) {
-              parsed.tarifa_tusd_f_ponta = parsed.tarifa
+            if (!isMercadoLivreFatura) {
+              parsed.tarifa_tusd_ponta = parsed.tarifa
+              if (!parsed.consumo_fora_ponta) {
+                parsed.tarifa_tusd_f_ponta = parsed.tarifa
+              }
+            } else if (!parsed.tarifa_te_f_ponta) {
+              parsed.tarifa_te_f_ponta = parsed.tarifa
             }
           }
         }

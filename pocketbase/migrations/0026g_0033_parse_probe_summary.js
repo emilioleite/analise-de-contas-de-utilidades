@@ -8,7 +8,7 @@ migrate(
       for (const k of Object.keys(parsed)) {
         existing.summary[k] = {
           ok: parsed[k]?.ok !== undefined ? parsed[k].ok : parsed[k]?.status,
-          res: (parsed[k]?.text || parsed[k]?.raw || parsed[k]?.err || '').slice(0, 100)
+          res: (parsed[k]?.text || parsed[k]?.raw || parsed[k]?.err || '').slice(0, 100),
         }
       }
       delete existing.probe_raw
@@ -23,5 +23,5 @@ migrate(
       app.save(rec)
     } catch (_) {}
   },
-  (app) => {}
+  (app) => {},
 )

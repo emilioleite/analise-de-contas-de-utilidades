@@ -12,5 +12,5 @@ migrate(
       app.save(rec)
     } catch (_) {}
   },
-  (app) => {}
+  (app) => {},
 )

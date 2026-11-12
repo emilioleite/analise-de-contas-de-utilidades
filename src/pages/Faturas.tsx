@@ -967,6 +967,15 @@ export default function Faturas() {
           setMedicaoAtual(isCumulativo ? String(Math.round(medAtu)) : formatNumberValue(medAtu, 0))
         }
 
+        // Tipo de fatura de energia (Concessionária × Mercado Livre) — detectado antes da
+        // classificação para que faturas de Mercado Livre não recebam defaults de Grupo B.
+        const rawTipoFatura = getField('tipo_fatura_energia', 'tipoFaturaEnergia', 'origem_fatura')
+        const strTipoFatura = rawTipoFatura ? String(rawTipoFatura).trim().toLowerCase() : ''
+        const isFaturaMercadoLivre =
+          strTipoFatura.includes('livre') ||
+          strTipoFatura.includes('comercializadora') ||
+          strTipoFatura.includes('mercado_livre')
+
         // Campos específicos de Energia Elétrica
         const rawClassCons = getField(
           'classificacao_consumo',
@@ -999,7 +1008,8 @@ export default function Faturas() {
           setClassificacaoConsumo(classCons)
         } else if (
           detectedTipo === 'Energia Elétrica' &&
-          (uploadedFile?.name || '').toLowerCase().includes('enel')
+          (uploadedFile?.name || '').toLowerCase().includes('enel') &&
+          !isFaturaMercadoLivre
         ) {
           setClassificacaoConsumo('B3')
         }
@@ -1242,16 +1252,53 @@ export default function Faturas() {
           setIdentificacao(String(rawIdent).trim())
         }
 
-        const rawTipoFatura = getField('tipo_fatura_energia', 'tipoFaturaEnergia', 'origem_fatura')
-        const strTipoFatura = rawTipoFatura ? String(rawTipoFatura).trim().toLowerCase() : ''
-        if (
-          strTipoFatura.includes('livre') ||
-          strTipoFatura.includes('comercializadora') ||
-          strTipoFatura.includes('mercado_livre')
-        ) {
+        if (isFaturaMercadoLivre) {
           setTipoFaturaEnergia('mercado_livre')
         } else if (detectedTipo === 'Energia Elétrica' && strTipoFatura.includes('concession')) {
           setTipoFaturaEnergia('concessionaria')
+        }
+
+        // MERCADO LIVRE (ACL): ajustes pós-extração.
+        // (1) Classificação: a NFe da comercializadora NÃO informa grupo/subclasse — nunca
+        // sugerir B1–B4. Consumo >= 10.000 kWh/mês indica GRUPO A (alta tensão): sugere "A"
+        // (subclasse A1–A4 o usuário confirma); sem base, deixa vazio.
+        // (2) Tarifa: o preço unitário da NFe em R$/MWh é a TARIFA TE (a TUSD vem na fatura
+        // da concessionária e fica vazia aqui). Converter R$/MWh -> R$/kWh dividindo por 1000.
+        if (detectedTipo === 'Energia Elétrica' && isFaturaMercadoLivre) {
+          if (classCons && /^B/i.test(String(classCons).replace(/^B-/, ''))) {
+            classCons = undefined
+            setClassificacaoConsumo('')
+          }
+          if (!classCons) {
+            const consMl =
+              Number(cConsumo) ||
+              Number(cPonta) ||
+              Number(cForaPonta) ||
+              Number(parsePositiveNumber(getField('consumo', 'consumo_total'))) ||
+              0
+            if (consMl >= 10000) setClassificacaoConsumo('A')
+          }
+
+          const convMl = (v?: number) =>
+            v !== undefined && v > 0 && v >= 20 ? Number((v / 1000).toFixed(6)) : v
+          const teMlConv = convMl(tTePonta)
+          const tusdMlConv = convMl(tTusdPonta)
+          const teMlFinal = teMlConv !== undefined ? teMlConv : tusdMlConv
+          if (teMlFinal !== undefined) {
+            setTarifaTePonta(formatNumberValue(teMlFinal, 6))
+            if (tTeFPonta !== undefined && convMl(tTeFPonta) !== undefined) {
+              setTarifaTeFPonta(formatNumberValue(convMl(tTeFPonta) as number, 6))
+            } else if (
+              tTeFPonta === undefined &&
+              tTusdFPonta !== undefined &&
+              convMl(tTusdFPonta) !== undefined
+            ) {
+              setTarifaTeFPonta(formatNumberValue(convMl(tTusdFPonta) as number, 6))
+            }
+          }
+          // Na NFe de mercado livre não há TUSD — o campo deve ficar vazio
+          setTarifaTusdPonta('')
+          setTarifaTusdFPonta('')
         }
 
         // Campos específicos de GÁS e Água
