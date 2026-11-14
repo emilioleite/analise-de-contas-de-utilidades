@@ -620,6 +620,10 @@ export default function Faturas() {
           return parseBrazilianNumber(val, true)
         }
 
+        // Aviso honesto vindo do hook (ex.: consumo impossível de reconciliar — vírgula de
+        // milhar da Sabesp). Exibido junto ao toast de sucesso da extração.
+        let avisoExtracaoHook = ''
+
         // Helper parseCumulativeMeterReading agora está disponível em escopo de módulo
 
         // Competência
@@ -1355,13 +1359,33 @@ export default function Faturas() {
           }
 
           if (diffLeiturasAgua !== undefined && diffLeiturasAgua > 0) {
-            // Se o consumo medido não bate com a diferença das leituras, prevalece a diferença
-            if (cMedido === undefined || Math.abs(cMedido - diffLeiturasAgua) > 0) {
-              cMedido = diffLeiturasAgua
-            }
-            if (cConsumoFinal === undefined || Math.abs(cConsumoFinal - diffLeiturasAgua) > 0) {
-              cConsumoFinal = diffLeiturasAgua
-              setConsumo(formatNumberValue(diffLeiturasAgua, 3))
+            // TRAVA DE PLAUSIBILIDADE (espelho do hook): a diferença das leituras só substitui
+            // o consumo da tabela quando a tarifa implícita resultante é plausível. A Sabesp
+            // imprime a VÍRGULA como separador de MILHAR ("3,796" = 3.796 m³); leituras quase
+            // iguais com fatura alta (ex.: 1254 → 1258 = 4 m³ com total R$ 9.844,01 → tarifa
+            // implícita R$ 2.461/m³) denunciam leituras ilegíveis — prevalece então o consumo
+            // da tabela de discriminização.
+            const vRefAguaDif = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
+            const tarifaDif =
+              vRefAguaDif && vRefAguaDif > 0 ? vRefAguaDif / diffLeiturasAgua : undefined
+            const desvioRef =
+              cMedido !== undefined && cMedido > 0
+                ? Math.abs(cMedido - diffLeiturasAgua) / diffLeiturasAgua
+                : Infinity
+            const difPlausivel =
+              tarifaDif === undefined || (tarifaDif >= 1 && tarifaDif <= 100) || desvioRef < 0.5
+            if (difPlausivel) {
+              if (cMedido === undefined || Math.abs(cMedido - diffLeiturasAgua) > 0) {
+                cMedido = diffLeiturasAgua
+              }
+              if (cConsumoFinal === undefined || Math.abs(cConsumoFinal - diffLeiturasAgua) > 0) {
+                cConsumoFinal = diffLeiturasAgua
+                setConsumo(formatNumberValue(diffLeiturasAgua, 3))
+              }
+            } else {
+              console.log(
+                `[Faturas] Validação cruzada Água: diferença das leituras (${diffLeiturasAgua} m³) gera tarifa implausível (R$ ${tarifaDif ? tarifaDif.toFixed(2) : 'n/d'}/m³ com valor_total R$ ${vRefAguaDif ? vRefAguaDif.toFixed(2) : 'n/d'}). Mantendo consumo da tabela de discriminização (${cMedido ?? cConsumoFinal} m³).`,
+              )
             }
           }
         }
@@ -1423,6 +1447,42 @@ export default function Faturas() {
           }
         }
 
+        // TRAVA DE SANIDADE ÁGUA (espelho do hook, padrão confirmado pela migração 0064):
+        // consumo < 10 m³ com valor_total > R$ 1.000 é implausível — assinatura clássica da
+        // vírgula de milhar da Sabesp interpretada como decimal ("3,796" lido como 3,796 m³
+        // em vez de 3.796 m³). Anula consumo/tarifa no formulário com aviso honesto em vez
+        // de pré-preencher valor absurdo.
+        if (detectedTipo === 'Água e Esgoto') {
+          const vRefSanAgua = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
+          const consSanAgua = cMedido ?? cConsumoFinal ?? cCorrigido
+          if (
+            consSanAgua !== undefined &&
+            consSanAgua > 0 &&
+            consSanAgua < 10 &&
+            vRefSanAgua !== undefined &&
+            vRefSanAgua > 1000
+          ) {
+            console.log(
+              `[Faturas] Trava de sanidade Água: consumo ${consSanAgua} m³ com valor_total R$ ${vRefSanAgua.toFixed(2)} é implausível (vírgula de milhar da Sabesp). Campos de consumo/tarifa anulados — preencher manualmente ("3,796" = 3.796 m³).`,
+            )
+            cMedido = undefined
+            cConsumoFinal = undefined
+            tar = undefined
+            setConsumo('')
+            setConsumoMedido('')
+            setConsumoCorrigido('')
+            setTarifa('')
+            avisoExtracaoHook =
+              'O consumo extraído ficou implausível (menos de 10 m³ com fatura acima de R$ 1.000). A Sabesp imprime a vírgula como separador de milhar (ex.: "3,796" = 3.796 m³) — confira o consumo na tabela da fatura e preencha manualmente.'
+          }
+        }
+
+        // Propagar aviso honesto do hook, quando vier
+        if (!avisoExtracaoHook) {
+          const avisoHook = getField('aviso_extracao', 'avisoExtracao')
+          if (avisoHook) avisoExtracaoHook = String(avisoHook)
+        }
+
         // Validação estrita: toast de sucesso REQUER ao menos um dado real de consumo, medição ou valor financeiro
         // (faturas de crédito/estorno com vTotal === 0 são perfeitamente válidas caso acompanhadas de consumo/medições/tarifa ou dados reais)
         const hasConsumptionOrFinancialData =
@@ -1441,7 +1501,9 @@ export default function Faturas() {
         if (hasConsumptionOrFinancialData) {
           toast({
             title: 'Extração inteligente concluída',
-            description: `Arquivo: ${uploadedFile.name}. Revise os dados extraídos antes de confirmar.`,
+            description: avisoExtracaoHook
+              ? `${uploadedFile.name}. ${avisoExtracaoHook}`
+              : `Arquivo: ${uploadedFile.name}. Revise os dados extraídos antes de confirmar.`,
           })
         } else {
           toast({
