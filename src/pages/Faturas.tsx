@@ -15,6 +15,7 @@ import {
   parseNumberValue,
   matchMaskedCNPJ,
 } from '@/lib/cnpj'
+import { calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
 import { faturasService } from '@/services/faturas'
 import {
   getFaturaIdentificacao,
