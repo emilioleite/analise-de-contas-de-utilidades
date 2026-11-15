@@ -955,7 +955,8 @@ export default function Faturas() {
         const rawMedAtu = getField('medicao_atual', 'medicaoAtual', 'leitura_atual', 'leituraAtual')
 
         const isCumulativo = detectedTipo === 'Gás' || detectedTipo === 'Água e Esgoto'
-        const medAnt = isCumulativo
+        // let: o bloco de Água e Esgoto pode anular as medições quando truncadas/incoerentes
+        let medAnt = isCumulativo
           ? parseCumulativeMeterReading(rawMedAnt)
           : parsePositiveNumber(rawMedAnt)
         if (medAnt !== undefined) {
@@ -964,7 +965,7 @@ export default function Faturas() {
           )
         }
 
-        const medAtu = isCumulativo
+        let medAtu = isCumulativo
           ? parseCumulativeMeterReading(rawMedAtu)
           : parsePositiveNumber(rawMedAtu)
         if (medAtu !== undefined) {
@@ -1340,6 +1341,40 @@ export default function Faturas() {
         // o consumo medido DEVE ser medAtu - medAnt. Se houver divergência (ex.: IA leu média 1.206 m³
         // em vez do medido 1.508 m³), prevalece a diferença das leituras.
         if (detectedTipo === 'Água e Esgoto') {
+          // COERÊNCIA LEITURAS × CONSUMO (espelho do hook): a Sabesp às vezes imprime na
+          // camada de texto só parte dos dígitos do hidrômetro (ex.: 1254 → 1258 quando a
+          // leitura real é 102.930 → 106.726). A diferença (4 m³) contradiz o consumo
+          // faturado (3.796 m³) — anular as medições com aviso honesto em vez de pré-
+          // preencher incoerência; nunca inventar dígitos que o PDF não contém.
+          {
+            const consCoerForm =
+              cMedido ?? cConsumoFinal ?? cCorrigido ?? parsePositiveNumber(rawCConsumo)
+            if (
+              medAtu !== undefined &&
+              medAnt !== undefined &&
+              medAtu > medAnt &&
+              consCoerForm !== undefined &&
+              consCoerForm > 0
+            ) {
+              const diffCoerForm = medAtu - medAnt
+              const contradizForm =
+                diffCoerForm < 10
+                  ? consCoerForm / diffCoerForm > 20
+                  : Math.abs(consCoerForm - diffCoerForm) / diffCoerForm > 0.5
+              if (contradizForm) {
+                console.log(
+                  `[Faturas] Coerência Água: leituras (${medAnt} → ${medAtu}, dif. ${diffCoerForm} m³) contradizem o consumo faturado (${consCoerForm} m³) — leituras provavelmente truncadas na camada de texto. Campos de medição anulados.`,
+                )
+                medAnt = undefined
+                medAtu = undefined
+                setMedicaoAnterior('')
+                setMedicaoAtual('')
+                avisoExtracaoHook =
+                  'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
+              }
+            }
+          }
+
           const diffLeiturasAgua =
             medAtu !== undefined && medAnt !== undefined && medAtu > medAnt
               ? medAtu - medAnt
@@ -1411,17 +1446,30 @@ export default function Faturas() {
         }
 
         if (detectedTipo === 'Água e Esgoto') {
-          // Água e Esgoto: tarifa média analítica = valor_total ÷ volume consumido (normalizado).
-          // Se a tarifa extraída for nula, 0, ou se for incoerente (> 100 com valor_total / volCons na faixa de saneamento),
-          // calcula valor_total ÷ volCons com até 6 casas decimais.
+          // Água e Esgoto: tarifa média analítica (espelho do hook). Base preferencial: o
+          // VALOR DE ÁGUA da tabela de discriminização (a fatura soma água + esgoto +
+          // tributos; ex.: 4.820,92 ÷ 3.796 ≈ 1,27 R$/m³, e não 9.844,01 ÷ 3.796 ≈ 2,59).
           const vTotPositive = parsePositiveNumber(vTotal)
           const volCons =
             parsePositiveNumber(cMedido) ||
             parsePositiveNumber(cConsumoFinal) ||
             parsePositiveNumber(cCorrigido) ||
             0
-          if (vTotPositive && volCons > 0) {
-            const tarifaAnalitica = Number((vTotPositive / volCons).toFixed(6))
+          let baseTarifaAguaForm = vTotPositive || 0
+          const valorAguaHook = parsePositiveNumber(getField('valor_agua', 'valorAgua'))
+          if (
+            valorAguaHook !== undefined &&
+            valorAguaHook > 0 &&
+            vTotPositive !== undefined &&
+            valorAguaHook < vTotPositive &&
+            volCons > 0 &&
+            valorAguaHook / volCons >= 0.5 &&
+            valorAguaHook / volCons <= 100
+          ) {
+            baseTarifaAguaForm = valorAguaHook
+          }
+          if (baseTarifaAguaForm > 0 && volCons > 0) {
+            const tarifaAnalitica = Number((baseTarifaAguaForm / volCons).toFixed(6))
             if (tar === undefined || tar === 0 || (tar > 100 && tarifaAnalitica <= 100)) {
               tar = tarifaAnalitica
             }

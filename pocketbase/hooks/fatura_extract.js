@@ -1,4 +1,4 @@
-// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.94 (milhar pt-BR no consumo faturado Sabesp + trava de sanidade + trava de escala reconciliada)
+// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.95 (coerência leituras×consumo Sabesp + tarifa pela base de água da discriminização)
 routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
@@ -1501,6 +1501,49 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             }
           }
 
+          // COERÊNCIA LEITURAS × CONSUMO FATURADO: a Sabesp às vezes imprime na camada de
+          // texto apenas parte dos dígitos do hidrômetro (ex.: "1258 30 1254" quando a
+          // leitura real é 102.930 → 106.726) — leituras truncadas cuja diferença (4 m³)
+          // contradiz frontalmente o consumo faturado (3.796 m³). Nesses casos ANULAR as
+          // leituras (com aviso honesto) em vez de pré-preencher incoerência; nunca inventar
+          // dígitos que o PDF não contém.
+          {
+            const consCoer =
+              Number(parsed.consumo_corrigido) ||
+              Number(parsed.consumo) ||
+              Number(parsed.consumo_medido) ||
+              0
+            if (
+              parsed.medicao_atual !== undefined &&
+              parsed.medicao_atual !== null &&
+              parsed.medicao_anterior !== undefined &&
+              parsed.medicao_anterior !== null &&
+              Number(parsed.medicao_atual) > 0 &&
+              Number(parsed.medicao_anterior) > 0 &&
+              Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
+            ) {
+              const diffCoer = Math.round(
+                Number(parsed.medicao_atual) - Number(parsed.medicao_anterior),
+              )
+              const contradiz =
+                consCoer > 0 &&
+                (diffCoer < 10
+                  ? consCoer / diffCoer > 20
+                  : Math.abs(consCoer - diffCoer) / diffCoer > 0.5)
+              if (contradiz) {
+                console.log(
+                  `[fatura_extract] Coerência Água: leituras (${parsed.medicao_anterior} → ${parsed.medicao_atual}, dif. ${diffCoer} m³) contradizem o consumo faturado (${consCoer} m³) — leituras provavelmente truncadas na camada de texto. Campos de medição ANULADOS.`,
+                )
+                parsed.medicao_atual = null
+                parsed.medicao_anterior = null
+                if (!parsed.aviso_extracao) {
+                  parsed.aviso_extracao =
+                    'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
+                }
+              }
+            }
+          }
+
           // VALIDAÇÃO CRUZADA DE ÁGUA (COM TRAVA DE PLAUSIBILIDADE):
           // Normalmente o consumo medido é a diferença leitura_atual − leitura_anterior
           // (corrige casos onde a IA lê média de consumo, ex: 1.206 vs 1.508). PORÉM a Sabesp
@@ -1671,6 +1714,32 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           const consumoAgua =
             sanitizeNumeric(parsed.consumo) || sanitizeNumeric(parsed.consumo_medido) || 0
           const tarifaExistente = sanitizeNumeric(parsed.tarifa)
+          // Base preferencial para a tarifa: o VALOR DE ÁGUA da tabela de discriminização
+          // (a fatura soma água + esgoto + tributos; a tarifa de água coerente sai do valor
+          // de água sozinho, ex.: 4.820,92 ÷ 3.796 ≈ 1,27 R$/m³, e não do total com esgoto).
+          let baseTarifaAgua = valorAgua
+          if (textContent && typeof textContent === 'string' && valorAgua > 0) {
+            let valorAguaLinha = 0
+            const mMin = textContent.match(/M[ií]nimo\s+[\d.,]+\s+([\d.]+,\d{2})/i)
+            if (mMin) valorAguaLinha = sanitizeMonetary(mMin[1]) || 0
+            if (!valorAguaLinha) {
+              const mSub = textContent.match(/([\d.]+,\d{2})\s*Subtotal/i)
+              if (mSub) valorAguaLinha = sanitizeMonetary(mSub[1]) || 0
+            }
+            if (
+              valorAguaLinha > 0 &&
+              valorAguaLinha < valorAgua &&
+              valorAguaLinha / consumoAgua >= 0.5 &&
+              valorAguaLinha / consumoAgua <= 100
+            ) {
+              console.log(
+                `[fatura_extract] Tarifa Água: base = valor de água da discriminização (R$ ${valorAguaLinha.toFixed(2)}) em vez do total (R$ ${valorAgua.toFixed(2)}).`,
+              )
+              baseTarifaAgua = valorAguaLinha
+              // Expor para o formulário espelhar a mesma base na conferência
+              parsed.valor_agua = valorAguaLinha
+            }
+          }
           if (valorAgua > 0 && consumoAgua > 0) {
             // Se tarifa não existe, é zero, ou se a tarifa existente for absurda (> R$ 100/m³ com fatura alta)
             if (
@@ -1678,7 +1747,7 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
               tarifaExistente === 0 ||
               (tarifaExistente > 100 && valorAgua / consumoAgua < 50)
             ) {
-              parsed.tarifa = Number((valorAgua / consumoAgua).toFixed(6))
+              parsed.tarifa = Number((baseTarifaAgua / consumoAgua).toFixed(6))
             } else if (tarifaExistente !== null && tarifaExistente > 0) {
               // Se já é plausível, mantém ou garante precisão de até 6 casas se for divisão exata
               parsed.tarifa = tarifaExistente
