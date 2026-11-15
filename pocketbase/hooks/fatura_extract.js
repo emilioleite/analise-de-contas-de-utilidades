@@ -1,4 +1,4 @@
-// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.95 (coerência leituras×consumo Sabesp + tarifa pela base de água da discriminização)
+// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.96 (coerência leituras×consumo Sabesp: consumo_medido alinhado ao consumo corrigido + tarifa pela base de água da discriminização)
 routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
@@ -1539,6 +1539,20 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
                 if (!parsed.aviso_extracao) {
                   parsed.aviso_extracao =
                     'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
+                }
+                // COERÊNCIA DO CONSUMO MEDIDO: com as leituras anuladas, o consumo_medido
+                // (que veio da diferença das leituras truncadas, ex.: 1258 − 1254 = 4)
+                // perde sua base e NÃO pode sobreviver — alinhar ao consumo faturado
+                // corrigido (tabela de discriminização), que é o valor plausível da fatura.
+                const consCoerCorrigido =
+                  Number(parsed.consumo_corrigido) || Number(parsed.consumo) || 0
+                if (consCoerCorrigido > 0) {
+                  console.log(
+                    `[fatura_extract] Coerência Água: consumo_medido alinhado ao consumo faturado (${Number(parsed.consumo_medido) || 'vazio'} -> ${consCoerCorrigido} m³) junto com as leituras anuladas.`,
+                  )
+                  parsed.consumo_medido = consCoerCorrigido
+                } else {
+                  parsed.consumo_medido = null
                 }
               }
             }

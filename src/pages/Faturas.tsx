@@ -1369,6 +1369,11 @@ export default function Faturas() {
                 medAtu = undefined
                 setMedicaoAnterior('')
                 setMedicaoAtual('')
+                // COERÊNCIA DO CONSUMO MEDIDO (espelho do hook): o consumo_medido extraído
+                // veio da diferença das leituras truncadas (ex.: 1258 − 1254 = 4) e perde a
+                // base quando as leituras são anuladas — descartá-lo; o consumoMedido do
+                // formulário passa a refletir o consumo faturado corrigido (ex.: 3.796 m³).
+                cMedido = undefined
                 avisoExtracaoHook =
                   'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
               }
@@ -1718,7 +1723,11 @@ export default function Faturas() {
       dadosEsp = {
         medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
         medicao_atual: parseCumulativeMeterReading(medicaoAtual),
-        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        // COERÊNCIA AO GRAVAR (espelho do hook, padrão migrações 0061/0069): em Água e
+        // Esgoto, consumo_medido não pode contradizer o consumo top-level — se um valor
+        // residual das leituras truncadas escapou (ex.: 4 m³ com consumo 3.796 m³), é
+        // realinhado ao consumo (ou anulado quando não há consumo plausível de referência).
+        consumo_medido: calcularConsumoMedidoCoerenteAgua(consumo, consumoMedido || consumo),
         tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
@@ -2044,7 +2053,8 @@ export default function Faturas() {
       dadosEsp = {
         medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
         medicao_atual: parseCumulativeMeterReading(medicaoAtual),
-        consumo_medido: parseNumberValue(consumoMedido || consumo) || undefined,
+        // Coerência ao gravar (espelho do hook): ver comentário no submit de criação.
+        consumo_medido: calcularConsumoMedidoCoerenteAgua(consumo, consumoMedido || consumo),
         tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
       }
