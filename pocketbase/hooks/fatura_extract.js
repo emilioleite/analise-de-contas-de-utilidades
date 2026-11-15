@@ -1,4 +1,4 @@
-// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.93 (milhar pt-BR no consumo faturado Sabesp + trava de sanidade)
+// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.94 (milhar pt-BR no consumo faturado Sabesp + trava de sanidade + trava de escala reconciliada)
 routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
@@ -1531,9 +1531,7 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
                 ? Math.abs(consMedidoOriginal - diffLeituras) / diffLeituras
                 : Infinity
             const diffPlausivel =
-              tarifaDif === undefined ||
-              (tarifaDif >= 1 && tarifaDif <= 100) ||
-              desvioRef < 0.5
+              tarifaDif === undefined || (tarifaDif >= 1 && tarifaDif <= 100) || desvioRef < 0.5
             if (diffPlausivel) {
               if (diffLeituras > 0 && Math.abs(consMedidoOriginal - diffLeituras) > 0) {
                 console.log(
@@ -1601,9 +1599,9 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
                   parsed.medicao_anterior = Math.round(Number(parsed.medicao_anterior) * 1000)
                 }
               }
-           }
-         }
- 
+            }
+          }
+
           // TRAVA DE SANIDADE (preventiva, padrão confirmado pela migração 0064):
           // consumo < 10 m³ com valor_total > R$ 1.000 é o padrão clássico da vírgula de
           // milhar da Sabesp não interpretada ("3,796" lido como 3,796 m³ em vez de 3.796 m³),
