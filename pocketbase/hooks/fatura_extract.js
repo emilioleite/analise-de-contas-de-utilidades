@@ -218,7 +218,7 @@ Campos de medição e tarifas:
 - medicao_atual: leitura atual do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Atual" (atenção: em medidores de gás o ponto pode ser separador de milhar inteiro!).
 - consumo_medido: consumo medido impresso (diferença Atual − Anterior, ou coluna "consumo medido (m³)").
 - consumo_corrigido: consumo faturado/corrigido por PTZ do bloco "Consumo e tarifas".
-- tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), se não houver tarifa única impressa, calcule o valor_total dividido pelo consumo_medido.
+- tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), se não houver tarifa única impressa, calcule o VALOR DE ÁGUA da tabela de discriminização dividido pelo consumo_medido (nunca sobre o total com esgoto).
 - valor_fornecimento: valor monetário do fornecimento (exemplo: linha "Fornecimento de Gás Natural")
 - valor_a_pagar: total a pagar impresso (ou 0.00 se houver devolução total)
 - adicional_bandeira: bandeira tarifária aplicada. DEVE ser lida do campo impresso "Bandeira(s) tarifária(s) aplicada(s) no mês" (exemplo: "AMARELA" -> "Bandeira Amarela", "VERDE" -> "Bandeira Verde", "VERMELHA" -> "Bandeira Vermelha"). NÃO use valor padrão ou assumido!
@@ -273,10 +273,10 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Múltiplas ligações e hidrômetro: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
 - Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição! Em leituras com separador de milhar (ex.: 117.047 -> 117047, 118.555 -> 118555, 120.086 -> 120086), retorne o número inteiro na escala real (sem ponto decimal).
-- Consumo m³: extraia apenas o volume medido pelo hidrômetro. PREFIRA a tabela de discriminização da Sabesp: coluna "(M3 x Nro.Econ.)" (linha "Mínimo"). ATENÇÃO: a Sabesp imprime a VÍRGULA como separador de MILHAR nessa coluna — "3,796" significa 3.796 m³ (três mil e setecentos e noventa e seis), NUNCA 3,796 m³! Prova: 4.820,92 ÷ 3.796 = R$ 1,27/m³ (tarifa plausível); 4.820,92 ÷ 3,796 = R$ 1.270/m³ (absurdo).
-- A diferença leitura_atual − leitura_anterior (ex.: 118555 − 117047 = 1508) só é o consumo quando for plausível: se as leituras são quase iguais (dif < 10) mas a fatura é alta (ex.: 1254 e 1258 com total R$ 9.844,01), o consumo real está na tabela de discriminização ("3,796" = 3.796 m³), NÃO na diferença (4 m³). Não confunda com médias de consumo como 1206 nem com outros números da página.
+- CONSUMO (CRÍTICO): o consumo de água é o volume medido pelo hidrômetro = leitura_atual − leitura_anterior (ex.: 1258 − 1254 = 4 m³). PREFIRA as leituras do hidrômetro; se a fatura não trouxer leituras legíveis, use o volume da tabela de discriminização da Sabesp (coluna "(M3 x Nro.Econ.)", linha "Mínimo") EXATAMENTE como impresso.
+- O valor da tabela de discriminização (ex.: "3,796") é um DECIMAL em m³: transcreva 3.796 (três vírgula sete nove seis) — NUNCA multiplique por 1000, NUNCA interprete a vírgula como separador de milhar. Não confunda com médias de consumo (ex.: 1206) nem com outros números da página.
 - Números em padrão pt-BR: o PONTO é separador de MILHAR e a VÍRGULA é decimal. Transcreva números inteiros de medição e consumo na sua escala real inteira (ex: "1.508" m³ = 1508, NUNCA 1.508; "117.047" = 117047; "118.555" = 118555; "120.086" = 120086; "121.364" = 121364; "13.449,14" = 13449.14). NUNCA converta ponto de milhar para ponto decimal; preserve o valor inteiro real.
-- Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor_total / consumo] — o sistema calcula a tarifa média analítica automaticamente como valor_total ÷ consumo com até 6 casas decimais.
+- Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor de água da discriminização / consumo] — o sistema calcula a tarifa média analítica automaticamente sobre o VALOR DE ÁGUA (nunca sobre o total com esgoto) com até 6 casas decimais.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
 
@@ -492,9 +492,9 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
   - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições. Em leituras com separador de milhar (ex: 117.047 -> 117047, 118.555 -> 118555, 120.086 -> 120086), retorne o inteiro na escala real (sem ponto decimal).
-  - Consumo faturado em m³: use a tabela de discriminização da Sabesp, coluna "(M3 x Nro.Econ.)" (linha "Mínimo") — NUNCA some ligações estimadas (ex: 1.508 -> 1508, nunca 1.508 decimal). A Sabesp imprime a VÍRGULA como separador de MILHAR: "3,796" = 3.796 m³, NUNCA 3,796 m³.
-  - A diferença leitura_atual − leitura_anterior (ex: 118555 − 117047 = 1508) só vale quando plausível: leituras quase iguais (dif < 10) com fatura alta (ex: 1254 e 1258, total R$ 9.844,01) indicam que o consumo real está na tabela ("3,796" = 3.796 m³; 4.820,92 ÷ 3.796 = R$ 1,27/m³), não na diferença (4 m³). Não use campos de média como 1206.
-  - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular valor_total / consumo.
+  - Consumo faturado em m³: use o volume medido pelo hidrômetro = leitura_atual − leitura_anterior (ex: 1258 − 1254 = 4 m³). Sem leituras legíveis, use a tabela de discriminização da Sabesp (coluna "(M3 x Nro.Econ.)", linha "Mínimo") — NUNCA some ligações estimadas. O valor impresso (ex: "3,796") é um DECIMAL em m³: transcreva 3.796 — NUNCA multiplique por 1000, NUNCA interprete a vírgula como milhar.
+  - Não use campos de média como 1206.
+  - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular o VALOR DE ÁGUA da discriminização dividido pelo consumo (nunca o total com esgoto).
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
 
@@ -1405,206 +1405,31 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.cnpj_fornecedor = '43.776.517/0001-80'
           }
 
-          // Parser numérico robusto pt-BR/en-US — cobre strings e valores numéricos JSON:
-          // "1.278"->1278, "120.086"->120086, 1.508->1508, 117.047->117047, 118.555->118555, "10.481,96"->10481.96
-          function parseAguaNumero(val) {
-            if (val === undefined || val === null || val === '') return null
-            if (typeof val === 'number') {
-              if (isNaN(val) || val <= 0) return null
-              // Número chegando como JSON number com parte decimal (ex: 1.508, 117.047, 118.555):
-              // Em hidrômetros e faturas de água Sabesp, leituras e consumos medidos são inteiros
-              // ou foram gerados a partir de separador de milhar pt-BR convertido para float JSON.
-              const sNum = String(val)
-              const parts = sNum.split('.')
-              if (parts.length === 2) {
-                const frac = parts[1]
-                // Se tem fração decimal com 1 a 3 casas e valor < 100000:
-                // ex: 1.508 (frac 3, val 1.508) -> 1508
-                // ex: 117.047 (frac 3, val 117.047) -> 117047
-                // ex: 118.555 (frac 3, val 118.555) -> 118555
-                // ex: 1.53 (frac 2, val 1.53) -> 1530
-                if (frac.length === 3 || (frac.length < 3 && val < 10)) {
-                  return Math.round(val * 1000)
-                }
-              }
-              return val
-            }
-            let s = String(val)
-              .trim()
-              .replace(/^R\$\s*/i, '')
-            if (s.includes('*')) s = s.replace(/\*+/g, '').trim()
-            if (!s || s === 'null' || s === 'undefined') return null
-            if (s.includes(',') && s.includes('.')) {
-              // pt-BR completo: ponto = milhar, vírgula = decimal
-              s = s.replace(/\./g, '').replace(',', '.')
-            } else if (s.includes(',')) {
-              // Se tiver formato "117,047" ou "1,508" (vírgula como decimal onde a fatura era milhar)
-              const pVirg = s.split(',')
-              if (pVirg.length === 2 && pVirg[1].length === 3 && Number(pVirg[0]) < 1000) {
-                return Number(pVirg[0] + pVirg[1])
-              }
-              s = s.replace(',', '.')
-            } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-              // Ponto de milhar pt-BR sem parte decimal (ex.: "1.278", "117.047", "118.555")
-              s = s.replace(/\./g, '')
-            } else if (/^\d{1,3}\.\d{1,3}$/.test(s)) {
-              // String como "1.508" ou "117.047" com ponto
-              const p = s.split('.')
-              if (p[1].length === 3 && Number(p[0]) < 1000) {
-                return Number(p[0] + p[1])
-              }
-            }
-            const n = Number(s.replace(/[^0-9.]/g, ''))
-            if (isNaN(n) || n <= 0) return null
-            // Heurística secundária para número vindo de string parseada para float com 3 casas
-            const pStr = String(n).split('.')
-            if (
-              pStr.length === 2 &&
-              (pStr[1].length === 3 || (pStr[1].length < 3 && n < 10)) &&
-              n < 1000
-            ) {
-              return Math.round(n * 1000)
-            }
-            return n
-          }
+          // Sanitização numérica simples — SEM conversão de milhar pt-BR: os valores de
+          // água ficam EXATAMENTE como a IA os transcreveu. O valor da tabela de
+          // discriminização da Sabesp ("3,796") é um decimal em m³ e NUNCA é convertido
+          // em 3.796 (premissa revertida na v0.0.99).
+          parsed.consumo_medido = sanitizeNumeric(parsed.consumo_medido)
+          parsed.consumo = sanitizeNumeric(parsed.consumo)
+          parsed.medicao_anterior = sanitizeNumeric(parsed.medicao_anterior)
+          parsed.medicao_atual = sanitizeNumeric(parsed.medicao_atual)
 
-          if (parsed.consumo_medido !== undefined && parsed.consumo_medido !== null) {
-            parsed.consumo_medido = parseAguaNumero(parsed.consumo_medido)
-          }
-          if (parsed.consumo !== undefined && parsed.consumo !== null) {
-            parsed.consumo = parseAguaNumero(parsed.consumo)
-          }
-          if (parsed.medicao_anterior !== undefined && parsed.medicao_anterior !== null) {
-            parsed.medicao_anterior = parseAguaNumero(parsed.medicao_anterior)
-          }
-          if (parsed.medicao_atual !== undefined && parsed.medicao_atual !== null) {
-            parsed.medicao_atual = parseAguaNumero(parsed.medicao_atual)
-          }
-
-          // Se medições foram extraídas, garantir que estão na mesma escala inteira
-          if (
-            parsed.medicao_atual !== undefined &&
-            parsed.medicao_anterior !== undefined &&
-            Number(parsed.medicao_atual) > 0 &&
-            Number(parsed.medicao_anterior) > 0
-          ) {
-            let mAtu = Number(parsed.medicao_atual)
-            let mAnt = Number(parsed.medicao_anterior)
-            // Se medições vieram em escala decimal < 1000 (ex.: 117.047, 118.555 ou 117, 118)
-            if (mAtu < 1000 && mAnt < 1000) {
-              const fAtu = String(mAtu).split('.')[1]
-              const fAnt = String(mAnt).split('.')[1]
-              if ((fAtu && fAtu.length === 3) || (fAnt && fAnt.length === 3)) {
-                parsed.medicao_atual = Math.round(mAtu * 1000)
-                parsed.medicao_anterior = Math.round(mAnt * 1000)
-              }
-            }
-          }
-
-          // COERÊNCIA LEITURAS × CONSUMO FATURADO: a Sabesp às vezes imprime na camada de
-          // texto apenas parte dos dígitos do hidrômetro (ex.: "1258 30 1254" quando a
-          // leitura real é 102.930 → 106.726) — leituras truncadas cuja diferença (4 m³)
-          // contradiz frontalmente o consumo faturado (3.796 m³). Nesses casos ANULAR as
-          // leituras (com aviso honesto) em vez de pré-preencher incoerência; nunca inventar
-          // dígitos que o PDF não contém.
-          {
-            const consCoer =
-              Number(parsed.consumo_corrigido) ||
-              Number(parsed.consumo) ||
-              Number(parsed.consumo_medido) ||
-              0
-            if (
-              parsed.medicao_atual !== undefined &&
-              parsed.medicao_atual !== null &&
-              parsed.medicao_anterior !== undefined &&
-              parsed.medicao_anterior !== null &&
-              Number(parsed.medicao_atual) > 0 &&
-              Number(parsed.medicao_anterior) > 0 &&
-              Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
-            ) {
-              const diffCoer = Math.round(
-                Number(parsed.medicao_atual) - Number(parsed.medicao_anterior),
-              )
-              const contradiz =
-                consCoer > 0 &&
-                (diffCoer < 10
-                  ? consCoer / diffCoer > 20
-                  : Math.abs(consCoer - diffCoer) / diffCoer > 0.5)
-              if (contradiz) {
-                console.log(
-                  `[fatura_extract] Coerência Água: leituras (${parsed.medicao_anterior} → ${parsed.medicao_atual}, dif. ${diffCoer} m³) contradizem o consumo faturado (${consCoer} m³) — leituras provavelmente truncadas na camada de texto. Campos de medição ANULADOS.`,
-                )
-                parsed.medicao_atual = null
-                parsed.medicao_anterior = null
-                if (!parsed.aviso_extracao) {
-                  parsed.aviso_extracao =
-                    'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
-                }
-                // COERÊNCIA DO CONSUMO MEDIDO: com as leituras anuladas, o consumo_medido
-                // (que veio da diferença das leituras truncadas, ex.: 1258 − 1254 = 4)
-                // perde sua base e NÃO pode sobreviver — alinhar ao consumo faturado
-                // corrigido (tabela de discriminização), que é o valor plausível da fatura.
-                const consCoerCorrigido =
-                  Number(parsed.consumo_corrigido) || Number(parsed.consumo) || 0
-                if (consCoerCorrigido > 0) {
-                  console.log(
-                    `[fatura_extract] Coerência Água: consumo_medido alinhado ao consumo faturado (${Number(parsed.consumo_medido) || 'vazio'} -> ${consCoerCorrigido} m³) junto com as leituras anuladas.`,
-                  )
-                  parsed.consumo_medido = consCoerCorrigido
-                } else {
-                  parsed.consumo_medido = null
-                }
-              }
-            }
-          }
-
-          // VALIDAÇÃO CRUZADA DE ÁGUA (COM TRAVA DE PLAUSIBILIDADE):
-          // Normalmente o consumo medido é a diferença leitura_atual − leitura_anterior
-          // (corrige casos onde a IA lê média de consumo, ex: 1.206 vs 1.508). PORÉM a Sabesp
-          // imprime a tabela de discriminização com a VÍRGULA como separador de MILHAR:
-          // "Mínimo 3,796 M3 x Nro.Econ." significa 3.796 m³ (e NÃO 3,796 m³). Nesses casos
-          // (leituras quase iguais com fatura alta) a diferença das leituras é absurda, e a
-          // tarifa implícita denuncia o erro — prevalece então o consumo da tabela de
-          // discriminização (já corrigido do milhar por parseAguaNumero).
-          if (
-            parsed.medicao_atual !== undefined &&
-            parsed.medicao_anterior !== undefined &&
-            Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
-          ) {
-            const diffLeituras = Math.round(
-              Number(parsed.medicao_atual) - Number(parsed.medicao_anterior),
-            )
-            const consMedidoOriginal = Number(parsed.consumo_medido) || Number(parsed.consumo) || 0
-            const vTotAguaCruz =
-              sanitizeMonetary(parsed.valor_total) ||
-              sanitizeMonetary(parsed.fatura_total) ||
-              sanitizeMonetary(parsed.valor_a_pagar) ||
-              0
-            const tarifaDif = vTotAguaCruz > 0 ? vTotAguaCruz / diffLeituras : undefined
-            // Diferença plausível: sem valor de referência para confrontar, tarifa implícita
-            // dentro da faixa de saneamento (R$ 1–100/m³) ou coerente com o extraído (< 50% de desvio).
-            const desvioRef =
-              consMedidoOriginal > 0
-                ? Math.abs(consMedidoOriginal - diffLeituras) / diffLeituras
-                : Infinity
-            const diffPlausivel =
-              tarifaDif === undefined || (tarifaDif >= 1 && tarifaDif <= 100) || desvioRef < 0.5
-            if (diffPlausivel) {
-              if (diffLeituras > 0 && Math.abs(consMedidoOriginal - diffLeituras) > 0) {
-                console.log(
-                  `[fatura_extract] Validação cruzada Água: leituras ${parsed.medicao_atual} - ${parsed.medicao_anterior} = ${diffLeituras} m³ (plausível, tarifa implícita R$ ${tarifaDif ? tarifaDif.toFixed(2) : 'n/d'}/m³). Substituindo consumo extraído (${consMedidoOriginal}) pela diferença das leituras.`,
-                )
-                parsed.consumo_medido = diffLeituras
-                parsed.consumo = diffLeituras
-              } else if (!parsed.consumo_medido || Number(parsed.consumo_medido) === 0) {
-                parsed.consumo_medido = diffLeituras
-                parsed.consumo = diffLeituras
-              }
-            } else {
+          // FONTE DA VERDADE DO CONSUMO: a diferença das leituras do hidrômetro
+          // (medicao_atual − medicao_anterior, ex.: 1254 → 1258 = 4 m³). O valor da tabela
+          // de discriminização da Sabesp ("3,796") é mantido como está — NUNCA é
+          // interpretado como milhar pt-BR nem multiplicado por 1000.
+          const mAntAgua = Number(parsed.medicao_anterior) || 0
+          const mAtuAgua = Number(parsed.medicao_atual) || 0
+          const diffLeiturasAgua = mAtuAgua > mAntAgua ? Math.round(mAtuAgua - mAntAgua) : 0
+          if (diffLeiturasAgua > 0) {
+            const consAntes = Number(parsed.consumo_medido) || Number(parsed.consumo) || 0
+            if (Math.abs(consAntes - diffLeiturasAgua) > 0.001) {
               console.log(
-                `[fatura_extract] Validação cruzada Água: diferença das leituras (${diffLeituras} m³) gera tarifa implausível (R$ ${tarifaDif ? tarifaDif.toFixed(2) : 'n/d'}/m³ com valor_total R$ ${vTotAguaCruz.toFixed(2)}). Mantendo consumo da tabela de discriminização (${consMedidoOriginal} m³) — Sabesp imprime vírgula como milhar (ex.: "3,796" = 3.796 m³).`,
+                `[fatura_extract] Coerência Água: consumo = diferença das leituras (${mAntAgua} → ${mAtuAgua} = ${diffLeiturasAgua} m³), antes ${consAntes || 'vazio'}.`,
               )
             }
+            parsed.consumo_medido = diffLeiturasAgua
+            parsed.consumo = diffLeiturasAgua
           }
 
           if (parsed.consumo_medido && !parsed.consumo) {
@@ -1614,58 +1439,11 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             parsed.consumo_medido = parsed.consumo
           }
 
-          // TRAVA DE ESCALA PARA ÁGUA E ESGOTO:
-          // Se o consumo veio minúsculo (< 100 m³) e o valor_total da fatura é alto (> R$ 1.000,00),
-          // confere a ordem de grandeza da tarifa implícita (R$/m³).
-          {
-            const vRefAgua =
-              sanitizeMonetary(parsed.valor_total) ||
-              sanitizeMonetary(parsed.fatura_total) ||
-              sanitizeMonetary(parsed.valor_a_pagar) ||
-              0
-            const consAguaAtual = Number(parsed.consumo) || Number(parsed.consumo_medido) || 0
-            if (vRefAgua > 1000 && consAguaAtual > 0 && consAguaAtual < 100) {
-              const tarifaImplicitaAtual = vRefAgua / consAguaAtual
-              const consCorrigido = Number((consAguaAtual * 1000).toFixed(3))
-              const tarifaImplicitaCorrigida = vRefAgua / consCorrigido
-              // Se tarifa atual é > R$ 100/m³ e a tarifa corrigida fica entre R$ 2/m³ e R$ 100/m³
-              if (
-                tarifaImplicitaAtual > 100 &&
-                tarifaImplicitaCorrigida >= 2 &&
-                tarifaImplicitaCorrigida <= 100
-              ) {
-                console.log(
-                  `[fatura_extract] Trava de escala Água: consumo ${consAguaAtual} m³ 1000x menor que o esperado (valor_total=${vRefAgua}, tarifa implícita=${tarifaImplicitaAtual.toFixed(2)}). Corrigindo para ${consCorrigido} m³.`,
-                )
-                parsed.consumo = consCorrigido
-                parsed.consumo_medido = consCorrigido
-
-                // Se as medições também vieram 1000x menores
-                if (
-                  parsed.medicao_atual !== undefined &&
-                  Number(parsed.medicao_atual) > 0 &&
-                  Number(parsed.medicao_atual) < 1000
-                ) {
-                  parsed.medicao_atual = Math.round(Number(parsed.medicao_atual) * 1000)
-                }
-                if (
-                  parsed.medicao_anterior !== undefined &&
-                  Number(parsed.medicao_anterior) > 0 &&
-                  Number(parsed.medicao_anterior) < 1000
-                ) {
-                  parsed.medicao_anterior = Math.round(Number(parsed.medicao_anterior) * 1000)
-                }
-              }
-            }
-          }
-
-          // TRAVA DE SANIDADE (preventiva, padrão confirmado pela migração 0064):
-          // consumo < 10 m³ com valor_total > R$ 1.000 é o padrão clássico da vírgula de
-          // milhar da Sabesp não interpretada ("3,796" lido como 3,796 m³ em vez de 3.796 m³),
-          // inclusive quando o consumo foi reescalado 1000x a partir de uma diferença de
-          // leituras suspeita (4 -> 4.000). Tentar reconciliar pela diferença das leituras
-          // (só se >= 10 m³ e tarifa implícita plausível); sem reconciliação possível, ANULAR
-          // o campo com aviso honesto — nunca gravar consumo absurdo.
+          // TRAVA DE SANIDADE / LEITURAS TRUNCADAS: consumo < 10 m³ com valor_total >
+          // R$ 1.000 é implausível — assinatura de leituras truncadas/incompletas na camada
+          // de texto do PDF (ex.: 1254 → 1258 quando a leitura real é 102.930 → 106.726).
+          // Anular MEDIÇÕES e consumo/tarifa com aviso honesto — nunca inventar dígitos que
+          // o PDF não contém nem gravar valor absurdo.
           {
             const vTotSanidade =
               sanitizeMonetary(parsed.valor_total) ||
@@ -1673,46 +1451,18 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
               sanitizeMonetary(parsed.valor_a_pagar) ||
               0
             const consSan = Number(parsed.consumo) || Number(parsed.consumo_medido) || 0
-            const diffSan =
-              parsed.medicao_atual !== undefined &&
-              parsed.medicao_anterior !== undefined &&
-              Number(parsed.medicao_atual) > Number(parsed.medicao_anterior)
-                ? Math.round(Number(parsed.medicao_atual) - Number(parsed.medicao_anterior))
-                : 0
-            const consVemDeDiffSuspeita =
-              diffSan > 0 &&
-              diffSan < 10 &&
-              vTotSanidade > 1000 &&
-              Math.abs(consSan - diffSan * 1000) < diffSan
-            if ((consSan > 0 && consSan < 10 && vTotSanidade > 1000) || consVemDeDiffSuspeita) {
-              const difSanPlausivel =
-                diffSan >= 10 && vTotSanidade / diffSan >= 1 && vTotSanidade / diffSan <= 100
-              if (difSanPlausivel) {
-                console.log(
-                  `[fatura_extract] Trava de sanidade Água: consumo ${consSan} m³ com valor_total R$ ${vTotSanidade.toFixed(2)} é absurdo. Reconciliado pela diferença das leituras: ${diffSan} m³.`,
-                )
-                parsed.consumo = diffSan
-                parsed.consumo_medido = diffSan
-              } else {
-                console.log(
-                  `[fatura_extract] Trava de sanidade Água: consumo ${consSan} m³ com valor_total R$ ${vTotSanidade.toFixed(2)} não pôde ser reconciliado (vírgula de milhar da Sabesp; dif. de leituras ${diffSan || 'ausente'} implausível). Campos de consumo ANULADOS — preencher manualmente após conferir a fatura ("3,796" = 3.796 m³).`,
-                )
-                parsed.consumo = null
-                parsed.consumo_medido = null
-                parsed.consumo_corrigido = null
-                parsed.tarifa = null
-                parsed.aviso_extracao =
-                  'Consumo extraído ficou implausível (menos de 10 m³ com fatura acima de R$ 1.000). A Sabesp imprime a vírgula como separador de milhar (ex.: "3,796" = 3.796 m³) — confira o consumo na tabela da fatura e preencha manualmente.'
-              }
-            }
-            // Consumo ausente mas leituras quase iguais com fatura alta: sem valor absurdo a
-            // gravar, mas avisa honestamente que o consumo precisa ser conferido/lançado à mão.
-            else if (consSan === 0 && diffSan >= 1 && diffSan < 10 && vTotSanidade > 1000) {
+            if (consSan > 0 && consSan < 10 && vTotSanidade > 1000) {
               console.log(
-                `[fatura_extract] Trava de sanidade Água: sem consumo extraído e leituras quase iguais (${diffSan} m³ de diferença) com valor_total R$ ${vTotSanidade.toFixed(2)} — consumo real provável está na tabela de discriminização (vírgula de milhar, ex.: "3,796" = 3.796 m³).`,
+                `[fatura_extract] Trava de sanidade Água: consumo ${consSan} m³ com valor_total R$ ${vTotSanidade.toFixed(2)} é implausível (leituras provavelmente truncadas no PDF). Medições e campos de consumo/tarifa ANULADOS — preencher manualmente após conferir a fatura.`,
               )
+              parsed.medicao_atual = null
+              parsed.medicao_anterior = null
+              parsed.consumo = null
+              parsed.consumo_medido = null
+              parsed.consumo_corrigido = null
+              parsed.tarifa = null
               parsed.aviso_extracao =
-                'As leituras desta fatura quase não mudaram e o consumo não pôde ser determinado com segurança. A Sabesp imprime a vírgula como separador de milhar (ex.: "3,796" = 3.796 m³) — confira o consumo na tabela da fatura e preencha manualmente.'
+                'As leituras impressas na fatura resultaram num consumo implausível (menos de 10 m³ com fatura acima de R$ 1.000) — provavelmente estão truncadas/incompletas no PDF. Preencha Medição Anterior/Atual e o consumo manualmente conforme a fatura.'
             }
           }
 
@@ -1730,7 +1480,7 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           const tarifaExistente = sanitizeNumeric(parsed.tarifa)
           // Base preferencial para a tarifa: o VALOR DE ÁGUA da tabela de discriminização
           // (a fatura soma água + esgoto + tributos; a tarifa de água coerente sai do valor
-          // de água sozinho, ex.: 4.820,92 ÷ 3.796 ≈ 1,27 R$/m³, e não do total com esgoto).
+          // de água sozinho, ex.: 4.820,92 ÷ consumo, e não do total com esgoto).
           let baseTarifaAgua = valorAgua
           if (textContent && typeof textContent === 'string' && valorAgua > 0) {
             let valorAguaLinha = 0
