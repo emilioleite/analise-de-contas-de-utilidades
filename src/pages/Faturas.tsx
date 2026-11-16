@@ -738,25 +738,9 @@ export default function Faturas() {
           return corrigir ? Number((val * 1000).toFixed(3)) : val
         }
         let cConsumoFinal = travaEscalaConsumo(cConsumo, detectedTipo === 'Energia Elétrica')
-        if (detectedTipo === 'Água e Esgoto' && cConsumoFinal !== undefined && cConsumoFinal > 0) {
-          // Hidrômetro de água imprime inteiros com ponto de milhar pt-BR: "1.278" ou "1.531" chega como
-          // 1.278 ou 1.531 (decimal) pelo caminho da IA.
-          if (cConsumoFinal < 100) {
-            const fracC = String(cConsumoFinal).split('.')[1]
-            const vRefAguaForm = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
-            // Se tem fração decimal com até 3 casas E (consumo < 10 OU valor_total > 1000 que tornaria tarifa exorbitante)
-            if (fracC && (fracC.length === 3 || fracC.length < 3)) {
-              if (cConsumoFinal < 10 || (vRefAguaForm && vRefAguaForm / cConsumoFinal > 100)) {
-                cConsumoFinal = Math.round(cConsumoFinal * 1000)
-              }
-            } else if (vRefAguaForm && vRefAguaForm / cConsumoFinal > 100) {
-              const tarifaCom1000 = vRefAguaForm / (cConsumoFinal * 1000)
-              if (tarifaCom1000 >= 2 && tarifaCom1000 <= 100) {
-                cConsumoFinal = Math.round(cConsumoFinal * 1000)
-              }
-            }
-          }
-        }
+        // Água e Esgoto: SEM conversão de milhar pt-BR (espelho do hook v0.0.99) — o consumo
+        // fica EXATAMENTE como a extração o transcreveu. O valor da tabela de discriminização
+        // da Sabesp ("3,796") é um decimal em m³ e NUNCA é escalado para 3.796.
         if (cConsumoFinal !== undefined) setConsumo(formatNumberValue(cConsumoFinal, 3))
 
         const uConsumo = getField('unidade_consumo', 'unidadeConsumo', 'unidade')
@@ -1336,98 +1320,34 @@ export default function Faturas() {
           }
         }
 
-        // Se for ÁGUA E ESGOTO: hidrômetro imprime leituras/consumo inteiros com ponto de
-        // milhar pt-BR ("1.278" = 1278 m³, "1.508" = 1508 m³).
-        // VALIDAÇÃO CRUZADA OBRIGATÓRIA: quando leitura anterior e atual estiverem presentes,
-        // o consumo medido DEVE ser medAtu - medAnt. Se houver divergência (ex.: IA leu média 1.206 m³
-        // em vez do medido 1.508 m³), prevalece a diferença das leituras.
+        // ÁGUA E ESGOTO (espelho do hook v0.0.99): a FONTE DA VERDADE do consumo é a
+        // diferença das leituras do hidrômetro (medicao_atual − medicao_anterior, ex.:
+        // 1254 → 1258 = 4 m³). O valor da tabela de discriminização da Sabesp ("3,796")
+        // é um decimal em m³ e fica como está — NUNCA é interpretado como milhar pt-BR
+        // nem multiplicado por 1000.
         if (detectedTipo === 'Água e Esgoto') {
-          // COERÊNCIA LEITURAS × CONSUMO (espelho do hook): a Sabesp às vezes imprime na
-          // camada de texto só parte dos dígitos do hidrômetro (ex.: 1254 → 1258 quando a
-          // leitura real é 102.930 → 106.726). A diferença (4 m³) contradiz o consumo
-          // faturado (3.796 m³) — anular as medições com aviso honesto em vez de pré-
-          // preencher incoerência; nunca inventar dígitos que o PDF não contém.
-          {
-            const consCoerForm =
-              cMedido ?? cConsumoFinal ?? cCorrigido ?? parsePositiveNumber(rawCConsumo)
-            if (
-              medAtu !== undefined &&
-              medAnt !== undefined &&
-              medAtu > medAnt &&
-              consCoerForm !== undefined &&
-              consCoerForm > 0
-            ) {
-              const diffCoerForm = medAtu - medAnt
-              const contradizForm =
-                diffCoerForm < 10
-                  ? consCoerForm / diffCoerForm > 20
-                  : Math.abs(consCoerForm - diffCoerForm) / diffCoerForm > 0.5
-              if (contradizForm) {
-                console.log(
-                  `[Faturas] Coerência Água: leituras (${medAnt} → ${medAtu}, dif. ${diffCoerForm} m³) contradizem o consumo faturado (${consCoerForm} m³) — leituras provavelmente truncadas na camada de texto. Campos de medição anulados.`,
-                )
-                medAnt = undefined
-                medAtu = undefined
-                setMedicaoAnterior('')
-                setMedicaoAtual('')
-                // COERÊNCIA DO CONSUMO MEDIDO (espelho do hook): o consumo_medido extraído
-                // veio da diferença das leituras truncadas (ex.: 1258 − 1254 = 4) e perde a
-                // base quando as leituras são anuladas — descartá-lo; o consumoMedido do
-                // formulário passa a refletir o consumo faturado corrigido (ex.: 3.796 m³).
-                cMedido = undefined
-                avisoExtracaoHook =
-                  'As leituras impressas na fatura vieram incompletas (a diferença entre elas não confere com o consumo faturado) — preencha Medição Anterior/Atual manualmente conforme a fatura.'
-              }
-            }
-          }
-
           const diffLeiturasAgua =
             medAtu !== undefined && medAnt !== undefined && medAtu > medAnt
               ? medAtu - medAnt
               : undefined
 
-          if (cMedido !== undefined && cMedido > 0 && cMedido < 100) {
-            const fracM = String(cMedido).split('.')[1]
-            const vRefAguaMed = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
-            if (fracM && (fracM.length === 3 || (cMedido < 10 && fracM.length < 3))) {
-              cMedido = Math.round(cMedido * 1000)
-            } else if (vRefAguaMed && vRefAguaMed / cMedido > 100) {
-              const tarTeste = vRefAguaMed / (cMedido * 1000)
-              if (tarTeste >= 2 && tarTeste <= 100) {
-                cMedido = Math.round(cMedido * 1000)
-              }
-            }
-          }
-
           if (diffLeiturasAgua !== undefined && diffLeiturasAgua > 0) {
-            // TRAVA DE PLAUSIBILIDADE (espelho do hook): a diferença das leituras só substitui
-            // o consumo da tabela quando a tarifa implícita resultante é plausível. A Sabesp
-            // imprime a VÍRGULA como separador de MILHAR ("3,796" = 3.796 m³); leituras quase
-            // iguais com fatura alta (ex.: 1254 → 1258 = 4 m³ com total R$ 9.844,01 → tarifa
-            // implícita R$ 2.461/m³) denunciam leituras ilegíveis — prevalece então o consumo
-            // da tabela de discriminização.
-            const vRefAguaDif = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
-            const tarifaDif =
-              vRefAguaDif && vRefAguaDif > 0 ? vRefAguaDif / diffLeiturasAgua : undefined
-            const desvioRef =
-              cMedido !== undefined && cMedido > 0
-                ? Math.abs(cMedido - diffLeiturasAgua) / diffLeiturasAgua
-                : Infinity
-            const difPlausivel =
-              tarifaDif === undefined || (tarifaDif >= 1 && tarifaDif <= 100) || desvioRef < 0.5
-            if (difPlausivel) {
-              if (cMedido === undefined || Math.abs(cMedido - diffLeiturasAgua) > 0) {
-                cMedido = diffLeiturasAgua
-              }
-              if (cConsumoFinal === undefined || Math.abs(cConsumoFinal - diffLeiturasAgua) > 0) {
-                cConsumoFinal = diffLeiturasAgua
-                setConsumo(formatNumberValue(diffLeiturasAgua, 3))
-              }
-            } else {
+            const consAntes = cMedido ?? cConsumoFinal ?? cCorrigido ?? 0
+            if (Math.abs(consAntes - diffLeiturasAgua) > 0.001) {
               console.log(
-                `[Faturas] Validação cruzada Água: diferença das leituras (${diffLeiturasAgua} m³) gera tarifa implausível (R$ ${tarifaDif ? tarifaDif.toFixed(2) : 'n/d'}/m³ com valor_total R$ ${vRefAguaDif ? vRefAguaDif.toFixed(2) : 'n/d'}). Mantendo consumo da tabela de discriminização (${cMedido ?? cConsumoFinal} m³).`,
+                `[Faturas] Coerência Água: consumo = diferença das leituras (${medAnt} → ${medAtu} = ${diffLeiturasAgua} m³), antes ${consAntes || 'vazio'}.`,
               )
             }
+            cMedido = diffLeiturasAgua
+            cConsumoFinal = diffLeiturasAgua
+            setConsumo(formatNumberValue(diffLeiturasAgua, 3))
+          }
+
+          if (cMedido !== undefined && !cConsumoFinal) {
+            cConsumoFinal = cMedido
+          }
+          if (cConsumoFinal !== undefined && !cMedido) {
+            cMedido = cConsumoFinal
           }
         }
 
@@ -1452,9 +1372,11 @@ export default function Faturas() {
         }
 
         if (detectedTipo === 'Água e Esgoto') {
-          // Água e Esgoto: tarifa média analítica (espelho do hook). Base preferencial: o
-          // VALOR DE ÁGUA da tabela de discriminização (a fatura soma água + esgoto +
-          // tributos; ex.: 4.820,92 ÷ 3.796 ≈ 1,27 R$/m³, e não 9.844,01 ÷ 3.796 ≈ 2,59).
+          // Água e Esgoto: tarifa média analítica (espelho do hook v0.0.99). Base
+          // preferencial: o VALOR DE ÁGUA da tabela de discriminização (a fatura soma
+          // água + esgoto + tributos; a tarifa de água coerente sai do valor de água
+          // sozinho e NUNCA do total com esgoto). O consumo usado é o que já passou
+          // pela fonte da verdade das leituras (sem escala de milhar).
           const vTotPositive = parsePositiveNumber(vTotal)
           const volCons =
             parsePositiveNumber(cMedido) ||
@@ -1501,11 +1423,12 @@ export default function Faturas() {
           }
         }
 
-        // TRAVA DE SANIDADE ÁGUA (espelho do hook, padrão confirmado pela migração 0064):
-        // consumo < 10 m³ com valor_total > R$ 1.000 é implausível — assinatura clássica da
-        // vírgula de milhar da Sabesp interpretada como decimal ("3,796" lido como 3,796 m³
-        // em vez de 3.796 m³). Anula consumo/tarifa no formulário com aviso honesto em vez
-        // de pré-preencher valor absurdo.
+        // TRAVA DE SANIDADE ÁGUA (espelho do hook v0.0.99): consumo < 10 m³ com
+        // valor_total > R$ 1.000 é implausível — assinatura de leituras truncadas/
+        // incompletas na camada de texto do PDF (ex.: 1254 → 1258 quando a leitura real
+        // é 102.930 → 106.726). Anula MEDIÇÕES e campos de consumo/tarifa no formulário
+        // com aviso honesto — nunca inventar dígitos que o PDF não contém nem gravar
+        // valor absurdo.
         if (detectedTipo === 'Água e Esgoto') {
           const vRefSanAgua = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
           const consSanAgua = cMedido ?? cConsumoFinal ?? cCorrigido
@@ -1517,17 +1440,21 @@ export default function Faturas() {
             vRefSanAgua > 1000
           ) {
             console.log(
-              `[Faturas] Trava de sanidade Água: consumo ${consSanAgua} m³ com valor_total R$ ${vRefSanAgua.toFixed(2)} é implausível (vírgula de milhar da Sabesp). Campos de consumo/tarifa anulados — preencher manualmente ("3,796" = 3.796 m³).`,
+              `[Faturas] Trava de sanidade Água: consumo ${consSanAgua} m³ com valor_total R$ ${vRefSanAgua.toFixed(2)} é implausível (leituras provavelmente truncadas no PDF). Medições e campos de consumo/tarifa ANULADOS — preencher manualmente após conferir a fatura.`,
             )
+            medAnt = undefined
+            medAtu = undefined
             cMedido = undefined
             cConsumoFinal = undefined
             tar = undefined
+            setMedicaoAnterior('')
+            setMedicaoAtual('')
             setConsumo('')
             setConsumoMedido('')
             setConsumoCorrigido('')
             setTarifa('')
             avisoExtracaoHook =
-              'O consumo extraído ficou implausível (menos de 10 m³ com fatura acima de R$ 1.000). A Sabesp imprime a vírgula como separador de milhar (ex.: "3,796" = 3.796 m³) — confira o consumo na tabela da fatura e preencha manualmente.'
+              'As leituras impressas na fatura resultaram num consumo implausível (menos de 10 m³ com fatura acima de R$ 1.000) — provavelmente estão truncadas/incompletas no PDF. Preencha Medição Anterior/Atual e o consumo manualmente conforme a fatura.'
           }
         }
 
@@ -1724,10 +1651,10 @@ export default function Faturas() {
       dadosEsp = {
         medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
         medicao_atual: parseCumulativeMeterReading(medicaoAtual),
-        // COERÊNCIA AO GRAVAR (espelho do hook, padrão migrações 0061/0069): em Água e
-        // Esgoto, consumo_medido não pode contradizer o consumo top-level — se um valor
-        // residual das leituras truncadas escapou (ex.: 4 m³ com consumo 3.796 m³), é
-        // realinhado ao consumo (ou anulado quando não há consumo plausível de referência).
+        // COERÊNCIA AO GRAVAR (espelho do hook v0.0.99): em Água e Esgoto, consumo_medido
+        // não pode contradizer o consumo top-level — um valor residual das leituras
+        // truncadas (ex.: 4 m³ contra um consumo faturado de centenas de m³) é ANULADO
+        // (nunca realinhado nem reescalado); o usuário confere a fatura e preenche.
         consumo_medido: calcularConsumoMedidoCoerenteAgua(consumo, consumoMedido || consumo),
         tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
@@ -2054,7 +1981,7 @@ export default function Faturas() {
       dadosEsp = {
         medicao_anterior: parseCumulativeMeterReading(medicaoAnterior),
         medicao_atual: parseCumulativeMeterReading(medicaoAtual),
-        // Coerência ao gravar (espelho do hook): ver comentário no submit de criação.
+        // Coerência ao gravar (espelho do hook v0.0.99): ver comentário no submit de criação.
         consumo_medido: calcularConsumoMedidoCoerenteAgua(consumo, consumoMedido || consumo),
         tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
