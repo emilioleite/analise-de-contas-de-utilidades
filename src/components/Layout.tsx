@@ -8,6 +8,7 @@ import {
   Building2,
   FileText,
   TrendingUp,
+  CalendarRange,
   LogOut,
   Menu,
   X,
@@ -45,7 +46,7 @@ export default function Layout() {
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Empreendimentos', path: '/empreendimentos', icon: Building2 },
     { name: 'Faturas', path: '/faturas', icon: FileText },
-    { name: 'Análise 24 Meses', path: '/analise-24-meses', icon: TrendingUp },
+    { name: 'Análise por Período', path: '/analise-periodo', icon: CalendarRange },
     { name: 'Emissões de GEE', path: '/emissoes', icon: Leaf },
     ...(isAdmin ? [{ name: 'Usuários', path: '/usuarios', icon: Users }] : []),
   ]
@@ -56,7 +57,8 @@ export default function Layout() {
     if (p === '/') return 'Dashboard Geral'
     if (p.startsWith('/empreendimentos')) return 'Gestão de Empreendimentos'
     if (p.startsWith('/faturas')) return 'Faturas de Utilidades'
-    if (p.startsWith('/analise-24-meses')) return 'Análise de Consumo — 24 Meses'
+    if (p.startsWith('/analise-periodo') || p.startsWith('/analise-24-meses'))
+      return 'Análise de Consumo por Período'
     if (p.startsWith('/emissoes')) return 'Emissões de GEE (GHG Protocol)'
     if (p.startsWith('/usuarios')) return 'Gestão de Usuários'
     return 'Gestor de Utilidades'

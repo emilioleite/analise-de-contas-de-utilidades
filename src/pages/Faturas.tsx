@@ -1922,6 +1922,45 @@ export default function Faturas() {
   const executeUpdateInvoice = async () => {
     if (!selectedFatura) return
 
+    // Trava de valor: a edição não tinha validação nenhuma e aceitava número negativo.
+    // Valor negativo nunca entra — crédito/estorno é registrado como 0,00.
+    const valorEdicao = parseNumberValue(valorTotal)
+    if (
+      valorTotal === '' ||
+      valorTotal === undefined ||
+      valorTotal === null ||
+      valorEdicao === undefined ||
+      valorEdicao === null ||
+      isNaN(valorEdicao) ||
+      valorEdicao < 0
+    ) {
+      toast({
+        title: 'Valor total inválido',
+        description:
+          'Informe um valor maior ou igual a zero. Crédito/estorno é lançado como 0,00 — fatura negativa não é aceita.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    const negativos = [
+      { nome: 'Consumo', valor: parseNumberValue(consumo) },
+      { nome: 'Consumo ponta', valor: parseNumberValue(consumoPonta) },
+      { nome: 'Consumo fora-ponta', valor: parseNumberValue(consumoForaPonta) },
+      { nome: 'Consumo medido', valor: parseNumberValue(consumoMedido) },
+      { nome: 'Consumo corrigido', valor: parseNumberValue(consumoCorrigido) },
+      { nome: 'Tarifa', valor: parseNumberValue(tarifa) },
+    ].filter((c) => c.valor !== undefined && c.valor !== null && c.valor < 0)
+
+    if (negativos.length > 0) {
+      toast({
+        title: 'Valor negativo não é permitido',
+        description: `Corrija antes de salvar: ${negativos.map((c) => c.nome).join(', ')}.`,
+        variant: 'destructive',
+      })
+      return
+    }
+
     let compISO = selectedFatura.competencia
     if (competenciaInput.includes('/')) {
       const [mm, yyyy] = competenciaInput.split('/')

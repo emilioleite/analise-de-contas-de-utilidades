@@ -13,7 +13,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import Index from './pages/Index'
 import Empreendimentos from './pages/Empreendimentos'
 import Faturas from './pages/Faturas'
-import Analise24Meses from './pages/Analise24Meses'
+import AnalisePeriodo from './pages/AnalisePeriodo'
 import Emissoes from './pages/Emissoes'
 import Usuarios from './pages/Usuarios'
 import Login from './pages/Login'
@@ -50,7 +50,12 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/empreendimentos" element={<Empreendimentos />} />
                 <Route path="/faturas" element={<Faturas />} />
-                <Route path="/analise-24-meses" element={<Analise24Meses />} />
+                <Route path="/analise-periodo" element={<AnalisePeriodo />} />
+                {/* Rota antiga mantida: quem tinha o link salvo cai na análise por período */}
+                <Route
+                  path="/analise-24-meses"
+                  element={<Navigate to="/analise-periodo" replace />}
+                />
                 <Route path="/emissoes" element={<Emissoes />} />
                 <Route path="/usuarios" element={<Usuarios />} />
               </Route>
