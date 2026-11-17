@@ -771,10 +771,10 @@ export default function Index() {
             </CardDescription>
           </div>
           <Link
-            to="/analise-24-meses"
+            to="/analise-periodo"
             className="text-xs text-teal-700 hover:underline font-semibold flex items-center"
           >
-            Ver análise completa de 24 meses
+            Ver análise completa por período
             <TrendingUp className="w-3.5 h-3.5 ml-1" />
           </Link>
         </CardHeader>
