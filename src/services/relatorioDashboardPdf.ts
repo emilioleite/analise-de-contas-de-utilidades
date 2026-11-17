@@ -569,7 +569,7 @@ export async function gerarRelatorioDashboardPDF(data: DashboardPdfData): Promis
     currentY + 12.5,
   )
   doc.text(
-    '• Para detalhamento de bandeiras tarifárias, tarifas ponta/fora-ponta ou histórico de 24 meses, acerte a aba Análise 24 Meses.',
+    '• Para detalhamento de bandeiras tarifárias, tarifas ponta/fora-ponta ou histórico do período, abra o módulo Análise por Período.',
     margin + 4,
     currentY + 16.5,
   )

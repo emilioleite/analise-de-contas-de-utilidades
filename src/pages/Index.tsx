@@ -31,6 +31,7 @@ import { getFaturaTipoEnergia } from '@/lib/faturaIdentificacao'
 import { useCountUp } from '@/hooks/use-count-up'
 import { useToast } from '@/hooks/use-toast'
 import { gerarRelatorioDashboardPDF } from '@/services/relatorioDashboardPdf'
+import { GeeDashboardSection } from '@/components/dashboard/GeeDashboardSection'
 import {
   UtilidadeSection,
   UtilidadeSectionData,
@@ -93,11 +94,18 @@ function AnimatedKPICard({
 
 export default function Index() {
   const { user, isLoading } = useAuth()
-  const { faturas, empreendimentos, loading } = useData()
+  const { faturas, empreendimentos, calculosEmissoes, loading } = useData()
   const { toast } = useToast()
 
   const [selectedEmpreendimento, setSelectedEmpreendimento] = useState<string>('todos')
   const [exportandoPdfGeral, setExportandoPdfGeral] = useState(false)
+
+  // Emissões de GEE do MESMO recorte do dashboard (mesma janela e mesmo empreendimento)
+  const calculosGee = useMemo(() => {
+    const lista = calculosEmissoes || []
+    if (selectedEmpreendimento === 'todos') return lista
+    return lista.filter((c) => c.empreendimentoId === selectedEmpreendimento)
+  }, [calculosEmissoes, selectedEmpreendimento])
 
   const userName = user?.name ? user.name.trim().split(/\s+/)[0] : 'Colaborador'
 
@@ -126,6 +134,7 @@ export default function Index() {
     lineData,
     topConsumos,
     periodoTexto,
+    mesesJanela,
     hasFilteredFaturas,
   } = useMemo(() => {
     const emptyResult = {
@@ -155,6 +164,7 @@ export default function Index() {
         valor: number
       }>,
       periodoTexto: 'Sem dados',
+      mesesJanela: [] as string[],
       hasFilteredFaturas: false,
     }
 
@@ -498,6 +508,7 @@ export default function Index() {
       lineData: lines,
       topConsumos: top5,
       periodoTexto: periodoStr,
+      mesesJanela: Object.keys(monthlyMap).sort(),
       hasFilteredFaturas: true,
     }
   }, [faturas, empreendimentos, selectedEmpreendimento])
@@ -759,7 +770,17 @@ export default function Index() {
         />
       </div>
 
-      {/* Bloco Adicional de Maiores Faturas (Top 5) & Link para Análise 24 Meses */}
+      {/* Emissões de GEE na mesma janela do dashboard (global ou por empreendimento) */}
+      <GeeDashboardSection
+        calculos={calculosGee}
+        meses={mesesJanela}
+        empreendimentos={empreendimentos}
+        nomeEmpreendimento={nomeEmpSelecionado}
+        periodoTexto={periodoTexto}
+        mostrarPorEmpreendimento={selectedEmpreendimento === 'todos'}
+      />
+
+      {/* Bloco Adicional de Maiores Faturas (Top 5) & Link para Análise por Período */}
       <Card className="p-5 border-[#E5E7EB] shadow-sm">
         <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
           <div>

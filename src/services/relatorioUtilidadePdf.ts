@@ -547,7 +547,7 @@ export async function gerarRelatorioUtilidadePDF(data: RelatorioUtilidadePdfData
     currentY + 16.5,
   )
   doc.text(
-    '• Para detalhamento completo de 24 meses, sazonalidade e tarifas horo-sazonais, consulte o módulo Análise 24 Meses.',
+    '• Para detalhamento completo do período, sazonalidade e tarifas horo-sazonais, consulte o módulo Análise por Período.',
     margin + 4,
     currentY + 20.5,
   )

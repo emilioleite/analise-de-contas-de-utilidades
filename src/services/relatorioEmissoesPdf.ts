@@ -95,6 +95,10 @@ export interface EmissoesPdfData {
     consumoAguaM3: number
     fatorEnergiaAplicado: number
     isEnergiaOficial: boolean
+    /** Mês sem fatura: aparece como lacuna, nunca como zero. */
+    semFatura?: boolean
+    oficial?: number
+    estimado?: number
   }>
   comparativoData: Array<{
     mes: string
@@ -109,11 +113,26 @@ export interface EmissoesPdfData {
     escopo1: number
     escopo2: number
     escopo3: number
+    oficial?: number
+    estimado?: number
   }>
+  /** Metadados de cobertura e de fonte — todos opcionais. */
+  mesesComDado?: number
+  qtdMeses?: number
+  mesesSemDado?: number
+  totalOficial?: number
+  totalEstimado?: number
+  misturaFontes?: boolean
+  porEscopoFonte?: {
+    escopo1: { total: number; oficial: number; estimado: number }
+    escopo2: { total: number; oficial: number; estimado: number }
+    escopo3: { total: number; oficial: number; estimado: number }
+  }
 }
 
 /**
- * Renderiza gráfico de barras empilhadas de 24 meses em canvas e retorna DataURL PNG.
+ * Renderiza o gráfico de barras empilhadas (tCO₂e por escopo) do período em canvas.
+ * Mês sem fatura é marcado como "n/d" na base, nunca desenhado como zero.
  */
 function renderStackedBarChartCanvas(
   slots: EmissoesPdfData['slots'],
@@ -199,6 +218,17 @@ function renderStackedBarChartCanvas(
       currentY -= hE3
       ctx.fillStyle = '#0EA5E9'
       ctx.fillRect(xLeft, currentY, barWidth, hE3)
+    }
+
+    // Mês sem fatura: marca discreta na base, nunca uma barra de altura zero
+    if (slot.semFatura) {
+      ctx.fillStyle = '#CBD5E1'
+      ctx.fillRect(xLeft, paddingTop + chartHeight - 2, barWidth, 2)
+      ctx.fillStyle = '#94A3B8'
+      ctx.font = '11px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'bottom'
+      ctx.fillText('n/d', xCenter, paddingTop + chartHeight - 5)
     }
 
     // Rótulo X (mes/ano)
@@ -431,7 +461,12 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
     {
       titulo: 'TOTAL DO PERÍODO',
       valor: formatTCO2e(data.total24Meses, 2),
-      sub: `Média: ${formatTCO2e(data.mediaMensal, 2)}/mês`,
+      sub:
+        data.mesesComDado && data.mesesComDado > 0
+          ? `Média: ${formatTCO2e(data.mediaMensal, 2)}/mês com fatura (${data.mesesComDado} de ${
+              data.qtdMeses || data.mesesComDado
+            } meses)`
+          : 'Sem mês com fatura — média não calculada',
       corBarra: [15, 118, 110], // Teal
     },
     {
@@ -496,7 +531,7 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(15, 23, 42)
-  doc.text('Evolução Mensal de Emissões — Série de 24 Meses (tCO₂e)', margin, currentY)
+  doc.text(`Evolução Mensal de Emissões — ${data.periodoCobertura} (tCO₂e)`, margin, currentY)
   currentY += 3.5
 
   const chartImgStacked = renderStackedBarChartCanvas(data.slots)
@@ -510,7 +545,7 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(15, 23, 42)
-  doc.text('Comparativo Sazonal: Ano 1 vs. Ano 2 (tCO₂e)', margin, currentY)
+  doc.text('Comparativo com o Mesmo Mês do Ano Anterior (tCO₂e)', margin, currentY)
   currentY += 3.5
 
   const chartImgComparativo = renderComparativoCanvas(data.comparativoData)
@@ -641,11 +676,16 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
     ],
   ]
 
+  // Mês sem fatura é lacuna explícita ("sem fatura"), nunca zero apurado.
   const tableBody = reversedSlots.map((s) => {
     const fatorSinStr =
       s.fatorEnergiaAplicado > 0
         ? `${(s.fatorEnergiaAplicado * 1000).toFixed(1)} (${s.isEnergiaOficial ? 'Oficial' : 'Fallback'})`
         : '-'
+
+    if (s.semFatura) {
+      return [s.label, '-', '-', '-', '-', '-', '-', '-', 'sem fatura']
+    }
 
     return [
       s.label,
@@ -724,6 +764,16 @@ export async function gerarRelatorioEmissoesPDF(data: EmissoesPdfData): Promise<
     '• Escopo 1 (Gás Natural Canalizado): Combustão estacionária calculada com 2,15 kgCO₂e/m³ baseado nas Diretrizes IPCC 2006 e Programa Brasileiro GHG Protocol (Poder Calorífico Inferior 38,3 MJ/m³ e Fator Específico 15,3 tC/TJ).',
     '• Escopo 2 (Energia Elétrica): Abordagem baseada na localização (location-based). Fator médio mensal de emissão do Sistema Interligado Nacional (SIN) publicado oficialmente pelo MCTI/SIRENE em tCO₂/MWh. Nos meses sem publicação oficial, adota-se fallback provisório de 0,050 tCO₂/MWh.',
     '• Escopo 3 (Água e Esgoto): Fator composto setorial de 0,908 kgCO₂e/m³ (sendo 0,208 kgCO₂e/m³ para captação/abastecimento e 0,700 kgCO₂e/m³ para tratamento de efluentes sanitários).',
+    '• UNIDADES: tCO₂e é a única grandeza somada neste relatório, e apenas entre escopos. Consumo de energia (kWh) e de água/gás (m³) são grandezas distintas e aparecem somente como referência — nunca somadas entre si.',
+    `• ORIGEM DAS FONTES: ${formatTCO2e(data.totalOficial ?? 0, 2)} de fator oficial e ${formatTCO2e(
+      data.totalEstimado ?? 0,
+      2,
+    )} de estimativa setorial (água/esgoto e fallback de energia).${
+      data.misturaFontes
+        ? ' Este total reúne as duas origens: para uso auditado, apresente as parcelas separadamente — o consolidado NÃO é inventário verificado.'
+        : ''
+    }`,
+    `• COBERTURA: ${data.mesesComDado ?? 0} de ${data.qtdMeses ?? 0} meses da janela têm fatura lançada. Mês sem fatura é lacuna, não zero; a média divide pelos meses com fatura.`,
     `• Documento gerado eletronicamente pela plataforma Gestor de Utilidades em ${dataGeracaoStr}. Todos os valores apurados com base nas faturas homologadas no sistema.`,
   ]
 

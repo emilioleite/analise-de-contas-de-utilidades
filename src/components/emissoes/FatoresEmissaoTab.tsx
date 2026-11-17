@@ -244,7 +244,7 @@ export const FatoresEmissaoTab: React.FC = () => {
               </CardTitle>
               <CardDescription className="text-xs sm:text-sm text-gray-500 mt-1">
                 Configure os fatores de conversão em tCO₂e por escopo e utilidade. Ao salvar
-                qualquer valor, o recálculo dos 24 meses é instantâneo.
+                qualquer valor, o recálculo do período analisado é instantâneo.
               </CardDescription>
             </div>
             {isAdmin && (

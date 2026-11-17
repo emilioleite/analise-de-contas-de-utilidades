@@ -3522,7 +3522,7 @@ export default function Faturas() {
                           <span className="text-[10px] text-amber-700 block mt-0.5">
                             Concessionária = distribuidora (uso da rede). Mercado Livre =
                             comercializadora (energia consumida). Cada tipo vira uma série separada
-                            na Análise 24 Meses.
+                            na Análise por Período.
                           </span>
                         </div>
                       </div>
@@ -3807,8 +3807,8 @@ export default function Faturas() {
                           />
                           <span className="text-[10px] text-teal-700 block mt-0.5">
                             Opcional. Diferencia faturas de gás do mesmo mês (GLP com várias NFe ou
-                            GN setorizado) — cada destino vira uma linha separada na Análise 24
-                            Meses.
+                            GN setorizado) — cada destino vira uma linha separada na Análise por
+                            Período.
                           </span>
                         </div>
                       </div>
@@ -4031,7 +4031,7 @@ export default function Faturas() {
                 </h3>
                 <p className="text-xs text-gray-500 max-w-sm mx-auto">
                   A conta foi devidamente vinculada ao empreendimento e integrada aos dashboards e à
-                  análise de 24 meses.
+                  análise por período.
                 </p>
               </div>
 
@@ -4778,7 +4778,7 @@ export default function Faturas() {
                       {' '}
                       A nova fatura será registrada como{' '}
                       <span className="font-semibold">{duplicateInfo.identificacaoNova}</span> e
-                      ficará como linha/série separada na Análise 24 Meses.
+                      ficará como linha/série separada na Análise por Período.
                     </>
                   )}{' '}
                   É legítimo ter 2+ faturas da mesma utilidade no mês (ex.: gás por destino, ou
