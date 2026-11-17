@@ -703,8 +703,9 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           } else if (s.includes(',')) {
             s = s.replace(',', '.')
           } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-            // Ponto como separador de MILHAR pt-BR sem parte decimal (ex: "24.320" ou "1.146.303").
-            // Sem esta regra, "24.320" virava 24,32 (divisão por 1000 disfarçada).
+            // Ponto como separador de MILHAR pt-BR sem parte decimal (ex: "24.320", "1.146.303",
+            // "1.280"). "1.280" é exatamente o que formatNumberValue(1280) produz no formulário
+            // — volta como 1280, nunca 1,28 (consumo de água gravado 1000x menor).
             s = s.replace(/\./g, '')
           }
           const cleanedStr = s.replace(/[^0-9.]/g, '')
@@ -728,6 +729,34 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
 
         function sanitizeMonetary(val) {
           return parseBrazilianNumber(val, true)
+        }
+
+        // Normaliza um valor numérico para NÚMERO PURO (nunca string com separador pt-BR).
+        // Garantia de contrato para o frontend: consumo/consumo_medido/tarifa saem do hook
+        // como number (ex.: 1280, 3.796) — nunca "1,280" / "1.280" como texto.
+        function asPureNumber(val) {
+          const n = parseBrazilianNumber(val, true)
+          return n === null ? null : n
+        }
+
+        // Aplica asPureNumber a todos os campos numéricos de consumo/medição/tarifa do objeto
+        function normalizarNumerosAgua(obj) {
+          const camposNumericos = [
+            'consumo',
+            'consumo_medido',
+            'consumo_corrigido',
+            'consumo_ponta',
+            'consumo_fora_ponta',
+            'medicao_anterior',
+            'medicao_atual',
+            'tarifa',
+            'valor_agua',
+          ]
+          for (const campo of camposNumericos) {
+            if (obj[campo] !== undefined && obj[campo] !== null) {
+              obj[campo] = asPureNumber(obj[campo])
+            }
+          }
         }
 
         function sanitizeText(val) {
@@ -1549,6 +1578,9 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           // acima pelo bloco da discriminização e é determinística. Aqui entra apenas o
           // FALLBACK quando não há bloco reconhecível: valor de água ÷ consumo (NUNCA o
           // total da fatura, que soma esgoto + tributos).
+          // CONTRATO NUMÉRICO (v0.0.104): todos os campos numéricos de água saem como
+          // NÚMERO puro (ex.: 1280, 3.796) — nunca string pt-BR ("1,280"/"1.280").
+          normalizarNumerosAgua(parsed)
           const valorAgua =
             sanitizeMonetary(parsed.valor_total) ||
             sanitizeMonetary(parsed.fatura_total) ||

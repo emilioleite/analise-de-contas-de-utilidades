@@ -241,8 +241,11 @@ export function parseNumberValue(val: number | string | undefined | null): numbe
   } else if (s.includes(',')) {
     // Apenas vírgula (ex: 7,387689 ou 33,037 ou 211,2) -> decimal
     s = s.replace(',', '.')
-  } else if (/^\d{1,3}(\.\d{3}){2,}$/.test(s)) {
-    // Apenas ponto com 2 ou mais blocos de milhar (ex: 1.146.303) -> ponto de milhar
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    // Apenas ponto(s) de milhar pt-BR sem vírgula (ex: "1.146.303", "1.280") -> milhar.
+    // "1.280" é exatamente a saída de formatNumberValue(1280) e PRECISA ler de volta
+    // 1280 — nunca 1,28 (o consumo de água era gravado 1000x menor no registro).
+    // Mesma regra do parseBrazilianNumber do formulário (1+ blocos de 3 dígitos).
     s = s.replace(/\./g, '')
   }
   const n = Number(s)

@@ -1375,6 +1375,23 @@ export default function Faturas() {
           setConsumoMedido(formatNumberValue(cConsumo, 3))
         }
 
+        // ÁGUA E ESGOTO — CONTRATO NUMÉRICO (v0.0.104): o valor GRAVADO nos estados do
+        // formulário que alimentam o registro (consumoMedido/consumo/consumoCorrigido) é
+        // sempre o NÚMERO puro em string canônica ("1280", "3.796" com ponto decimal —
+        // nunca "1,280"/"1,28" com vírgula). A exibição pt-BR "1.280" acontece APENAS
+        // no elemento visual do campo (formatarNaExibicao), não no estado.
+        if (detectedTipo === 'Água e Esgoto') {
+          if (cMedido !== undefined) {
+            setConsumoMedido(String(cMedido))
+          }
+          if (cConsumoFinal !== undefined) {
+            setConsumo(String(cConsumoFinal))
+          }
+          if (cCorrigido !== undefined) {
+            setConsumoCorrigido(String(cCorrigido))
+          }
+        }
+
         if (cCorrigido !== undefined) {
           setConsumoCorrigido(formatNumberValue(cCorrigido, 3))
         } else if (cConsumo !== undefined) {
