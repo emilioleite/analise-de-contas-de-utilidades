@@ -15,7 +15,7 @@ import {
   parseNumberValue,
   matchMaskedCNPJ,
 } from '@/lib/cnpj'
-import { calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
+import { avaliarLeiturasAgua, calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
 import { faturasService } from '@/services/faturas'
 import {
   getFaturaIdentificacao,
@@ -1320,27 +1320,39 @@ export default function Faturas() {
           }
         }
 
-        // ÁGUA E ESGOTO (espelho do hook v0.0.99): a FONTE DA VERDADE do consumo é a
-        // diferença das leituras do hidrômetro (medicao_atual − medicao_anterior, ex.:
-        // 1254 → 1258 = 4 m³). O valor da tabela de discriminização da Sabesp ("3,796")
-        // é um decimal em m³ e fica como está — NUNCA é interpretado como milhar pt-BR
-        // nem multiplicado por 1000.
+        // ÁGUA E ESGOTO (espelho do hook v0.0.101): a FONTE DA VERDADE do consumo é a
+        // discriminização Sabesp — linhas "Mínimo <tarifa> <valor>": <tarifa> é R$/m³
+        // (ex.: 3,796) e NUNCA volume/milhar; o hook calcula volume = valor ÷ tarifa por
+        // bloco e o consumo = soma dos volumes (ex.: 1.280 m³). O frontend NUNCA
+        // reinterpreta esses números. As leituras do hidrômetro (ex.: 1254 → 1258,
+        // truncadas na config MISTA com múltiplos medidores) só CONFIRMAM o consumo
+        // quando coerentes (desvio <= 50%); contraditórias => leituras anuladas com
+        // aviso honesto — nunca rebaixam o consumo para a diferença.
         if (detectedTipo === 'Água e Esgoto') {
-          const diffLeiturasAgua =
-            medAtu !== undefined && medAnt !== undefined && medAtu > medAnt
-              ? medAtu - medAnt
-              : undefined
+          const avaliacaoLeituras = avaliarLeiturasAgua(
+            cMedido ?? cConsumoFinal ?? cCorrigido,
+            medAnt,
+            medAtu,
+          )
 
-          if (diffLeiturasAgua !== undefined && diffLeiturasAgua > 0) {
-            const consAntes = cMedido ?? cConsumoFinal ?? cCorrigido ?? 0
-            if (Math.abs(consAntes - diffLeiturasAgua) > 0.001) {
-              console.log(
-                `[Faturas] Coerência Água: consumo = diferença das leituras (${medAnt} → ${medAtu} = ${diffLeiturasAgua} m³), antes ${consAntes || 'vazio'}.`,
-              )
-            }
-            cMedido = diffLeiturasAgua
-            cConsumoFinal = diffLeiturasAgua
-            setConsumo(formatNumberValue(diffLeiturasAgua, 3))
+          if (
+            !avaliacaoLeituras.leiturasValidas &&
+            (medAnt !== undefined || medAtu !== undefined)
+          ) {
+            console.log(
+              `[Faturas] Coerência Água: leituras truncadas/contraditórias (${medAnt ?? '—'} → ${medAtu ?? '—'}) anuladas; consumo faturado mantido (${avaliacaoLeituras.consumo ?? 'vazio'} m³).`,
+            )
+            medAnt = undefined
+            medAtu = undefined
+            setMedicaoAnterior('')
+            setMedicaoAtual('')
+            if (avaliacaoLeituras.aviso) avisoExtracaoHook = avaliacaoLeituras.aviso
+          }
+
+          if (avaliacaoLeituras.consumo !== undefined) {
+            cMedido = avaliacaoLeituras.consumo
+            cConsumoFinal = avaliacaoLeituras.consumo
+            setConsumo(formatNumberValue(avaliacaoLeituras.consumo, 3))
           }
 
           if (cMedido !== undefined && !cConsumoFinal) {
@@ -1372,11 +1384,10 @@ export default function Faturas() {
         }
 
         if (detectedTipo === 'Água e Esgoto') {
-          // Água e Esgoto: tarifa média analítica (espelho do hook v0.0.99). Base
-          // preferencial: o VALOR DE ÁGUA da tabela de discriminização (a fatura soma
-          // água + esgoto + tributos; a tarifa de água coerente sai do valor de água
-          // sozinho e NUNCA do total com esgoto). O consumo usado é o que já passou
-          // pela fonte da verdade das leituras (sem escala de milhar).
+          // Água e Esgoto (espelho do hook v0.0.101): a tarifa impressa na discriminização
+          // ("Mínimo 3,796 4.820,92" => R$ 3,796/m³, água residencial) é a FONTE — o hook
+          // já a entrega no campo 'tarifa'. Só recalcula analiticamente (valor de água ÷
+          // consumo, nunca o total com esgoto) quando a tarifa impressa não chegou.
           const vTotPositive = parsePositiveNumber(vTotal)
           const volCons =
             parsePositiveNumber(cMedido) ||
@@ -1423,12 +1434,13 @@ export default function Faturas() {
           }
         }
 
-        // TRAVA DE SANIDADE ÁGUA (espelho do hook v0.0.99): consumo < 10 m³ com
+        // TRAVA DE SANIDADE ÁGUA (espelho do hook v0.0.101): consumo < 10 m³ com
         // valor_total > R$ 1.000 é implausível — assinatura de leituras truncadas/
         // incompletas na camada de texto do PDF (ex.: 1254 → 1258 quando a leitura real
         // é 102.930 → 106.726). Anula MEDIÇÕES e campos de consumo/tarifa no formulário
         // com aviso honesto — nunca inventar dígitos que o PDF não contém nem gravar
-        // valor absurdo.
+        // valor absurdo. Com a interpretação correta (tarifa pt-BR), o consumo correto
+        // (ex.: 1.280 m³) NÃO dispara esta trava.
         if (detectedTipo === 'Água e Esgoto') {
           const vRefSanAgua = parsePositiveNumber(vTotal) || parsePositiveNumber(rawVTotal)
           const consSanAgua = cMedido ?? cConsumoFinal ?? cCorrigido

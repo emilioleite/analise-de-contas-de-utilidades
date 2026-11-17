@@ -1,4 +1,4 @@
-// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.96 (coerência leituras×consumo Sabesp: consumo_medido alinhado ao consumo corrigido + tarifa pela base de água da discriminização)
+// Hook de extração de faturas de utilidades via IA (Visão + Texto) - deploy v0.0.101 (Sabesp: "Mínimo <X> <valor>" na discriminização — <X> é TARIFA R$/m³; volume = valor ÷ tarifa; consumo = soma dos blocos; leituras truncadas anuladas com aviso)
 routerAdd(
   'POST',
   '/backend/v1/faturas/extract',
@@ -218,7 +218,7 @@ Campos de medição e tarifas:
 - medicao_atual: leitura atual do medidor impressa no quadro "Detalhamento do consumo" -> "Leitura" -> "Atual" (atenção: em medidores de gás o ponto pode ser separador de milhar inteiro!).
 - consumo_medido: consumo medido impresso (diferença Atual − Anterior, ou coluna "consumo medido (m³)").
 - consumo_corrigido: consumo faturado/corrigido por PTZ do bloco "Consumo e tarifas".
-- tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), se não houver tarifa única impressa, calcule o VALOR DE ÁGUA da tabela de discriminização dividido pelo consumo_medido (nunca sobre o total com esgoto).
+- tarifa: tarifa unitária aplicada. Em Gás (Comgás), use o valor da linha "Tarifa Aplicada com ICMS" do bloco "Consumo e tarifas", não a tarifa da linha "Dados tarifários". Em Água (Sabesp), a tarifa em R$/m³ está IMPRESSA na discriminização após "Mínimo" (ex.: "Mínimo 3,796 4.820,92" = tarifa R$ 3,796/m³) — use a do bloco de maior valor (nunca calcule sobre o total com esgoto).
 - valor_fornecimento: valor monetário do fornecimento (exemplo: linha "Fornecimento de Gás Natural")
 - valor_a_pagar: total a pagar impresso (ou 0.00 se houver devolução total)
 - adicional_bandeira: bandeira tarifária aplicada. DEVE ser lida do campo impresso "Bandeira(s) tarifária(s) aplicada(s) no mês" (exemplo: "AMARELA" -> "Bandeira Amarela", "VERDE" -> "Bandeira Verde", "VERMELHA" -> "Bandeira Vermelha"). NÃO use valor padrão ou assumido!
@@ -273,10 +273,10 @@ Para Gás Canalizado (Comgás, Naturgy, etc.):
 Para Água e Esgoto (Sabesp, Sanepar, Copasa):
 - Múltiplas ligações e hidrômetro: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
 - Medições de hidrômetro: extraia Leitura Anterior e Leitura Atual APENAS se estiverem explicitamente impressas no documento. Quando a fatura NÃO as apresentar (exemplo comum na Sabesp e contas escalonadas), deixe medicao_anterior e medicao_atual vazias/null — NUNCA invente números de medição! Em leituras com separador de milhar (ex.: 117.047 -> 117047, 118.555 -> 118555, 120.086 -> 120086), retorne o número inteiro na escala real (sem ponto decimal).
-- CONSUMO (CRÍTICO): o consumo de água é o volume medido pelo hidrômetro = leitura_atual − leitura_anterior (ex.: 1258 − 1254 = 4 m³). PREFIRA as leituras do hidrômetro; se a fatura não trouxer leituras legíveis, use o volume da tabela de discriminização da Sabesp (coluna "(M3 x Nro.Econ.)", linha "Mínimo") EXATAMENTE como impresso.
-- O valor da tabela de discriminização (ex.: "3,796") é um DECIMAL em m³: transcreva 3.796 (três vírgula sete nove seis) — NUNCA multiplique por 1000, NUNCA interprete a vírgula como separador de milhar. Não confunda com médias de consumo (ex.: 1206) nem com outros números da página.
+- CONSUMO (CRÍTICO): nas linhas da discriminização Sabesp do tipo "De 0,00 até 10 ... Mínimo <X> <valor>" (colunas "(M3 x Nro.Econ.) (M3) Tarifa (R$) Valor (R$)"), o número após "Mínimo" é a TARIFA em R$/m³ com vírgula decimal pt-BR (ex.: R$ 3,796/m³ residencial; R$ 7,660/m³ comercial) — NÃO é volume, NUNCA é milhar pt-BR e NUNCA vira 3.796. O volume faturado de cada bloco = valor ÷ tarifa (ex.: 4.820,92 ÷ 3,796 = 1.270 m³; 76,60 ÷ 7,660 = 10 m³) e o consumo = soma dos volumes dos blocos (ex.: 1.270 + 10 = 1.280 m³, coerente com o histórico de consumo da própria fatura). Água e esgoto espelham-se: conte cada par tarifa×valor UMA vez. Prefira as leituras do hidrômetro APENAS quando forem coerentes com esse volume.
+- PROVA ARITMÉTICA: 10 m³/economia × 127 economias = 1.270 m³; 1.270 × 3,796 = 4.820,92 (exato). "3,796" é tarifa, não volume. Não confunda com médias de consumo (ex.: 1206) nem com outros números da página.
 - Números em padrão pt-BR: o PONTO é separador de MILHAR e a VÍRGULA é decimal. Transcreva números inteiros de medição e consumo na sua escala real inteira (ex: "1.508" m³ = 1508, NUNCA 1.508; "117.047" = 117047; "118.555" = 118555; "120.086" = 120086; "121.364" = 121364; "13.449,14" = 13449.14). NUNCA converta ponto de milhar para ponto decimal; preserve o valor inteiro real.
-- Tarifa média / unitária: se a fatura não apresentar uma tarifa única impressa (devido a faixas escalonadas), pode deixar vazia/null ou calcular [valor de água da discriminização / consumo] — o sistema calcula a tarifa média analítica automaticamente sobre o VALOR DE ÁGUA (nunca sobre o total com esgoto) com até 6 casas decimais.
+- Tarifa média / unitária: a tarifa em R$/m³ está impressa na própria discriminização após "Mínimo" (ex.: 3,796). Use a do bloco de maior valor (principal). Se realmente não houver, retorne null — o sistema calcula a tarifa média analítica sobre o VALOR DE ÁGUA (nunca sobre o total com esgoto) com até 6 casas decimais.
 - Quadro de total a pagar e vencimento.
 - CNPJ Sabesp padrão: 43.776.517/0001-80.
 
@@ -492,9 +492,9 @@ Extraia EXCLUSIVAMENTE o que está impresso nas imagens DESTE arquivo ("${fileNa
 3. Se for Água e Esgoto (Sabesp, Sanepar, Copasa):
   - Múltiplas ligações: quando a fatura de água/esgoto tiver mais de uma ligação, use APENAS o consumo medido por hidrômetro (medido). Ignore ligações marcadas como ESTIMATIVA/estimadas (sem hidrômetro). NUNCA some consumos de ligações diferentes; o campo de consumo deve conter só o volume medido pelo hidrômetro. Se houver leituras do hidrômetro, extraia da ligação medida.
   - Medições de hidrômetro: extrair Leitura Anterior e Leitura Atual SOMENTE se legíveis no documento. Se a fatura não exibir medições anterior/atual (ex.: Sabesp com faixas escalonadas), retorne null para ambas — NUNCA invente medições. Em leituras com separador de milhar (ex: 117.047 -> 117047, 118.555 -> 118555, 120.086 -> 120086), retorne o inteiro na escala real (sem ponto decimal).
-  - Consumo faturado em m³: use o volume medido pelo hidrômetro = leitura_atual − leitura_anterior (ex: 1258 − 1254 = 4 m³). Sem leituras legíveis, use a tabela de discriminização da Sabesp (coluna "(M3 x Nro.Econ.)", linha "Mínimo") — NUNCA some ligações estimadas. O valor impresso (ex: "3,796") é um DECIMAL em m³: transcreva 3.796 — NUNCA multiplique por 1000, NUNCA interprete a vírgula como milhar.
+  - Consumo faturado em m³: nas linhas da discriminização "De 0,00 até 10 ... Mínimo <tarifa> <valor>", o número após "Mínimo" é a TARIFA em R$/m³ (vírgula decimal pt-BR) — NÃO volume, NUNCA milhar (nunca transcreva 3.796). Volume do bloco = valor ÷ tarifa (ex.: 4.820,92 ÷ 3,796 = 1.270 m³); consumo = soma dos volumes dos blocos (ex.: 1.270 + 10 = 1.280 m³); cada par tarifa×valor conta UMA vez (esgoto espelha a água). Use as leituras do hidrômetro apenas se forem coerentes com esse volume — leituras truncadas são anuladas pelo sistema.
   - Não use campos de média como 1206.
-  - Tarifa: se não houver tarifa única impressa, pode retornar null ou calcular o VALOR DE ÁGUA da discriminização dividido pelo consumo (nunca o total com esgoto).
+  - Tarifa: use a tarifa impressa na discriminização após "Mínimo" (R$/m³, vírgula decimal — ex.: 3,796), do bloco de maior valor. Se realmente não houver, retorne null (o sistema calcula a tarifa média analítica sobre o VALOR DE ÁGUA, nunca sobre o total com esgoto).
   - Quadro de total a pagar e vencimento.
   - CNPJ do cliente e CNPJ da distribuidora (ex Sabesp 43.776.517/0001-80).
 
@@ -1406,30 +1406,108 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           }
 
           // Sanitização numérica simples — SEM conversão de milhar pt-BR: os valores de
-          // água ficam EXATAMENTE como a IA os transcreveu. O valor da tabela de
-          // discriminização da Sabesp ("3,796") é um decimal em m³ e NUNCA é convertido
-          // em 3.796 (premissa revertida na v0.0.99).
+          // água ficam EXATAMENTE como a IA os transcreveu. O número após "Mínimo" na
+          // discriminização da Sabesp ("3,796") é a TARIFA em R$/m³ (vírgula decimal)
+          // e NUNCA é volume/milhar/3.796 (premissas antigas revertidas na v0.0.101).
           parsed.consumo_medido = sanitizeNumeric(parsed.consumo_medido)
           parsed.consumo = sanitizeNumeric(parsed.consumo)
           parsed.medicao_anterior = sanitizeNumeric(parsed.medicao_anterior)
           parsed.medicao_atual = sanitizeNumeric(parsed.medicao_atual)
 
-          // FONTE DA VERDADE DO CONSUMO: a diferença das leituras do hidrômetro
-          // (medicao_atual − medicao_anterior, ex.: 1254 → 1258 = 4 m³). O valor da tabela
-          // de discriminização da Sabesp ("3,796") é mantido como está — NUNCA é
-          // interpretado como milhar pt-BR nem multiplicado por 1000.
+          // FONTE DA VERDADE DO CONSUMO: a discriminização Sabesp. Linhas do tipo
+          // "De 0,00 até 10 ... Mínimo <tarifa> <valor>" (colunas "(M3 x Nro.Econ.) (M3)
+          // Tarifa (R$) Valor (R$)"): <tarifa> é o preço em R$/m³ (pt-BR decimal) e
+          // NÃO é volume — o volume faturado do bloco = valor ÷ tarifa, e o consumo =
+          // soma dos volumes dos blocos (ex.: 4.820,92 ÷ 3,796 = 1.270 m³ + 76,60 ÷
+          // 7,660 = 10 m³ => 1.280 m³). Cada par tarifa×valor conta UMA vez (esgoto
+          // espelha a água). As leituras do hidrômetro só sobrepõem quando coerentes.
+          const vTotAguaBase =
+            sanitizeMonetary(parsed.valor_total) ||
+            sanitizeMonetary(parsed.fatura_total) ||
+            sanitizeMonetary(parsed.valor_a_pagar) ||
+            0
+          if (textContent && typeof textContent === 'string' && vTotAguaBase > 0) {
+            // Captura cada "Mínimo <tarifa> <valor>" do texto (o PDF repete o par para
+            // esgoto, água+esgoto — mesmo valor; deduplicar por tarifa+valor).
+            const vistos = {}
+            let somaVol = 0
+            let temBloco = false
+            let tarifaPrincipal = 0
+            let maiorValorBloco = 0
+            let matchesBloco
+            const reBloco = /M[ií]nimo\s+([\d.,]+)\s+([\d.]+,\d{2})/gi
+            while ((matchesBloco = reBloco.exec(textContent)) !== null) {
+              const rawTar = String(matchesBloco[1]).trim()
+              // tarifa: pt-BR decimal ("3,796" = 3.796 R$/m³; "7,660" = 7.66 R$/m³) —
+              // 1 a 3 casas decimais após a vírgula; NUNCA separador de milhar.
+              const mTar = rawTar.match(/^(\d{1,3})(?:\.(\d{3}))*,(\d{1,3})$/)
+              const mTarInt = rawTar.match(/^(\d{1,3}),(\d{1,3})$/)
+              const valBloco = sanitizeMonetary(matchesBloco[2]) || 0
+              let tarifaBloco = 0
+              if (mTar) {
+                // inteiro (sem pontos de milhar) + '.' + decimais
+                tarifaBloco = Number((mTar[1] + (mTar[2] || '')).replace(/\./g, '') + '.' + mTar[3])
+              } else if (mTarInt) {
+                tarifaBloco = Number(mTarInt[1] + '.' + mTarInt[2])
+              }
+              if (tarifaBloco <= 0 || valBloco <= 0 || tarifaBloco > 100) continue
+              const chave = tarifaBloco.toFixed(6) + '|' + valBloco.toFixed(2)
+              if (vistos[chave]) continue
+              vistos[chave] = true
+              temBloco = true
+              const volBloco = valBloco / tarifaBloco
+              somaVol += volBloco
+              if (valBloco >= maiorValorBloco) {
+                maiorValorBloco = valBloco
+                tarifaPrincipal = tarifaBloco
+              }
+            }
+            if (temBloco) {
+              const consCalculado = Math.round(somaVol)
+              const consAntes = Number(parsed.consumo_medido) || Number(parsed.consumo) || 0
+              console.log(
+                `[fatura_extract] Discriminização Sabesp: volume = valor ÷ tarifa por bloco => ${consCalculado} m³ (antes ${consAntes || 'vazio'}); tarifa principal R$ ${tarifaPrincipal}/m³.`,
+              )
+              if (consAntes <= 0 || Math.abs(consAntes - consCalculado) / consCalculado > 0.5) {
+                parsed.consumo_medido = consCalculado
+                parsed.consumo = consCalculado
+              }
+              parsed.valor_agua = maiorValorBloco
+              // Tarifa do campo específico = tarifa do bloco principal, impressa na
+              // discriminização (ex.: 3,796). É determinística e exata; se um dia não
+              // houver bloco, o fallback abaixo usa valor_água ÷ consumo.
+              if (tarifaPrincipal > 0) parsed.tarifa = tarifaPrincipal
+            }
+          }
+
+          // Leituras do hidrômetro: a Sabesp com config MISTA/múltiplos medidores imprime
+          // leituras truncadas na camada de texto (ex.: 1254 → 1258 = 4 m³). Elas só podem
+          // SOBREPOR o consumo da discriminização quando a diferença é COERENTE (mesma
+          // ordem de grandeza). Contradição => medições anuladas com aviso honesto.
+          const consRefLeituras = Number(parsed.consumo_medido) || Number(parsed.consumo) || 0
           const mAntAgua = Number(parsed.medicao_anterior) || 0
           const mAtuAgua = Number(parsed.medicao_atual) || 0
           const diffLeiturasAgua = mAtuAgua > mAntAgua ? Math.round(mAtuAgua - mAntAgua) : 0
-          if (diffLeiturasAgua > 0) {
-            const consAntes = Number(parsed.consumo_medido) || Number(parsed.consumo) || 0
-            if (Math.abs(consAntes - diffLeiturasAgua) > 0.001) {
+          if (diffLeiturasAgua > 0 && consRefLeituras > 0) {
+            const desvio = Math.abs(diffLeiturasAgua - consRefLeituras) / consRefLeituras
+            if (desvio <= 0.5) {
+              // Coerente: a diferença das leituras confirma o consumo da discriminização
+              parsed.consumo_medido = diffLeiturasAgua
+              parsed.consumo = diffLeiturasAgua
               console.log(
-                `[fatura_extract] Coerência Água: consumo = diferença das leituras (${mAntAgua} → ${mAtuAgua} = ${diffLeiturasAgua} m³), antes ${consAntes || 'vazio'}.`,
+                `[fatura_extract] Coerência Água: leituras ${mAntAgua} → ${mAtuAgua} = ${diffLeiturasAgua} m³ coerentes com o consumo da discriminização.`,
               )
+            } else {
+              // Contraditórias (ex.: 1254 → 1258 = 4 m³ contra 1.280 m³ faturados):
+              // medições anuladas com aviso honesto — nunca inventar dígitos.
+              console.log(
+                `[fatura_extract] Leituras truncadas/contraditórias (${mAntAgua} → ${mAtuAgua} = ${diffLeiturasAgua} m³ vs consumo faturado ${consRefLeituras} m³). Medições anuladas com aviso; consumo da discriminização mantido.`,
+              )
+              parsed.medicao_atual = null
+              parsed.medicao_anterior = null
+              parsed.aviso_leituras =
+                'As leituras impressas na fatura parecem truncadas/incompletas no PDF (config MISTA com múltiplos medidores). Medição Anterior/Atual anuladas — preencha manualmente conforme a fatura.'
             }
-            parsed.consumo_medido = diffLeiturasAgua
-            parsed.consumo = diffLeiturasAgua
           }
 
           if (parsed.consumo_medido && !parsed.consumo) {
@@ -1466,10 +1544,11 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
             }
           }
 
-          // Tarifa média de água: se vazia ou 0 (ou se veio calculada sobre a escala errada),
-          // calcular valor total / consumo com até 6 casas decimais.
-          // NUNCA sobrescrever tarifa digitada manualmente; mas na extração automática,
-          // quando não há tarifa unitária impressa no documento Sabesp, calcula analiticamente.
+          // Tarifa de água (espelho v0.0.101): a tarifa IMPRESSA na discriminização
+          // ("Mínimo 3,796 4.820,92" => R$ 3,796/m³, água residencial) já foi aplicada
+          // acima pelo bloco da discriminização e é determinística. Aqui entra apenas o
+          // FALLBACK quando não há bloco reconhecível: valor de água ÷ consumo (NUNCA o
+          // total da fatura, que soma esgoto + tributos).
           const valorAgua =
             sanitizeMonetary(parsed.valor_total) ||
             sanitizeMonetary(parsed.fatura_total) ||
@@ -1478,43 +1557,26 @@ Extraia com rigor e retorne APENAS o JSON preenchido com os dados desta imagem.`
           const consumoAgua =
             sanitizeNumeric(parsed.consumo) || sanitizeNumeric(parsed.consumo_medido) || 0
           const tarifaExistente = sanitizeNumeric(parsed.tarifa)
-          // Base preferencial para a tarifa: o VALOR DE ÁGUA da tabela de discriminização
-          // (a fatura soma água + esgoto + tributos; a tarifa de água coerente sai do valor
-          // de água sozinho, ex.: 4.820,92 ÷ consumo, e não do total com esgoto).
-          let baseTarifaAgua = valorAgua
-          if (textContent && typeof textContent === 'string' && valorAgua > 0) {
-            let valorAguaLinha = 0
-            const mMin = textContent.match(/M[ií]nimo\s+[\d.,]+\s+([\d.]+,\d{2})/i)
-            if (mMin) valorAguaLinha = sanitizeMonetary(mMin[1]) || 0
-            if (!valorAguaLinha) {
-              const mSub = textContent.match(/([\d.]+,\d{2})\s*Subtotal/i)
-              if (mSub) valorAguaLinha = sanitizeMonetary(mSub[1]) || 0
-            }
-            if (
-              valorAguaLinha > 0 &&
-              valorAguaLinha < valorAgua &&
-              valorAguaLinha / consumoAgua >= 0.5 &&
-              valorAguaLinha / consumoAgua <= 100
-            ) {
-              console.log(
-                `[fatura_extract] Tarifa Água: base = valor de água da discriminização (R$ ${valorAguaLinha.toFixed(2)}) em vez do total (R$ ${valorAgua.toFixed(2)}).`,
-              )
-              baseTarifaAgua = valorAguaLinha
-              // Expor para o formulário espelhar a mesma base na conferência
-              parsed.valor_agua = valorAguaLinha
-            }
-          }
           if (valorAgua > 0 && consumoAgua > 0) {
-            // Se tarifa não existe, é zero, ou se a tarifa existente for absurda (> R$ 100/m³ com fatura alta)
-            if (
-              tarifaExistente === null ||
-              tarifaExistente === 0 ||
-              (tarifaExistente > 100 && valorAgua / consumoAgua < 50)
-            ) {
+            if (tarifaExistente === null || tarifaExistente === 0) {
+              let baseTarifaAgua = valorAgua
+              if (textContent && typeof textContent === 'string') {
+                const mSub = textContent.match(/([\d.]+,\d{2})\s*Subtotal/i)
+                const valorAguaLinha = mSub ? sanitizeMonetary(mSub[1]) || 0 : 0
+                if (
+                  valorAguaLinha > 0 &&
+                  valorAguaLinha < valorAgua &&
+                  valorAguaLinha / consumoAgua >= 0.5 &&
+                  valorAguaLinha / consumoAgua <= 100
+                ) {
+                  console.log(
+                    `[fatura_extract] Tarifa Água (fallback): base = valor de água da discriminização (R$ ${valorAguaLinha.toFixed(2)}) em vez do total (R$ ${valorAgua.toFixed(2)}).`,
+                  )
+                  baseTarifaAgua = valorAguaLinha
+                  parsed.valor_agua = valorAguaLinha
+                }
+              }
               parsed.tarifa = Number((baseTarifaAgua / consumoAgua).toFixed(6))
-            } else if (tarifaExistente !== null && tarifaExistente > 0) {
-              // Se já é plausível, mantém ou garante precisão de até 6 casas se for divisão exata
-              parsed.tarifa = tarifaExistente
             }
           } else if (consumoAgua === 0) {
             // Regra: consumo zero -> tarifa vazia
