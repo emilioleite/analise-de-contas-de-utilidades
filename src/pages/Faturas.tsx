@@ -45,6 +45,7 @@ import {
   FileCheck,
   Building2,
   GitBranch,
+  Layers,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -67,6 +68,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
+import LoteFaturasDialog from '@/components/LoteFaturasDialog'
 
 /**
  * Helper para medições cumulativas de medidor (Gás Comgás e Água Sabesp onde ponto é milhar,
@@ -158,6 +160,7 @@ export default function Faturas() {
 
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [loteModalOpen, setLoteModalOpen] = useState(false)
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -2431,6 +2434,16 @@ export default function Faturas() {
           )}
 
           <Button
+            variant="outline"
+            onClick={() => setLoteModalOpen(true)}
+            className="text-xs h-9 border-teal-200 text-teal-800 hover:bg-teal-50 hover:border-teal-300 shadow-sm"
+            title="Selecionar vários arquivos ou uma pasta inteira e extrair em sequência"
+          >
+            <Layers className="w-3.5 h-3.5 mr-1.5 text-teal-700" />
+            Enviar em lote
+          </Button>
+
+          <Button
             onClick={() => {
               resetUploadForm()
               setUploadModalOpen(true)
@@ -2729,6 +2742,9 @@ export default function Faturas() {
           </div>
         </>
       )}
+
+      {/* Extração em lote */}
+      <LoteFaturasDialog open={loteModalOpen} onOpenChange={setLoteModalOpen} />
 
       {/* Multi-step Upload Modal */}
       <Dialog
