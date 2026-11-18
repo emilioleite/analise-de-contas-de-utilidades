@@ -3953,9 +3953,11 @@ export default function Faturas() {
                           <Label className="text-xs font-medium text-gray-700">
                             Tarifa (R$/m³)
                           </Label>
+                          {/* Input TEXTO (não type=number): a tarifa de água vive como
+                              decimal pt-BR ("3,796") e um input numérico nativo rejeita
+                              vírgula — o campo aparecia vazio após a extração. O valor é
+                              interpretado com parseNumberValue ao gravar. */}
                           <Input
-                            type="number"
-                            step="0.0001"
                             placeholder="Ex: 0,000000"
                             className={`h-8 text-xs placeholder:text-gray-400 placeholder:italic placeholder:font-normal ${
                               tarifa !== ''
@@ -4623,9 +4625,9 @@ export default function Faturas() {
                   </div>
                   <div>
                     <Label className="text-[11px] text-gray-700">Tarifa (R$/m³)</Label>
+                    {/* Input TEXTO: tarifa pt-BR ("3,796") não é aceita por
+                        input[type=number] — sem isso o campo ficava vazio. */}
                     <Input
-                      type="number"
-                      step="0.0001"
                       className="h-8 text-xs"
                       value={tarifa}
                       onChange={(e) => {
