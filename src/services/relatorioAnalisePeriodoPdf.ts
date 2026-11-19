@@ -131,8 +131,12 @@ function area(
   const vals = pontos.map((p) => p[campo]).filter((v): v is number => v !== null && v !== undefined)
   const maxVal = vals.length ? Math.max(...vals) : 0
   const minVal = vals.length ? Math.min(...vals) : 0
-  const esc = maxVal > 1000 ? 1000 : maxVal > 100 ? 50 : 10
-  const yMax = Math.ceil((maxVal * 1.15) / esc) * esc || 100
+  // Escala "bonita": arredonda o topo para um múltiplo que dê 4-5 linhas de grade
+  // legíveis em qualquer ordem de grandeza (kWh de milhares ou tarifa < R$ 1).
+  const cru = maxVal > 0 ? maxVal * 1.15 : 10
+  const magnitude = Math.pow(10, Math.floor(Math.log10(cru)))
+  const esc = magnitude * (cru / magnitude <= 1.5 ? 0.5 : cru / magnitude <= 3.5 ? 1 : 2.5)
+  const yMax = Math.ceil(cru / esc) * esc || 100
   const yMin = minVal < 0 ? Math.floor((minVal * 1.15) / esc) * esc : 0
   const span = yMax - yMin || 1
   const yPos = (v: number) => pt + ch - ((v - yMin) / span) * ch
@@ -259,8 +263,11 @@ function barras(
 
   const todos = dados.flatMap((d) => [d.anterior, d.atual]).filter((v): v is number => v !== null)
   const maxVal = todos.length ? Math.max(...todos) : 0
-  const esc = maxVal > 1000 ? 1000 : maxVal > 100 ? 50 : 10
-  const yMax = Math.ceil((maxVal * 1.15) / esc) * esc || 100
+  // Mesma escala "bonita" da área: legível de m³ dezenas a kWh milhares.
+  const cru = maxVal > 0 ? maxVal * 1.15 : 10
+  const magnitude = Math.pow(10, Math.floor(Math.log10(cru)))
+  const esc = magnitude * (cru / magnitude <= 1.5 ? 0.5 : cru / magnitude <= 3.5 ? 1 : 2.5)
+  const yMax = Math.ceil(cru / esc) * esc || 100
 
   ctx.strokeStyle = '#F1F5F9'
   ctx.lineWidth = 1
@@ -372,8 +379,8 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
   else if (data.utilidadeSelecionada === 'Gás') cor = '#14B8A6'
 
   const totalGeral = data.utilidadeSelecionada === 'Total Geral'
-  const totalPaginas = totalGeral ? 2 : 3
   let y = margin
+  let paginaAtual = 1
 
   const cabecalho = (pagina: number) => {
     y = desenharCabecalhoPdfPadrao({
@@ -393,6 +400,19 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
       dataGeracaoStr: geradoEm,
       logoDataUrl,
     })
+    return y
+  }
+
+  /**
+   * Quebra de página segura: se o próximo bloco (de altura `necessario` mm)
+   * não couber inteiro acima do rodapé, começa uma página nova com cabeçalho.
+   * Garante que nenhum gráfico seja cortado na quebra de página.
+   */
+  const garantirEspaco = (necessario: number) => {
+    if (y + necessario <= pageHeight - 16) return
+    doc.addPage()
+    paginaAtual += 1
+    cabecalho(paginaAtual)
   }
 
   // ------------------------------------------------------------------ PÁGINA 1
@@ -433,6 +453,7 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
   }
 
   if (!totalGeral) {
+    garantirEspaco(24)
     y += cards(doc, y, margin, contentWidth, [
       {
         titulo: 'MAIOR CONSUMO',
@@ -455,6 +476,8 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     ])
     y += 4
 
+    // Título + gráfico inteiros: quebra antes se não couber (título 5 + gráfico 45 + gap)
+    garantirEspaco(53)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8)
     doc.setTextColor(15, 23, 42)
@@ -474,6 +497,7 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
       y += 48
     }
 
+    garantirEspaco(24)
     y += cards(doc, y, margin, contentWidth, [
       {
         titulo: 'CUSTO UNITÁRIO MAIS ALTO',
@@ -496,6 +520,8 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     ])
     y += 4
 
+    // Título + gráfico inteiros (título 5 + gráfico 42 + gap)
+    garantirEspaco(50)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8)
     doc.setTextColor(15, 23, 42)
@@ -522,6 +548,7 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
           ? 'TUSD + TE, bandeiras tarifárias, encargos setoriais e tributos. Bandeira vermelha eleva o R$/kWh sem relação com desperdício.'
           : 'Tarifa de gás, encargos, tributos e, quando houver, parcela de transporte/GLP.'
 
+    garantirEspaco(16)
     doc.setFillColor(255, 251, 235)
     doc.setDrawColor(253, 230, 138)
     doc.roundedRect(margin, y, contentWidth, 13, 1.2, 1.2, 'FD')
@@ -608,6 +635,8 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     y += 16
   }
 
+  // Bloco Desembolso (cards + título + gráfico) sempre inteiro numa página
+  garantirEspaco(80)
   y += cards(doc, y, margin, contentWidth, [
     {
       titulo: 'MAIOR DESEMBOLSO',
@@ -649,14 +678,11 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     y += 49
   }
 
-  desenharRodapePdfPadrao(doc, 1, totalPaginas, margin, pageWidth, pageHeight)
-
-  // ------------------------------------------------------------------ PÁGINA 2
-  doc.addPage()
-  y = margin
-  cabecalho(2)
-
+  // ---------------------------------------------------- COMPARATIVO ANUAL (segue o desembolso; quebra de página se não couber)
   if (data.comparativoAnual.length > 0) {
+    const temCompConsumo = !totalGeral && data.comparativoConsumoAnual.length > 0
+    // Título + gráfico de valor (+ título + gráfico de consumo) inteiros na página
+    garantirEspaco(temCompConsumo ? 108 : 56)
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8)
     doc.setTextColor(15, 23, 42)
@@ -681,7 +707,7 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
       y += 50
     }
 
-    if (!totalGeral && data.comparativoConsumoAnual.length > 0) {
+    if (temCompConsumo) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(8)
       doc.setTextColor(15, 23, 42)
@@ -717,13 +743,11 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     doc.text('Sem mês comparável ao ano anterior neste período.', margin, y + 5)
   }
 
-  desenharRodapePdfPadrao(doc, 2, totalPaginas, margin, pageWidth, pageHeight)
-
-  // ------------------------------------------------------------------ PÁGINA 3
+  // ------------------------------------------------------------------ DETALHAMENTO MENSAL
   if (!totalGeral) {
     doc.addPage()
-    y = margin
-    cabecalho(3)
+    paginaAtual += 1
+    cabecalho(paginaAtual)
 
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(8.5)
@@ -799,10 +823,7 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
       y = (doc as any).lastAutoTable.finalY + 6
     }
 
-    if (y > pageHeight - 42) {
-      doc.addPage()
-      y = margin
-    }
+    garantirEspaco(28)
 
     doc.setFillColor(241, 245, 249)
     doc.setDrawColor(203, 213, 225)
@@ -824,8 +845,13 @@ export async function gerarRelatorioAnalisePeriodoPDF(data: RelatorioPeriodoData
     notas.forEach((n, i) => {
       doc.text(doc.splitTextToSize(n, contentWidth - 8), margin + 4, y + 7.5 + i * 3.1)
     })
+  }
 
-    desenharRodapePdfPadrao(doc, 3, totalPaginas, margin, pageWidth, pageHeight)
+  // Rodapés desenhados no fim, com a contagem real de páginas do documento.
+  const totalPaginasFinal = doc.getNumberOfPages()
+  for (let i = 1; i <= totalPaginasFinal; i++) {
+    doc.setPage(i)
+    desenharRodapePdfPadrao(doc, i, totalPaginasFinal, margin, pageWidth, pageHeight)
   }
 
   const slug = (t: string) =>
