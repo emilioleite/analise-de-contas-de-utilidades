@@ -606,9 +606,15 @@ export default function Index() {
                   energia12m,
                   agua12m,
                   gas12m,
+                  consumoEnergiaTotal,
+                  consumoAguaTotal,
+                  consumoGasTotal,
                   donutData,
                   lineData,
                   topConsumos,
+                  calculosEmissoes: calculosGee,
+                  mesesJanela,
+                  empreendimentos: empreendimentos.map((e) => ({ id: e.id, nome: e.nome })),
                 })
 
                 toast({
