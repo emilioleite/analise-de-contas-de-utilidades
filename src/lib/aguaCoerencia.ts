@@ -68,6 +68,38 @@ export function avaliarLeiturasAgua(
   return { consumo: cons, leiturasValidas: false, aviso: AVISO_LEITURAS_TRUNCADAS_AGUA }
 }
 
+export const AVISO_CONSUMO_SUBUNITARIO_AGUA =
+  'Consumo de Água e Esgoto abaixo de 10 m³ com fatura acima de R$ 1.000 parece milhar pt-BR lida como decimal (ex.: 1,14 → 1.140 m³). O consumo foi corrigido para o milhar e a tarifa recalculada — confira antes de salvar.'
+
+/**
+ * Guarda de coerência ao GRAVAR (create/update), para Água e Esgoto e Gás:
+ * consumo < 10 com valor_total > 1000 é o padrão conhecido do erro de milhar
+ * pt-BR gravado como decimal (1,14 → 1.140 m³). Corrige ×1000 e devolve a
+ * tarifa recalculada (valor_total ÷ consumo corrigido, 6 casas). Casos com
+ * consumo 0/ausente são intocados (não há como derivar o milhar).
+ */
+export function aplicarGuardaMilharConsumo(
+  consumo: number | undefined | null,
+  valorTotal: number | undefined | null,
+): { consumo: number | undefined; tarifa: number | undefined; aviso?: string } {
+  const cons = typeof consumo === 'number' && !isNaN(consumo) ? consumo : undefined
+  const vTot = typeof valorTotal === 'number' && !isNaN(valorTotal) ? valorTotal : undefined
+
+  if (cons === undefined || cons <= 0 || cons >= 10) {
+    return { consumo: cons, tarifa: undefined }
+  }
+  if (vTot === undefined || vTot <= 1000) {
+    return { consumo: cons, tarifa: undefined }
+  }
+
+  const novoConsumo = Math.round(cons * 1000)
+  return {
+    consumo: novoConsumo,
+    tarifa: Number((vTot / novoConsumo).toFixed(6)),
+    aviso: AVISO_CONSUMO_SUBUNITARIO_AGUA,
+  }
+}
+
 /**
  * Decide o consumo_medido a gravar em dados_especificos de Água e Esgoto.
  * - Consumo_medido que contradiz o consumo top-level (desvio relativo > 50%) é

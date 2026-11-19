@@ -21,7 +21,7 @@
 
 import { EmpreendimentoRecord, FaturaRecord, TipoUtilidade } from '@/types/entities'
 import { cleanCNPJ, formatCNPJ, isValidCNPJ, matchMaskedCNPJ, parseNumberValue } from '@/lib/cnpj'
-import { calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
+import { aplicarGuardaMilharConsumo, calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
 
 // ---------------------------------------------------------------------------
 // Tipos do lote
@@ -1191,12 +1191,18 @@ export function montarDadosEspecificos(draft: LoteDraft): Record<string, any> {
       fatura_total: valorTotal,
     }
   } else if (draft.tipo === 'Gás') {
+    // GUARDA MILHAR pt-BR: consumo < 10 com valor_total > 1000 é milhar gravada
+    // como decimal (1,14 → 1.140 m³) — corrige ×1000 e recalcula a tarifa.
+    const guardaGas = aplicarGuardaMilharConsumo(
+      num(draft.consumoMedido || draft.consumo),
+      valorTotal,
+    )
     dadosEsp = {
       medicao_anterior: medAnterior === null ? undefined : medAnterior,
       medicao_atual: medAtual === null ? undefined : medAtual,
-      consumo_medido: num(draft.consumoMedido || draft.consumo) || undefined,
+      consumo_medido: guardaGas.consumo ?? undefined,
       consumo_corrigido: num(draft.consumoCorrigido) || undefined,
-      tarifa: num(draft.tarifa) || undefined,
+      tarifa: guardaGas.tarifa ?? num(draft.tarifa) ?? undefined,
       fatura_total: valorTotal,
     }
   } else {
@@ -1212,12 +1218,21 @@ export function montarDadosEspecificos(draft: LoteDraft): Record<string, any> {
     ) {
       tarifaSalvar = Number((vTot / cons).toFixed(6))
     }
+    // GUARDA MILHAR pt-BR (espelho da guarda do gás e do formulário unitário):
+    // corrige consumo subunitário com fatura alta antes de gravar.
+    const guardaAgua = aplicarGuardaMilharConsumo(
+      num(draft.consumoMedido || draft.consumo),
+      valorTotal,
+    )
+    if (guardaAgua.tarifa !== undefined) tarifaSalvar = guardaAgua.tarifa
     dadosEsp = {
       medicao_anterior: medAnterior === null ? undefined : medAnterior,
       medicao_atual: medAtual === null ? undefined : medAtual,
       consumo_medido: calcularConsumoMedidoCoerenteAgua(
-        draft.consumo,
-        draft.consumoMedido || draft.consumo,
+        guardaAgua.consumo !== undefined ? String(guardaAgua.consumo) : draft.consumo,
+        guardaAgua.consumo !== undefined
+          ? String(guardaAgua.consumo)
+          : draft.consumoMedido || draft.consumo,
       ),
       tarifa: tarifaSalvar || undefined,
       fatura_total: valorTotal,
@@ -1238,7 +1253,15 @@ export function montarPayloadFatura(draft: LoteDraft, arquivoNome: string): Part
   const compChave = competenciaParaChave(draft.competencia)
   const compISO = compChave ? `${compChave}-01T00:00:00.000Z` : new Date().toISOString()
   const valor = parseNumberValue(draft.valorTotal)
-  const consumo = parseNumberValue(draft.consumo)
+  let consumo = parseNumberValue(draft.consumo)
+
+  // GUARDA MILHAR pt-BR (Água e Esgoto e Gás): consumo < 10 com valor_total > 1000
+  // é milhar gravada como decimal — corrige ×1000 no consumo top-level do payload
+  // (montarDadosEspecificos já aplica a mesma guarda nos campos do JSON).
+  if (draft.tipo === 'Água e Esgoto' || draft.tipo === 'Gás') {
+    const guarda = aplicarGuardaMilharConsumo(consumo, valor)
+    if (guarda.consumo !== undefined) consumo = guarda.consumo
+  }
 
   return {
     empreendimento: draft.empreendimentoId,

@@ -15,7 +15,11 @@ import {
   parseNumberValue,
   matchMaskedCNPJ,
 } from '@/lib/cnpj'
-import { avaliarLeiturasAgua, calcularConsumoMedidoCoerenteAgua } from '@/lib/aguaCoerencia'
+import {
+  aplicarGuardaMilharConsumo,
+  avaliarLeiturasAgua,
+  calcularConsumoMedidoCoerenteAgua,
+} from '@/lib/aguaCoerencia'
 import { faturasService } from '@/services/faturas'
 import {
   getFaturaIdentificacao,
@@ -1693,6 +1697,30 @@ export default function Faturas() {
       }
     }
 
+    // GUARDA MILHAR pt-BR (Água e Esgoto e Gás): consumo < 10 com valor_total > 1000
+    // é o padrão do erro de milhar gravado como decimal (1,14 → 1.140 m³) — corrige
+    // ×1000, recalcula a tarifa e avisa antes de gravar.
+    if (selectedTipo === 'Água e Esgoto' || selectedTipo === 'Gás') {
+      const vTotGuarda = parseNumberValue(valorTotal)
+      const guarda = aplicarGuardaMilharConsumo(
+        parseNumberValue(consumo) ?? parseNumberValue(consumoMedido),
+        vTotGuarda,
+      )
+      if (guarda.aviso && guarda.consumo !== undefined) {
+        const consumoCorrigidoStr = formatNumberValue(guarda.consumo, 3)
+        setConsumo(consumoCorrigidoStr)
+        if (consumoMedido !== undefined && consumoMedido !== '') {
+          setConsumoMedido(consumoCorrigidoStr)
+        }
+        if (guarda.tarifa !== undefined) setTarifa(formatNumberValue(guarda.tarifa, 6))
+        toast({
+          title: 'Consumo ajustado para o milhar pt-BR',
+          description: guarda.aviso,
+          variant: 'destructive',
+        })
+      }
+    }
+
     setSubmittingFatura(true)
     try {
       // Revalida a sessão com o backend antes do submit de forma não destrutiva
@@ -2056,6 +2084,30 @@ export default function Faturas() {
         consumo_medido: calcularConsumoMedidoCoerenteAgua(consumo, consumoMedido || consumo),
         tarifa: tarifaSalvar || undefined,
         fatura_total: parseNumberValue(valorTotal) || 0,
+      }
+    }
+
+    // GUARDA MILHAR pt-BR (espelho da guarda do submit de criação): consumo < 10 com
+    // valor_total > 1000 em Água e Esgoto ou Gás é o padrão do erro de milhar gravado
+    // como decimal — corrige ×1000, recalcula a tarifa e avisa antes de gravar.
+    if (selectedTipo === 'Água e Esgoto' || selectedTipo === 'Gás') {
+      const vTotGuarda = parseNumberValue(valorTotal)
+      const guarda = aplicarGuardaMilharConsumo(
+        parseNumberValue(consumo) ?? parseNumberValue(consumoMedido),
+        vTotGuarda,
+      )
+      if (guarda.aviso && guarda.consumo !== undefined) {
+        const consumoCorrigidoStr = formatNumberValue(guarda.consumo, 3)
+        setConsumo(consumoCorrigidoStr)
+        if (consumoMedido !== undefined && consumoMedido !== '') {
+          setConsumoMedido(consumoCorrigidoStr)
+        }
+        if (guarda.tarifa !== undefined) setTarifa(formatNumberValue(guarda.tarifa, 6))
+        toast({
+          title: 'Consumo ajustado para o milhar pt-BR',
+          description: guarda.aviso,
+          variant: 'destructive',
+        })
       }
     }
 
