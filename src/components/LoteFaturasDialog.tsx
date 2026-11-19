@@ -1157,6 +1157,13 @@ function LinhaEdicao({
             {campo('Consumo corrigido (m³)', d.consumoCorrigido, (v) =>
               onPatch({ consumoCorrigido: v }),
             )}
+            {campo('Fator PTZ (rodapé)', d.fatorPtz, (v) => onPatch({ fatorPtz: v }), '0,9426')}
+            {campo(
+              'Fator de compressão',
+              d.fatorCompressao,
+              (v) => onPatch({ fatorCompressao: v }),
+              '1,0313',
+            )}
             {campo('Tarifa (R$/m³)', d.tarifa, (v) => onPatch({ tarifa: v }))}
             {campo(
               'Identificação (destino/medidor)',

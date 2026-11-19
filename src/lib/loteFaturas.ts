@@ -10,8 +10,8 @@
  *  - triagem do PDF (com camada de texto × escaneado) ANTES de gastar extração;
  *  - conversão do payload da IA no rascunho revisável, com as mesmas regras que o
  *    formulário do passo 3 aplica;
- *  - alertas: estorno, conferência consumo × leituras (5%), duplicidade, lacuna de
- *    competência;
+ *  - alertas: estorno, conferência do consumo (medido × leituras; corrigido × fatores
+ *    impressos), duplicidade, lacuna de competência;
  *  - payload de gravação IDÊNTICO ao do lançamento unitário.
  *
  * Regra do negócio: mês sem fatura é LACUNA, nunca zero. Aqui isso significa que
@@ -73,6 +73,13 @@ export interface LoteDraft {
   medicaoAtual: string
   consumoMedido: string
   consumoCorrigido: string
+  /**
+   * Fator PTZ (poder calorífico / correção de volume) impresso no rodapé da fatura de
+   * gás, na linha do medidor. Ex.: 0,9426 na Comgás.
+   */
+  fatorPtz: string
+  /** Fator de compressão impresso junto ao medidor na fatura de gás. Ex.: 1,0313. */
+  fatorCompressao: string
   tarifa: string
   consumoPonta: string
   tarifaTusdPonta: string
@@ -649,6 +656,30 @@ export function montarDraft(payload: any, ctx: ContextoDraft): LoteDraft {
   const medidoRaw = primeiroDefinido(d, ['consumo_medido', 'consumoMedido', 'consumo_apurado'])
   const leituraMedido = resolverConsumo(lerConsumoFatura(medidoRaw), contexto)
 
+  // Fatores impressos no rodapé (Comgás: consumo medido × 0,9426 × fator de compressão).
+  // Eles NÃO viram aviso de extração: fator impresso e coerente é o normal da fatura de
+  // gás, e um aviso aqui faria toda fatura da Comgás nascer em "Revisar". A conferência
+  // deles acontece em `avaliarAlertasDraft`.
+  const fatorPtz = lerFatorFatura(
+    primeiroDefinido(d, [
+      'fator_ptz',
+      'fatorPtz',
+      'fator_ptz_pcs',
+      'fator_correcao',
+      'fatorCorrecao',
+      'fator_poder_calorifico',
+    ]),
+  )
+  const fatorCompressao = lerFatorFatura(
+    primeiroDefinido(d, [
+      'fator_compressao',
+      'fatorCompressao',
+      'fator_compressor',
+      'fator_compressibilidade',
+      'fc',
+    ]),
+  )
+
   // CNPJs
   const cnpjClienteRaw = textoLimpo(
     primeiroDefinido(d, ['cnpj_cliente', 'cnpjCliente', 'cnpj_titular', 'cnpj']),
@@ -776,6 +807,8 @@ export function montarDraft(payload: any, ctx: ContextoDraft): LoteDraft {
     consumoMedido: leituraMedido.valor === null ? '' : paraInputPtBr(leituraMedido.valor, 3),
     consumoCorrigido:
       leituraCorrigido.valor === null ? '' : paraInputPtBr(leituraCorrigido.valor, 3),
+    fatorPtz: fatorPtz === null ? '' : String(fatorPtz),
+    fatorCompressao: fatorCompressao === null ? '' : String(fatorCompressao),
     tarifa: tarifa === null ? '' : paraInputPtBr(tarifa, 6),
     consumoPonta: consumoPonta === null ? '' : paraInputPtBr(consumoPonta, 3),
     tarifaTusdPonta: tarifaTusdPonta === null ? '' : paraInputPtBr(tarifaTusdPonta, 6),
@@ -795,14 +828,75 @@ export function montarDraft(payload: any, ctx: ContextoDraft): LoteDraft {
 // Alertas de revisão
 // ---------------------------------------------------------------------------
 
-export const LIMIAR_CONFERENCIA_LEITURA_PCT = 5
+/**
+ * Tolerância da conferência Medido × (leitura atual − anterior).
+ *
+ * As leituras do medidor são inteiras e o consumo medido pode vir impresso com até três
+ * casas. 0,01 m³ cobre apenas o arredondamento do que está impresso — erro real de
+ * leitura é de outra ordem de grandeza.
+ */
+export const TOLERANCIA_LEITURA_MEDIDO = 0.01
+
+/**
+ * Faixa de plausibilidade ampla Medido → Corrigido.
+ *
+ * O consumo corrigido de gás é o medido multiplicado pelos fatores impressos
+ * (PTZ × compressão), então ele é estruturalmente MENOR que o medido — na Comgás entre
+ * 2% e 6%. A diferença entre os dois NUNCA é divergência: só uma razão fora desta faixa
+ * (erro de escala, leitura trocada) merece conferência.
+ */
+export const FAIXA_PLAUSIBILIDADE_CORRIGIDO = { min: 0.8, max: 1.25 }
+
+/**
+ * Tolerância da conferência Corrigido = Medido × PTZ × Compressão.
+ *
+ * Os três números são impressos com casas diferentes e arredondados na impressão; 1%
+ * cobre esse arredondamento sem deixar passar fator errado.
+ */
+export const TOLERANCIA_FATORES_PCT = 1
+
+/**
+ * Lê um FATOR impresso na fatura (PTZ 0,9426; compressão 1,0313).
+ *
+ * Só aceita número na faixa de um fator (0,5 a 2). Fora disso não é fator: é outro
+ * número lido na linha errada — devolve null em vez de adivinhar. Isso também resolve o
+ * ponto: "1.031" é 1,031 (decimal), nunca 1031.
+ */
+export function lerFatorFatura(raw: any): number | null {
+  if (raw === undefined || raw === null || raw === '') return null
+  let v: number | null = null
+  if (typeof raw === 'number') {
+    v = raw
+  } else {
+    const s = String(raw).trim().replace(/\s/g, '')
+    if (!s) return null
+    if (s.includes(',')) v = Number(s.replace(/\./g, '').replace(',', '.'))
+    else v = Number(s)
+  }
+  if (v === null || !Number.isFinite(v)) return null
+  return v >= 0.5 && v <= 2 ? v : null
+}
+
+const numBr = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
 
 /**
  * Alertas de uma linha do lote.
- *  - consumo × (leitura atual − anterior): alerta acima de 5%;
- *  - dados que impedem gravar (sem empreendimento, sem competência, sem valor);
- *  - estorno (informativo);
- *  - lacuna de competência (nível do lote, ver `calcularLacunas`).
+ *
+ * Conferência do consumo (corrigida em 19/11/2026, substitui o item 5 da DKZ-SIS-001):
+ *  1. o consumo MEDIDO é conferido com (leitura atual − anterior) — igualdade, não
+ *     tolerância percentual, porque nas faturas de gás os dois são o mesmo número por
+ *     construção;
+ *  2. o consumo CORRIGIDO nunca é comparado com a diferença das leituras: ele é o medido
+ *     multiplicado pelos fatores impressos (PTZ × compressão), então os dois divergem por
+ *     desenho — comparar gerava falso positivo estrutural (dez/2024 Comgás: 3,23 m³
+ *     abaixo do medido, 5,57%, sem nada errado na fatura);
+ *  3. quando a fatura imprime os fatores, o corrigido tem de fechar com
+ *     medido × PTZ × compressão — aí sim, se não fechar, é erro;
+ *  4. sem os fatores, a relação medido × corrigido passa só por plausibilidade ampla
+ *     (80% a 125%), sem tratar a diferença como divergência.
+ *
+ * Além disso: dados que impedem gravar, estorno (informativo), os avisos da extração e a
+ * lacuna de competência (nível do lote, ver `calcularLacunas`).
  */
 export function avaliarAlertasDraft(draft: LoteDraft): LoteAlerta[] {
   const alertas: LoteAlerta[] = []
@@ -839,34 +933,111 @@ export function avaliarAlertasDraft(draft: LoteDraft): LoteAlerta[] {
     })
   }
 
-  // Conferência das leituras: consumo deve fechar com (atual − anterior)
+  // -------------------------------------------------- conferência do consumo
+  //
+  // O consumo medido é `consumoMedido`. Em energia e água o `consumo` é o próprio
+  // medido/faturado (o extrator preenche os dois), então ele serve de reserva; em GÁS
+  // não serve: ali `consumo` é o CORRIGIDO, e usá-lo aqui recriaria exatamente o falso
+  // positivo que esta correção elimina.
+  const medido = parseNumberValue(
+    draft.consumoMedido || (draft.tipo === 'Gás' ? undefined : draft.consumo),
+  )
+  const corrigido = parseNumberValue(draft.consumoCorrigido)
   const ant = lerMedicaoCumulativa(draft.medicaoAnterior)
   const atu = lerMedicaoCumulativa(draft.medicaoAtual)
+  const fatorPtz = lerFatorFatura(draft.fatorPtz)
+  const fatorCompressao = lerFatorFatura(draft.fatorCompressao)
+
+  // 1. Medido × (atual − anterior): o medido É a diferença das leituras.
   if (ant !== null && atu !== null) {
     const diff = atu - ant
     if (diff <= 0) {
       alertas.push({
         nivel: 'atencao',
         codigo: 'leitura_invertida',
-        mensagem: `Leitura atual (${atu.toLocaleString(
-          'pt-BR',
-        )}) não é maior que a anterior (${ant.toLocaleString('pt-BR')}). Confira as medições na fatura.`,
+        mensagem: `Leitura atual (${numBr(atu)}) não é maior que a anterior (${numBr(
+          ant,
+        )}). Confira as medições na fatura.`,
       })
-    } else if (consumo !== undefined && consumo !== null && consumo > 0) {
-      const desvio = (Math.abs(diff - consumo) / consumo) * 100
-      if (desvio > LIMIAR_CONFERENCIA_LEITURA_PCT) {
+    } else if (medido !== undefined && medido !== null && medido > 0) {
+      const erro = Math.abs(diff - medido)
+      if (erro > TOLERANCIA_LEITURA_MEDIDO) {
+        const desvio = (erro / medido) * 100
         alertas.push({
           nivel: 'atencao',
           codigo: 'leitura_divergente',
-          mensagem: `Consumo (${consumo.toLocaleString(
-            'pt-BR',
-          )}) difere ${desvio.toFixed(1)}% da diferença das leituras (${diff.toLocaleString(
-            'pt-BR',
-          )} = ${atu.toLocaleString('pt-BR')} − ${ant.toLocaleString(
-            'pt-BR',
-          )}). Acima de ${LIMIAR_CONFERENCIA_LEITURA_PCT}% exige conferência.`,
+          mensagem: `Consumo medido (${numBr(
+            medido,
+          )}) não fecha com a diferença das leituras: ${numBr(diff)} (${numBr(atu)} − ${numBr(
+            ant,
+          )}), diferença de ${numBr(erro)} (${desvio.toFixed(1)}%). Confira as medições na fatura.`,
         })
       }
+    }
+  }
+
+  // 2/3/4. Medido × Corrigido — só pelos fatores impressos ou por plausibilidade ampla.
+  if (
+    medido !== undefined &&
+    medido !== null &&
+    medido > 0 &&
+    corrigido !== undefined &&
+    corrigido !== null &&
+    corrigido > 0
+  ) {
+    if (fatorPtz !== null && fatorCompressao !== null) {
+      const esperado = medido * fatorPtz * fatorCompressao
+      const desvioPct = (Math.abs(corrigido - esperado) / esperado) * 100
+      if (desvioPct > TOLERANCIA_FATORES_PCT) {
+        alertas.push({
+          nivel: 'erro',
+          codigo: 'corrigido_incoerente_fatores',
+          mensagem: `Consumo corrigido (${numBr(
+            corrigido,
+          )}) não fecha com os fatores impressos: ${numBr(medido)} × ${numBr(
+            fatorPtz,
+          )} (PTZ) × ${numBr(fatorCompressao)} (compressão) = ${numBr(
+            esperado,
+          )}, desvio de ${desvioPct.toFixed(
+            1,
+          )}%. Confira os fatores no rodapé, na linha do medidor.`,
+        })
+      }
+    } else if (fatorPtz !== null || fatorCompressao !== null) {
+      alertas.push({
+        nivel: 'info',
+        codigo: 'fatores_incompletos',
+        mensagem: `Fatores impressos incompletos (${
+          fatorPtz !== null ? `PTZ ${numBr(fatorPtz)}` : 'sem PTZ'
+        }, ${
+          fatorCompressao !== null ? `compressão ${numBr(fatorCompressao)}` : 'sem compressão'
+        }) — não foi possível conferir o corrigido (${numBr(
+          corrigido,
+        )}) contra o medido (${numBr(medido)}). Complete os fatores na linha para conferir.`,
+      })
+    } else {
+      alertas.push({
+        nivel: 'info',
+        codigo: 'sem_fatores',
+        mensagem: `A fatura não trouxe os fatores (PTZ/compressão) — corrigido (${numBr(
+          corrigido,
+        )}) e medido (${numBr(
+          medido,
+        )}) diferem por desenho e não são comparados. Só a faixa de plausibilidade foi conferida.`,
+      })
+    }
+
+    const razao = corrigido / medido
+    if (razao < FAIXA_PLAUSIBILIDADE_CORRIGIDO.min || razao > FAIXA_PLAUSIBILIDADE_CORRIGIDO.max) {
+      alertas.push({
+        nivel: 'atencao',
+        codigo: 'corrigido_implausivel',
+        mensagem: `Consumo corrigido (${numBr(corrigido)}) é ${(razao * 100).toFixed(
+          0,
+        )}% do medido (${numBr(
+          medido,
+        )}) — fora da faixa de plausibilidade (80% a 125%). Confira a escala dos dois números.`,
+      })
     }
   }
 
